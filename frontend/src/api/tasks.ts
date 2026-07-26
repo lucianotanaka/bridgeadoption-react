@@ -1,0 +1,217 @@
+import apiClient from "./client";
+
+export interface TaskKPI {
+  total_active: number;
+  n1_critical: number;
+  n2_critical: number;
+  follow_up_today: number;
+  follow_up_next_7d: number;
+  planned_overdue: number;
+  activity_overdue_tasks: number;
+  open_count: number;
+  inprogress_count: number;
+  onhold_count: number;
+  high_priority: number;
+  medium_priority: number;
+  low_priority: number;
+  revenue_tasks: number;
+  expense_tasks: number;
+  service_impact_tasks: number;
+  revenue_brl: number;
+  revenue_usd: number;
+  expense_brl: number;
+  expense_usd: number;
+}
+
+export interface TaskItem {
+  task_id: number;
+  task_owner_name?: string;
+  task_owner_id?: number;
+  task_temp_owner_name?: string;
+  task_temp_owner_id?: number;
+  task_customer_name?: string;
+  task_customer_id?: number;
+  task_type_name?: string;
+  task_type_id?: number;
+  task_status_id?: number;
+  task_status_name?: string;
+  task_status_reclassified?: string;
+  task_priority?: string;
+  task_start?: string;
+  task_end?: string;
+  task_start_performed?: string;
+  task_end_performed?: string;
+  task_completed?: number;
+  task_finance_type?: string;
+  critical_level?: string;
+  critical_reason?: string;
+  next_followup_any_effective?: string;
+  is_service_impacting?: number;
+  task_value_brl?: number;
+  task_value_usd?: number;
+  task_value?: number;
+  task_ws?: string;
+  task_deal_id?: string;
+  task_track?: string;
+  task_subtrack?: string;
+  task_reference?: string;
+  task_remark?: string;
+  task_description?: string;
+  task_project_id?: number;
+  task_project_name?: string;
+  task_ea_flag?: number;
+  task_telemetry_flag?: number;
+  task_opt_in_flag?: number;
+  task_eligible?: string;
+  spi_lifecycle_stage?: string;
+  spi_last_checked_date?: string;
+  spi_telemetry_type?: string;
+  task_created_by_name?: string;
+  __score?: number;
+  [key: string]: unknown;
+}
+
+export interface TaskOverview {
+  tasks: TaskItem[];
+  values: TaskItem[];
+}
+
+export interface FilterOptions {
+  owners: string[];
+  task_types: string[];
+  clients: string[];
+  ws_list: string[];
+  tracks: string[];
+  deal_ids: string[];
+  statuses: string[];
+}
+
+export interface FilterRequest {
+  owner_names?: string[];
+  task_type_names?: string[];
+  client_names?: string[];
+  ws_list?: string[];
+  tracks?: string[];
+  deal_ids?: string[];
+  status_names?: string[];
+  task_ids?: number[];
+}
+
+export interface CSMItem {
+  csm_id: number;
+  csm_name: string;
+  [key: string]: unknown;
+}
+
+export interface StatusType {
+  statustype_id: number;
+  statustype_name: string;
+  statustype_name_pt?: string;
+  statustype_name_es?: string;
+  [key: string]: unknown;
+}
+
+export interface ActivityItem {
+  activity_id: number;
+  activity_task_id?: number;
+  activity_name?: string;
+  activity_status?: number;
+  activity_status_name?: string;
+  activity_seq?: number;
+  activity_start?: string;
+  activity_end?: string;
+  activity_start_performed?: string;
+  activity_end_performed?: string;
+  activity_completed?: number;
+  activity_effort?: number;
+  activity_effort_performed?: number;
+  activity_value?: number;
+  activity_currency?: string;
+  activity_ws?: string;
+  activity_deal_id?: string;
+  activity_objective?: string;
+  activity_scope?: string;
+  activity_expected_results?: string;
+  activity_track?: string;
+  activity_sub_track?: string;
+  activity_approved_value?: number;
+  activity_approved_currency?: string;
+  activity_approval_date?: string;
+  activity_approval_request_date?: string;
+  [key: string]: unknown;
+}
+
+export interface HistoryItem {
+  taskrecord_id: number;
+  taskrecord_task_id?: number;
+  taskrecord_activity_id?: number;
+  taskrecord_remark?: string;
+  taskrecord_type?: string;
+  taskrecord_status?: string;
+  taskrecord_date?: string;
+  taskrecord_updated_by?: string;
+  taskrecord_next_followup?: string;
+  [key: string]: unknown;
+}
+
+export interface FollowUpGroup {
+  delayed: FollowUpItem[];
+  today: FollowUpItem[];
+  current_week: FollowUpItem[];
+  next_week: FollowUpItem[];
+}
+
+export interface FollowUpItem {
+  activity_id: number;
+  task_id: number;
+  activity_name?: string;
+  task_customer_name?: string;
+  task_type_name?: string;
+  task_owner_id?: number;
+  follow_up_date?: string;
+}
+
+export const tasksApi = {
+  // Overview & KPI
+  getKPI: () => apiClient.get<TaskKPI>("/tasks/kpi"),
+  getOverview: () => apiClient.get<TaskOverview>("/tasks/overview"),
+  getActionQueue: (limit = 10) =>
+    apiClient.get<TaskItem[]>(`/tasks/action-queue?limit=${limit}`),
+
+  // Filter
+  getFilterOptions: () => apiClient.get<FilterOptions>("/tasks/filter-options"),
+  filterTasks: (body: FilterRequest) =>
+    apiClient.post<TaskItem[]>("/tasks/filter", body),
+
+  // Task Detail
+  getTask: (taskId: number) =>
+    apiClient.get<TaskItem>(`/tasks/detail/${taskId}`),
+  updateTask: (taskId: number, data: Record<string, unknown>, history?: Record<string, unknown>) =>
+    apiClient.put<{ success: boolean; history_id: number }>(`/tasks/detail/${taskId}`, { data, history }),
+
+  // Activities
+  getActivities: (taskId: number) =>
+    apiClient.get<ActivityItem[]>(`/tasks/detail/${taskId}/activities`),
+  getActivity: (activityId: number) =>
+    apiClient.get<ActivityItem>(`/tasks/activities/${activityId}`),
+  updateActivity: (activityId: number, data: Record<string, unknown>) =>
+    apiClient.put<{ success: boolean }>(`/tasks/activities/${activityId}`, { data }),
+
+  // History
+  getHistory: (taskId: number, activityId?: number) => {
+    const params = activityId != null ? `?activity_id=${activityId}` : "";
+    return apiClient.get<HistoryItem[]>(`/tasks/detail/${taskId}/history${params}`);
+  },
+  addHistory: (taskId: number, record: Record<string, unknown>) =>
+    apiClient.post<{ success: boolean; record_id: number }>(`/tasks/detail/${taskId}/history`, {
+      taskrecord_task_id: taskId,
+      ...record,
+    }),
+
+  // Support lists
+  getCsmList: () => apiClient.get<CSMItem[]>("/tasks/csm-list"),
+  getStatusTypes: () => apiClient.get<StatusType[]>("/tasks/status-types"),
+
+  // Follow-up
+  getFollowUp: () => apiClient.get<FollowUpGroup>("/tasks/follow-up"),
+};

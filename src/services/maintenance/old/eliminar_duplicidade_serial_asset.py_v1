@@ -1,0 +1,246 @@
+"""
+Elimina duplicidade de asset por serial + product_id.
+
+Regras:
+- Mantém o menor asset_id
+- Consolida dados no menor ID
+- Atualiza relacionamentos
+- Marca os demais como VAGO
+- Executa em transação por grupo
+- Registra progresso no ImportControl (id=1)
+"""
+
+import time
+from typing import Any, Dict
+
+from src.infrastructure.database.connection import get_db_connection
+from src.infrastructure.database.repositories.import_control_repository import (
+    ImportControlRepository,
+    ImportStatus,
+)
+
+IMPORT_ID = 1
+
+
+# ======================================================
+# LOG DE PROGRESSO
+# ======================================================
+
+def log_progress(message: str) -> None:
+    """
+    Atualiza mensagem de progresso mantendo status como RUNNING.
+    """
+    repo = ImportControlRepository()
+    repo.update_status(
+        importctrl_id=IMPORT_ID,
+        status=ImportStatus.RUNNING,
+        message=message,
+    )
+
+
+# ======================================================
+# TESTE DE CONEXÃO
+# ======================================================
+
+def testar_conexao(conn) -> bool:
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        cursor.fetchone()
+        cursor.close()
+        return True
+    except Exception:
+        return False
+
+
+# ======================================================
+# ATUALIZA RELACIONAMENTOS
+# ======================================================
+
+def atualizar_relacionamentos(cursor, id_antigo: int, id_novo: int) -> None:
+    """
+    Atualiza tabelas relacionadas apontando para o menor ID.
+    """
+
+    queries = [
+        "UPDATE tbContractNTTAsset SET nttasset_asset_id=%s WHERE nttasset_asset_id=%s",
+        "UPDATE tbContractVendorAsset SET vendorasset_asset_id=%s WHERE vendorasset_asset_id=%s",
+        "UPDATE tbNotaFiscalAsset SET nfasset_asset_id=%s WHERE nfasset_asset_id=%s",
+    ]
+
+    for query in queries:
+        cursor.execute(query, (id_novo, id_antigo))
+
+
+# ======================================================
+# PROCESSO PRINCIPAL
+# ======================================================
+
+def eliminar_duplicidade_serial_asset():
+
+    inicio = time.time()
+    grupo_atual = 0
+
+    log_progress("Iniciando eliminação de duplicidade de serial...")
+
+    conn = get_db_connection()
+
+    if not testar_conexao(conn):
+        raise RuntimeError("Sem conexão com o banco.")
+
+    try:
+        while True:
+
+            # ---------------------------------------------------
+            # 1) Buscar um grupo duplicado
+            # ---------------------------------------------------
+            sql_dup = """
+                SELECT A.asset_serial_number, A.asset_product_id
+                FROM tbAsset A
+                WHERE A.asset_serial_number IS NOT NULL
+                  AND LENGTH(A.asset_serial_number) > 3
+                  AND EXISTS (
+                      SELECT 1 FROM tbAsset B
+                      WHERE B.asset_serial_number = A.asset_serial_number
+                        AND (
+                              (B.asset_product_id = A.asset_product_id)
+                              OR (B.asset_product_id IS NULL AND A.asset_product_id IS NULL)
+                            )
+                        AND B.asset_id <> A.asset_id
+                  )
+                LIMIT 1
+            """
+
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(sql_dup)
+            row = cursor.fetchone()
+            cursor.close()
+
+            if not row:
+                break
+
+            serial = row["asset_serial_number"]
+            product_id = row["asset_product_id"]
+
+            grupo_atual += 1
+
+            log_progress(f"Processando grupo {grupo_atual} | Serial: {serial}")
+            
+            cursor = conn.cursor(dictionary=True)
+            
+            # ---------------------------------------------------
+            # 2) Buscar todos do grupo
+            # ---------------------------------------------------
+            sql_assets = """
+                SELECT *
+                FROM tbAsset
+                WHERE asset_serial_number = %s
+            """
+
+            params = [serial]
+
+            if product_id is None:
+                sql_assets += " AND asset_product_id IS NULL"
+            else:
+                sql_assets += " AND asset_product_id = %s"
+                params.append(product_id)
+
+            sql_assets += " ORDER BY asset_id ASC"
+
+            cursor.execute(sql_assets, tuple(params))
+            assets = cursor.fetchall()
+
+            if not assets:
+                conn.commit()
+                cursor.close()
+                continue
+
+            menor_id = assets[0]["asset_id"]
+
+            # ---------------------------------------------------
+            # 3) Consolidar dados
+            # ---------------------------------------------------
+            consolidado: Dict[str, Any] = {
+                k: v for k, v in assets[0].items() if k != "asset_id"
+            }
+
+            for asset in assets:
+                for campo, valor in asset.items():
+                    if campo == "asset_id":
+                        continue
+
+                    if (
+                        (consolidado.get(campo) in (None, "", 0))
+                        and valor not in (None, "", 0)
+                    ):
+                        consolidado[campo] = valor
+
+            # ---------------------------------------------------
+            # 4) Atualizar menor ID consolidado
+            # ---------------------------------------------------
+            set_clause = ", ".join([f"{k}=%s" for k in consolidado.keys()])
+            sql_update = f"UPDATE tbAsset SET {set_clause} WHERE asset_id=%s"
+
+            cursor.execute(
+                sql_update,
+                tuple(consolidado.values()) + (menor_id,),
+            )
+
+            # ---------------------------------------------------
+            # 5) Processar registros duplicados
+            # ---------------------------------------------------
+            for asset in assets[1:]:
+
+                id_atual = asset["asset_id"]
+
+                atualizar_relacionamentos(cursor, id_atual, menor_id)
+
+                sql_vago = """
+                    UPDATE tbAsset SET
+                        asset_product_id=0,
+                        asset_ponumber=NULL,
+                        asset_sonumber=NULL,
+                        asset_type=NULL,
+                        asset_subscription_id=NULL,
+                        asset_serial_number=%s,
+                        asset_parent_serial_number=NULL,
+                        asset_instance_number=NULL,
+                        asset_parent_instance_number=NULL,
+                        asset_parent_level=NULL,
+                        asset_sales_order=NULL,
+                        asset_web_order_id=NULL,
+                        asset_deal_id=NULL,
+                        asset_price=NULL,
+                        asset_rfid=NULL,
+                        asset_ov=NULL,
+                        asset_warehouse=NULL,
+                        asset_created_at=NULL
+                    WHERE asset_id=%s
+                """
+
+                novo_serial = f"VAGO {id_atual} - subst. por {menor_id}"
+
+                cursor.execute(sql_vago, (novo_serial, id_atual))
+
+            conn.commit()
+            cursor.close()
+
+        tempo_total = (time.time() - inicio) / 60
+
+        log_progress(
+            f"Finalizado. Tempo total: {tempo_total:.2f} minutos. "
+            f"Grupos processados: {grupo_atual}"
+        )
+
+    except Exception as e:
+
+        conn.rollback()
+
+        log_progress(f"ERRO: {str(e)}")
+
+        raise
+
+    finally:
+        if conn.in_transaction:
+            conn.rollback()
+        conn.close()

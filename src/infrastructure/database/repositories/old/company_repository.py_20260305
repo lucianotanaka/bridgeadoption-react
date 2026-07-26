@@ -1,0 +1,235 @@
+from typing import Any, Dict, List, Optional, Union
+import pandas as pd
+import traceback
+from src.infrastructure.database.connection import get_db_connection
+
+
+class CompanyRepository:
+    """
+    Repository responsável pela tabela tbCompany.
+    """
+
+    # INSERT dinâmico
+    def insert(self, data: Dict[str, Any]) -> int:
+        """
+        Insere empresa.
+        Se existir registro com company_name LIKE 'VAGO %',
+        reutiliza o menor company_id disponível.
+        Retorna o company_id utilizado.
+        """
+
+        if not data:
+            raise ValueError("Dicionário de inserção não pode ser vazio.")
+
+        conn = get_db_connection()
+        if not conn:
+            raise ConnectionError("Erro ao conectar ao banco.")
+
+        try:
+            cursor = conn.cursor(dictionary=True)
+
+            # 1 + 2) Buscar menor ID disponível com nome VAGO
+            cursor.execute("""
+                SELECT MIN(company_id) AS company_id
+                FROM tbCompany
+                WHERE company_name LIKE 'VAGO %'
+            """)
+            result = cursor.fetchone()
+
+            vago_id = result["company_id"] if result and result["company_id"] else None
+
+            # 3) Se houver VAGO, faz UPDATE
+            if vago_id:
+                set_clause = ", ".join([f"{col} = %s" for col in data.keys()])
+                values = tuple(data.values()) + (vago_id,)
+
+                update_query = f"""
+                    UPDATE tbCompany
+                    SET {set_clause}
+                    WHERE company_id = %s
+                """
+
+                cursor.execute(update_query, values)
+                conn.commit()
+                return vago_id
+
+            # 4) Se não houver VAGO, faz INSERT normal
+            columns = ", ".join(data.keys())
+            placeholders = ", ".join(["%s"] * len(data))
+            values = tuple(data.values())
+
+            insert_query = f"""
+                INSERT INTO tbCompany ({columns})
+                VALUES ({placeholders})
+            """
+
+            cursor.execute(insert_query, values)
+            conn.commit()
+            return cursor.lastrowid
+
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+
+    # UPDATE dinâmico
+    def update(self, data: Dict[str, Any], where: Dict[str, Any]) -> int:
+        """
+        Atualiza empresa.
+        data  -> colunas a alterar
+        where -> condição WHERE obrigatória
+
+        Retorna número de linhas afetadas.
+        """
+
+        if not data:
+            raise ValueError("Dicionário de atualização não pode ser vazio.")
+
+        if not where:
+            raise ValueError("WHERE é obrigatório para evitar UPDATE global.")
+
+        conn = get_db_connection()
+        if not conn:
+            raise ConnectionError("Erro ao conectar ao banco.")
+
+        set_clause = ", ".join([f"{col} = %s" for col in data.keys()])
+        where_clause = " AND ".join([f"{col} = %s" for col in where.keys()])
+
+        values = tuple(data.values()) + tuple(where.values())
+
+        query = f"""
+            UPDATE tbCompany
+            SET {set_clause}
+            WHERE {where_clause}
+        """
+
+        try:
+            cursor = conn.cursor()
+            affected_rows = cursor.execute(query, values)
+            conn.commit()
+            return affected_rows
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+
+    # SELECT company_id pelo company_name
+    def get_company_id_by_name(self, company_name: str) -> Optional[int]:
+        query = """
+            SELECT company_id
+            FROM tbCompany
+            WHERE company_name = %s
+        """
+
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        try:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(query, (company_name,))
+            result = cursor.fetchone()
+            return result["company_id"] if result else None
+        finally:
+            cursor.close()
+            conn.close()
+
+    # SELECT company_id, company_name pelo vertical
+    def get_companies_by_vertical(self, company_vertical: str) -> List[Dict[str, Any]]:
+        query = """
+            SELECT company_id, company_name
+            FROM tbCompany
+            WHERE company_vertical = %s
+        """
+
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        try:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(query, (company_vertical,))
+            return cursor.fetchall()
+        finally:
+            cursor.close()
+            conn.close()
+
+    # LISTAR VENDOR OU CLIENT
+    def list_companies_by_role(
+        self,
+        role: str,
+        as_df: bool = False
+    ) -> Union[List[Dict], pd.DataFrame]:
+        """
+        Lista empresas por papel: 'vendor' ou 'client'.
+        Retorna lista de dicionários ou DataFrame.
+        
+        Como usar:
+        1) lista de dicionários
+        vendors = repo.list_companies_by_role("vendor")
+        
+        2) DataFrame
+        clients_df = repo.list_companies_by_role("client", as_df=True)
+        
+        """
+
+        role = role.lower()
+
+        if role not in ("vendor", "client"):
+            raise ValueError("role deve ser 'vendor' ou 'client'.")
+
+        if role == "vendor":
+            query = """
+                SELECT 
+                    company_id AS vendor_id,
+                    company_name AS vendor_name
+                FROM tbCompany
+                WHERE company_is_vendor = 'YES'
+                ORDER BY company_name
+            """
+        else:
+            query = """
+                SELECT 
+                    company_id AS client_id,
+                    company_name AS client_name
+                FROM tbCompany
+                WHERE 
+                    company_is_vendor = 'NO'
+                    AND company_type <> 'PF'
+                    AND company_name IS NOT NULL
+                    AND company_name <> '-'
+                    AND company_name <> ''
+                    AND company_name NOT LIKE 'VAGO %'
+                ORDER BY company_name
+            """
+
+        conn = get_db_connection()
+
+        try:
+            if as_df:
+                return pd.read_sql(query, conn)
+
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(query)
+            return cursor.fetchall() or []
+
+        except Exception as e:
+            self.error_repo.log_error(
+                error_function="CompanyRepository.list_companies_by_role",
+                error_command=query,
+                error_description=str(e),
+                error_traceback=traceback.format_exc()
+            )
+            return [] if not as_df else pd.DataFrame()
+
+        finally:
+            try:
+                if not as_df:
+                    cursor.close()
+            except Exception:
+                pass
+            conn.close()

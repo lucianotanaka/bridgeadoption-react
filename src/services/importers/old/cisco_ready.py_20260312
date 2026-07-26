@@ -1,0 +1,1272 @@
+"""
+Importador do relatório Cisco Ready.
+
+Este módulo será chamado pelo scheduler de importações através de:
+    src.services.import_scheduling.IMPORT_DISPATCHER["CiscoReady"]
+
+Objetivos principais:
+- Ler o Excel Cisco Ready em modo streaming (openpyxl, read_only).
+- Processar linhas em chunks (lotes) para reduzir pico de memória.
+- Usar caches em memória para reduzir lookups repetidos no banco.
+- Atualizar status de progresso na tbImportControl (ImportControlRepository).
+- Resolver product_id, customer_id, asset_id.
+- Inserir/atualizar contratos em tbContractVendorAsset.
+- Salvar o Excel ao final contendo apenas as linhas com falha.
+"""
+
+import logging
+import os
+from pathlib import Path
+from typing import Dict, Optional, Any, List, Tuple
+from datetime import datetime, timedelta
+
+import pandas as pd
+from openpyxl import load_workbook
+
+from src.domain.import_validator import validate_import_columns
+from src.infrastructure.database.repositories.product_repository import ProductRepository
+from src.infrastructure.database.repositories.company_repository import CompanyRepository
+from src.infrastructure.database.repositories.asset_repository import AssetRepository
+from src.infrastructure.database.repositories.contract_vendor_asset_repository import (
+    ContractVendorAssetRepository,
+)
+from src.infrastructure.database.repositories.import_log_repository import (
+    ImportLogRepository,
+)
+from src.infrastructure.database.repositories.import_control_repository import (
+    ImportControlRepository,
+    ImportStatus,
+)
+from src.utils.date_parser import parse_excel_date
+from src.services.matching.company_name_matching import generate_and_store_suggestions
+
+logger = logging.getLogger(__name__)
+
+# Diretório padrão de entrada (seguindo padrão do projeto)
+BASE_INPUT_PATH = Path("/home/bridgeadoption/storage/input")
+
+# Config de performance
+CHUNK_ROWS = 2000       # tamanho do lote de linhas
+STATUS_EVERY = 500      # atualizar status a cada N linhas
+CISCO_VENDOR_ID = 1     # vendor Cisco fixo
+
+
+# =============================================================================
+# STATUS / PROGRESSO (tbImportControl)
+# =============================================================================
+def _fmt_hms(seconds: float) -> str:
+    if seconds is None or seconds < 0:
+        return "--:--:--"
+    seconds = int(seconds)
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def _build_progress_message(
+    filename: str,
+    read_rows: int,
+    total_rows: int,
+    started_at: datetime,
+    eta_dt: Optional[datetime],
+) -> str:
+    now = datetime.now()
+    elapsed = (now - started_at).total_seconds()
+    pct = (read_rows / total_rows * 100.0) if total_rows else 0.0
+    remaining = max(total_rows - read_rows, 0)
+    eta_str = eta_dt.strftime("%Y-%m-%d %H:%M:%S") if eta_dt else "N/A"
+
+    return (
+        f"{filename} | {read_rows}/{total_rows} | {pct:6.2f}% | "
+        f"restante: {remaining} | elapsed: {_fmt_hms(elapsed)} | ETA: {eta_str}"
+    )
+
+
+def _calc_eta(
+    started_at: datetime,
+    read_rows: int,
+    total_rows: int,
+) -> Optional[datetime]:
+    if read_rows <= 0:
+        return None
+    elapsed = (datetime.now() - started_at).total_seconds()
+    rate = elapsed / max(read_rows, 1)  # sec/row
+    remaining = max(total_rows - read_rows, 0)
+    eta_sec = remaining * rate
+    return datetime.now() + timedelta(seconds=eta_sec)
+
+
+# =============================================================================
+# VALIDAÇÃO DE COLUNAS
+# =============================================================================
+def validate_cisco_ready_file_columns(file_columns: list) -> Dict[str, list]:
+    return validate_import_columns(
+        import_type="CiscoReady",
+        file_columns=file_columns,
+        case_sensitive=False,
+    )
+
+
+# =============================================================================
+# FUNÇÕES DE LOOKUP / CACHE (usando repositórios)
+# =============================================================================
+class LookupCache:
+    """
+    Cache simples para reduzir chamadas repetidas aos repositórios.
+    Chaveia pelos valores relevantes do Excel.
+    """
+
+    def __init__(self) -> None:
+        self.product_by_row_key: Dict[Tuple[Any, ...], Optional[int]] = {}
+        self.customer_by_name: Dict[str, int] = {}
+        self.asset_by_row_key: Dict[Tuple[Any, ...], Optional[int]] = {}
+
+    def clear(self) -> None:
+        self.product_by_row_key.clear()
+        self.customer_by_name.clear()
+        self.asset_by_row_key.clear()
+
+
+def get_or_create_product_id_from_row(
+    row: Dict[str, Any],
+    cache: LookupCache,
+) -> Optional[int]:
+    """
+    Idêntica à versão anterior, mas com uso de cache por chave derivada da linha.
+    """
+    key = (
+        (row.get("Product ID") or ""),
+        (row.get("Product Description") or ""),
+        (row.get("Product Family") or ""),
+        (row.get("Product Type") or ""),
+        (row.get("Business Entity") or ""),
+        (row.get("Sub Business Entity") or ""),
+    )
+    if key in cache.product_by_row_key:
+        return cache.product_by_row_key[key]
+
+    repo = ProductRepository()
+
+    where: Dict[str, Any] = {
+        "product_vendor_id": CISCO_VENDOR_ID,
+    }
+
+    be = (row.get("Business Entity") or "").strip()
+    if be:
+        where["product_business_entity"] = be
+
+    sbe = (row.get("Sub Business Entity") or "").strip()
+    if sbe:
+        where["product_subbusiness_entity"] = sbe
+
+    pf = (row.get("Product Family") or "").strip()
+    if pf:
+        where["product_family"] = pf
+
+    pid = (row.get("Product ID") or "").strip()
+    if pid:
+        where["product_part_number"] = pid
+        where["product_name"] = pid
+
+    desc = (row.get("Product Description") or "").strip()
+    if desc:
+        where["product_description"] = desc
+
+    asset_type = (row.get("Asset Type") or "").strip()
+    if asset_type:
+        where["product_subtype"] = asset_type
+
+    ptype = (row.get("Product Type") or "").strip()
+    if ptype:
+        where["product_type"] = ptype
+
+    eops = parse_excel_date(row.get("End of Product Sale Date"), "date")
+    if eops:
+        where["product_endofsale"] = eops
+
+    eosm = parse_excel_date(row.get("End of Software Maintenance Date"), "date")
+    if eosm:
+        where["product_endofsoftwaremaintenance"] = eosm
+
+    eola = parse_excel_date(row.get("End-of-Life Announcement Date"), "date")
+    if eola:
+        where["product_endoflifeannouncement"] = eola
+
+    eorfa = parse_excel_date(row.get("End of Routine Failure Analysis Date"), "date")
+    if eorfa:
+        where["product_endofroutinefailureanalysis"] = eorfa
+
+    evss = parse_excel_date(
+        row.get("End of Vulnerability/Security Support Date"), "date"
+    )
+    if evss:
+        where["product_endofvulnerabilitysecuritysupport"] = evss
+
+    eos = parse_excel_date(row.get("Last Date of Support"), "date")
+    if eos:
+        where["product_endofsupport"] = eos
+
+    product_ids = repo.find_ids_by(where)
+    if product_ids:
+        pid_val = product_ids[0]
+        cache.product_by_row_key[key] = pid_val
+        return pid_val
+
+    data: Dict[str, Any] = dict(where)
+
+    if "product_vendor_id" not in data:
+        data["product_vendor_id"] = CISCO_VENDOR_ID
+
+    if "product_business_entity" not in data and be:
+        data["product_business_entity"] = be
+
+    if "product_subbusiness_entity" not in data and sbe:
+        data["product_subbusiness_entity"] = sbe
+
+    if "product_family" not in data and pf:
+        data["product_family"] = pf
+
+    if "product_part_number" not in data and pid:
+        data["product_part_number"] = pid
+
+    if "product_name" not in data:
+        data["product_name"] = pid or desc or "DESCONHECIDO"
+
+    if "product_description" not in data and desc:
+        data["product_description"] = desc
+
+    if "product_subtype" not in data and asset_type:
+        data["product_subtype"] = asset_type
+
+    if "product_type" not in data and ptype:
+        data["product_type"] = ptype
+
+    try:
+        new_product_id = repo.insert(data)
+        cache.product_by_row_key[key] = new_product_id
+        return new_product_id
+    except Exception:
+        cache.product_by_row_key[key] = None
+        return None
+
+
+def get_customer_id_from_row(
+    row: Dict[str, Any],
+    cache: LookupCache,
+) -> int:
+    """
+    Determina o customer_id (company_id) com cache por nome.
+    """
+    repo = CompanyRepository()
+
+    parent_name = (row.get("Install Site CR Parent Party Name") or "").strip()
+    gu_name = (row.get("Install Site CR GU Name") or "").strip()
+
+    if parent_name:
+        customer_name = parent_name
+    elif gu_name:
+        customer_name = gu_name
+    else:
+        return 0
+
+    if customer_name in cache.customer_by_name:
+        return cache.customer_by_name[customer_name]
+
+    try:
+        company_id = repo.find_unique_company_id_by_name(customer_name)
+    except Exception:
+        generate_and_store_suggestions(
+            input_names=[customer_name],
+            user="from Cisco Ready",
+        )
+        cache.customer_by_name[customer_name] = 0
+        return 0
+
+    if not company_id:
+        generate_and_store_suggestions(
+            input_names=[customer_name],
+            user="from Cisco Ready",
+        )
+        cache.customer_by_name[customer_name] = 0
+        return 0
+
+    cid = int(company_id)
+    cache.customer_by_name[customer_name] = cid
+    return cid
+
+
+def _normalize_asset_field(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    invalid_markers = {"n/a", "na", "none", "null", "0", "-", "--", "n\\a"}
+    if text.lower() in invalid_markers:
+        return None
+
+    if len(text) < 3:
+        return None
+
+    return text
+
+
+def get_or_create_asset_id_from_row(
+    row: Dict[str, Any],
+    product_id: Optional[int],
+    customer_id: Optional[int],
+    cache: LookupCache,
+) -> Optional[int]:
+    """
+    Resolve ou cria asset_id na tbAsset, com cache por chave derivada da linha.
+
+    IMPORTANTE:
+    - A partir da remoção da coluna asset_customer_id da tbAsset, o asset NÃO
+      depende mais de customer_id para ser localizado ou criado.
+    - O parâmetro customer_id é mantido apenas para compatibilidade de interface,
+      mas NÃO é usado nos filtros nem é obrigatório.
+    """
+    # Agora só exigimos product_id para conseguir criar/relacionar o asset.
+    if not product_id:
+        return None
+
+    serial = _normalize_asset_field(row.get("Serial Number / PAK number"))
+    instance = _normalize_asset_field(row.get("Instance ID"))
+    parent_instance = _normalize_asset_field(row.get("Parent Instance ID"))
+    parent_level = _normalize_asset_field(row.get("Major/Minor"))
+
+    key = (product_id, serial, instance, parent_instance, parent_level)
+    if key in cache.asset_by_row_key:
+        return cache.asset_by_row_key[key]
+
+    repo = AssetRepository()
+
+    # Regra 1: busca por serial (independente de customer)
+    if serial:
+        where_sql = "asset_serial_number = %s"
+        params = (serial,)
+
+        try:
+            asset_id = repo.find_id_by_custom_where(
+                where_clause=where_sql,
+                params=params,
+                strict=False,
+                enforce_unique_logic=False,
+            )
+        except Exception:
+            asset_id = 0
+
+        if asset_id:
+            # Atualiza instance se veio vazio na base
+            if instance:
+                try:
+                    current_instance = repo.find_field_by_id(
+                        field_name="asset_instance_number",
+                        asset_id=int(asset_id),
+                    )
+                except Exception:
+                    current_instance = None
+
+                if not current_instance:
+                    try:
+                        repo.update(
+                            data={"asset_instance_number": instance},
+                            where={"asset_id": int(asset_id)},
+                        )
+                    except Exception:
+                        pass
+
+            cache.asset_by_row_key[key] = int(asset_id)
+            return int(asset_id)
+
+        # Não encontrou pelo serial: cria novo asset
+        data: Dict[str, Any] = {
+            "asset_product_id": int(product_id),
+            "asset_serial_number": serial,
+        }
+
+        if instance:
+            data["asset_instance_number"] = instance
+        if parent_instance:
+            data["asset_parent_instance_number"] = parent_instance
+        if parent_level:
+            data["asset_parent_level"] = parent_level
+
+        try:
+            new_asset_id = repo.insert(data)
+            cache.asset_by_row_key[key] = int(new_asset_id)
+            return int(new_asset_id)
+        except Exception:
+            cache.asset_by_row_key[key] = None
+            return None
+
+    # Regra 2: sem serial, com instance (independente de customer)
+    if instance:
+        where_sql = (
+            "asset_product_id = %s AND "
+            "asset_instance_number = %s"
+        )
+        params = (product_id, instance)
+
+        try:
+            asset_id = repo.find_id_by_custom_where(
+                where_clause=where_sql,
+                params=params,
+                strict=False,
+                enforce_unique_logic=False,
+            )
+        except Exception:
+            asset_id = 0
+
+        if asset_id:
+            cache.asset_by_row_key[key] = int(asset_id)
+            return int(asset_id)
+
+        data = {
+            "asset_product_id": int(product_id),
+            "asset_instance_number": instance,
+        }
+
+        if parent_instance:
+            data["asset_parent_instance_number"] = parent_instance
+        if parent_level:
+            data["asset_parent_level"] = parent_level
+
+        try:
+            new_asset_id = repo.insert(data)
+            cache.asset_by_row_key[key] = int(new_asset_id)
+            return int(new_asset_id)
+        except Exception:
+            cache.asset_by_row_key[key] = None
+            return None
+
+    # Regra 3: sem serial e sem instance (independente de customer)
+    where_sql = (
+        "asset_serial_number IS NULL AND "
+        "asset_instance_number IS NULL AND "
+        "asset_parent_instance_number IS NULL AND "
+        "asset_product_id = %s"
+    )
+    params = (product_id,)
+
+    try:
+        asset_id = repo.find_id_by_custom_where(
+            where_clause=where_sql,
+            params=params,
+            strict=False,
+            enforce_unique_logic=False,
+        )
+    except Exception:
+        asset_id = 0
+
+    if asset_id:
+        cache.asset_by_row_key[key] = int(asset_id)
+        return int(asset_id)
+
+    data = {
+        "asset_product_id": int(product_id),
+    }
+
+    if parent_level:
+        data["asset_parent_level"] = parent_level
+
+    try:
+        new_asset_id = repo.insert(data)
+        cache.asset_by_row_key[key] = int(new_asset_id)
+        return int(new_asset_id)
+    except Exception:
+        cache.asset_by_row_key[key] = None
+        return None
+
+
+def _to_date(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d")
+    except Exception:
+        return None
+
+
+def update_product_lifecycle_dates_from_row(
+    row: Dict[str, Any],
+    product_id: int,
+) -> int:
+    if not product_id or product_id <= 0:
+        return 0
+
+    repo = ProductRepository()
+
+    db_dates = repo.find_columns_by_id(
+        [
+            "product_endofsale",
+            "product_endofsoftwaremaintenance",
+            "product_endoflifeannouncement",
+            "product_endofroutinefailureanalysis",
+            "product_endofvulnerabilitysecuritysupport",
+            "product_endofsupport",
+        ],
+        product_id=product_id,
+    )
+
+    if db_dates is None:
+        return 0
+
+    current = {
+        key: _to_date(db_dates.get(key)) for key in db_dates.keys()
+    }
+
+    excel_raw = {
+        "product_endofsale": parse_excel_date(
+            row.get("End of Product Sale Date"), "date"
+        ),
+        "product_endofsoftwaremaintenance": parse_excel_date(
+            row.get("End of Software Maintenance Date"), "date"
+        ),
+        "product_endoflifeannouncement": parse_excel_date(
+            row.get("End-of-Life Announcement Date"), "date"
+        ),
+        "product_endofroutinefailureanalysis": parse_excel_date(
+            row.get("End of Routine Failure Analysis Date"), "date"
+        ),
+        "product_endofvulnerabilitysecuritysupport": parse_excel_date(
+            row.get("End of Vulnerability/Security Support Date"), "date"
+        ),
+        "product_endofsupport": parse_excel_date(
+            row.get("Last Date of Support"), "date"
+        ),
+    }
+
+    excel_dates = {
+        key: _to_date(value) for key, value in excel_raw.items()
+    }
+
+    to_update: Dict[str, Any] = {}
+
+    for col_name, excel_dt in excel_dates.items():
+        if excel_dt is None:
+            continue
+
+        db_dt = current.get(col_name)
+
+        if db_dt is None:
+            to_update[col_name] = excel_raw[col_name]
+        else:
+            if excel_dt > db_dt:
+                to_update[col_name] = excel_raw[col_name]
+
+    if not to_update:
+        return 0
+
+    try:
+        affected = repo.update(
+            data=to_update,
+            where={"product_id": product_id},
+        )
+        return affected
+    except Exception:
+        return 0
+
+
+def _parse_decimal(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        text = str(value).strip().replace(".", "").replace(",", ".")
+        if not text:
+            return None
+        return float(text)
+    except Exception:
+        return None
+
+
+def _parse_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        text = str(value).strip()
+        if not text:
+            return None
+        return int(float(text))
+    except Exception:
+        return None
+
+
+def _parse_date(value: Any) -> Optional[str]:
+    return parse_excel_date(value, "date")
+
+
+def _build_vendorasset_search_clause(
+    customer_id: int,
+    asset_id: int,
+    row: Dict[str, Any],
+) -> Tuple[str, Tuple[Any, ...]]:
+    where_parts: List[str] = [
+        "vendorasset_vendor_id = %s",
+        "vendorasset_customer_id = %s",
+        "vendorasset_asset_id = %s",
+    ]
+    params: List[Any] = [CISCO_VENDOR_ID, customer_id, asset_id]
+
+    mapping_6b = {
+        "Contract Number": "vendorasset_contract_num",
+        "Subscription ID": "vendorasset_subscription_id",
+        "Web Order ID": "vendorasset_web_order_id",
+        "Deal ID": "vendorasset_deal_id",
+        "Buying Program": "vendorasset_buying_program",
+        "Contract Type": "vendorasset_contract_type",
+        "Contract Description": "vendorasset_contract_description",
+        "Product SO": "vendorasset_product_so",
+        "Product PO": "vendorasset_product_po",
+        "Service SO": "vendorasset_service_so",
+        "Service PO": "vendorasset_service_po",
+    }
+
+    for excel_col, db_col in mapping_6b.items():
+        raw_val = row.get(excel_col)
+        val = None if raw_val is None else str(raw_val).strip()
+        if val:
+            where_parts.append(f"{db_col} = %s")
+            params.append(val)
+        else:
+            where_parts.append(f"{db_col} IS NULL")
+
+    where_clause = " AND ".join(where_parts)
+    return where_clause, tuple(params)
+
+
+def _build_vendorasset_data(
+    customer_id: int,
+    asset_id: int,
+    row: Dict[str, Any],
+) -> Dict[str, Any]:
+    data: Dict[str, Any] = {
+        "vendorasset_vendor_id": CISCO_VENDOR_ID,
+        "vendorasset_customer_id": customer_id,
+        "vendorasset_asset_id": asset_id,
+    }
+
+    data["vendorasset_start"] = _parse_date(row.get("Covered Line Start Date"))
+    data["vendorasset_end"] = _parse_date(row.get("Covered Line End Date"))
+
+    # Campos texto: converte para str antes de strip, permitindo int/float do Excel
+    def _norm_str(val: Any) -> Optional[str]:
+        if val is None:
+            return None
+        text = str(val).strip()
+        return text or None
+
+    data["vendorasset_coverage"] = _norm_str(row.get("Coverage"))
+    data["vendorasset_coverage_status"] = _norm_str(row.get("Covered Line Status"))
+    data["vendorasset_buying_program"] = _norm_str(row.get("Buying Program"))
+    data["vendorasset_quantity"] = _parse_decimal(row.get("Item Quantity"))
+    data["vendorasset_contract_type"] = _norm_str(row.get("Contract Type"))
+    data["vendorasset_contract_num"] = _norm_str(row.get("Contract Number"))
+    data["vendorasset_contract_description"] = _norm_str(
+        row.get("Contract Description")
+    )
+    data["vendorasset_subscription_id"] = _norm_str(row.get("Subscription ID"))
+    data["vendorasset_renewal"] = _parse_date(row.get("Last Renewal Date"))
+    # Migration PID: pode vir Flag ou List (ou ambas). Prioriza List se houver.
+    mig_flag = _norm_str(row.get("Migration PID Flag"))
+    mig_list = _norm_str(row.get("Migration PID List"))
+    if mig_list:
+        data["vendorasset_migration_pid_list"] = mig_list
+    elif mig_flag:
+        data["vendorasset_migration_pid_list"] = mig_flag
+    else:
+        data["vendorasset_migration_pid_list"] = None
+
+    data["vendorasset_product_price"] = _parse_decimal(
+        row.get("Product List Price $")
+    )
+    data["vendorasset_service_price"] = _parse_decimal(
+        row.get("Default Service List Price $")
+    )
+    data["vendorasset_service_level"] = _norm_str(row.get("Default Service Level"))
+    data[
+        "vendorasset_existing_coverage_level_list_price"
+    ] = _parse_decimal(row.get("Existing Coverage Level List Price $"))
+    data["vendorasset_product_so"] = _norm_str(row.get("Product SO"))
+    data["vendorasset_product_po"] = _norm_str(row.get("Product PO"))
+    data["vendorasset_service_so"] = _norm_str(row.get("Service SO"))
+    data["vendorasset_service_po"] = _norm_str(row.get("Service PO"))
+    data["vendorasset_web_order_id"] = _norm_str(row.get("Web Order ID"))
+    data["vendorasset_auto_renewal"] = _norm_str(row.get("Auto-renewal flag"))
+    data["vendorasset_installed_status"] = _norm_str(
+        row.get("Installed Base Status")
+    )
+    data["vendorasset_atr_eligible"] = _norm_str(row.get("ATR Eligible"))
+    data["vendorasset_do_not_renew_reason"] = _norm_str(
+        row.get("Do Not Renew Reason")
+    )
+    data["vendorasset_deal_id"] = _norm_str(row.get("Deal ID"))
+    data["vendorasset_install_site_cr_parent_name"] = _norm_str(
+        row.get("Install Site CR Parent Party Name")
+    )
+    data["vendorasset_install_site_cr_party_name"] = _norm_str(
+        row.get("Install Site CR Party Name")
+    )
+    data["vendorasset_best_partner_be_geo_id"] = _parse_int(
+        row.get("Best Partner BE GEO ID")
+    )
+    data["vendorasset_best_partner_be_geo_name"] = _norm_str(
+        row.get("Best Partner BE GEO Name")
+    )
+
+    return data
+
+
+# =============================================================================
+# EXCEL STREAMING
+# =============================================================================
+def _stream_excel_rows(path_xls: Path) -> Tuple[List[str], Any, Any]:
+    """
+    Retorna (headers, iterador de rows, workbook) usando openpyxl em modo read_only.
+    """
+    wb = load_workbook(str(path_xls), read_only=True, data_only=True)
+    ws = wb.active
+
+    rows_iter = ws.iter_rows(values_only=True)
+    headers = next(rows_iter)
+    headers = [str(h).strip() if h is not None else "" for h in headers]
+
+    return headers, rows_iter, wb
+
+
+# =============================================================================
+# PROCESSAMENTO EM CHUNKS
+# =============================================================================
+def _process_chunk(
+    buffer: List[Tuple[Any, ...]],
+    headers: List[str],
+    file_name: str,
+    log_repo: ImportLogRepository,
+    contract_repo: ContractVendorAssetRepository,
+    cache: LookupCache,
+    failed_rows: List[List[Any]],
+) -> Tuple[int, int]:
+    """
+    Processa um chunk de linhas do Excel.
+
+    Retorna:
+        (qtd_linhas_processadas, qtd_linhas_sucesso)
+    """
+    idx_map = {h: i for i, h in enumerate(headers)}
+    linhas_processadas = 0
+    linhas_sucesso = 0
+
+    # Conjunto em memória para evitar logs duplicados na mesma execução.
+    # A chave é composta por (message, column, value).
+    logged_errors: set[Tuple[str, str, str]] = set()
+
+    def log_once(
+        *,
+        message: str,
+        column: Optional[str] = None,
+        value: Optional[str] = None,
+        row: int = 0,
+    ) -> None:
+        key = (message, column or "", value or "")
+        if key in logged_errors:
+            return
+        logged_errors.add(key)
+        log_repo.create(
+            source="IMPORT_CISCO_READY",
+            file=file_name,
+            row=row,
+            message=message,
+            column=column,
+            value=value,
+        )
+
+    for raw_row in buffer:
+        linhas_processadas += 1
+        # Número da linha no Excel pode ser ajustado se necessário
+        excel_row_number = 0
+
+        row_dict = {
+            h: (raw_row[idx_map[h]] if idx_map[h] < len(raw_row) else None)
+            for h in headers
+        }
+
+        linha_ok = True
+
+        # customer_id
+        customer_id = get_customer_id_from_row(row_dict, cache)
+        if not customer_id:
+            log_repo.create(
+                source="IMPORT_CISCO_READY",
+                file=file_name,
+                row=excel_row_number,
+                message="Customer não encontrado",
+                column="Install Site CR Parent Party Name / Install Site CR GU Name",
+                value=str(
+                    row_dict.get("Install Site CR Parent Party Name")
+                    or row_dict.get("Install Site CR GU Name")
+                    or ""
+                ),
+            )
+            linha_ok = False
+
+        # product_id
+        product_id = get_or_create_product_id_from_row(row_dict, cache)
+        if not product_id:
+            log_repo.create(
+                source="IMPORT_CISCO_READY",
+                file=file_name,
+                row=excel_row_number,
+                message="Product não encontrado/criado",
+                column="Product ID",
+                value=str(row_dict.get("Product ID") or ""),
+            )
+            linha_ok = False
+
+        # asset_id
+        asset_id = None
+        if linha_ok:
+            asset_id = get_or_create_asset_id_from_row(
+                row=row_dict,
+                product_id=product_id,
+                customer_id=customer_id,
+                cache=cache,
+            )
+            if not asset_id:
+                log_repo.create(
+                    source="IMPORT_CISCO_READY",
+                    file=file_name,
+                    row=excel_row_number,
+                    message="Asset não encontrado/criado",
+                    column="Serial Number / PAK number / Instance ID",
+                    value=str(
+                        row_dict.get("Serial Number / PAK number")
+                        or row_dict.get("Instance ID")
+                        or ""
+                    ),
+                )
+                linha_ok = False
+
+        # valida colunas obrigatórias de contrato
+        if linha_ok:
+            start_val = row_dict.get("Covered Line Start Date")
+            end_val = row_dict.get("Covered Line End Date")
+
+            if not start_val:
+                log_repo.create(
+                    source="IMPORT_CISCO_READY",
+                    file=file_name,
+                    row=excel_row_number,
+                    message="Campo obrigatório vazio",
+                    column="Covered Line Start Date",
+                    value="",
+                )
+                linha_ok = False
+
+            if not end_val:
+                log_repo.create(
+                    source="IMPORT_CISCO_READY",
+                    file=file_name,
+                    row=excel_row_number,
+                    message="Campo obrigatório vazio",
+                    column="Covered Line End Date",
+                    value="",
+                )
+                linha_ok = False
+
+        if not linha_ok or not customer_id or not product_id:
+            failed_rows.append(list(raw_row))
+            continue
+
+        # atualiza datas de ciclo de vida
+        try:
+            update_product_lifecycle_dates_from_row(row_dict, product_id)
+        except Exception:
+            pass
+
+        try:
+            where_clause, params = _build_vendorasset_search_clause(
+                customer_id=customer_id,
+                asset_id=asset_id,
+                row=row_dict,
+            )
+            vendorasset_id = contract_repo.find_vendorasset_id(
+                where_clause=where_clause,
+                params=params,
+            )
+        except Exception:
+            vendorasset_id = 0
+
+        vendorasset_data = _build_vendorasset_data(
+            customer_id=customer_id,
+            asset_id=asset_id,
+            row=row_dict,
+        )
+
+        if not vendorasset_data.get("vendorasset_start") or not vendorasset_data.get(
+            "vendorasset_end"
+        ):
+            log_repo.create(
+                source="IMPORT_CISCO_READY",
+                file=file_name,
+                row=excel_row_number,
+                message="Datas de contrato inválidas após parse",
+                column="Covered Line Start/End Date",
+                value=f"{row_dict.get('Covered Line Start Date')} / {row_dict.get('Covered Line End Date')}",
+            )
+            failed_rows.append(list(raw_row))
+            continue
+
+        linha_sucesso = True
+
+        if vendorasset_id:
+            try:
+                update_data: Dict[str, Any] = {}
+
+                campos_variaveis = [
+                    "vendorasset_quantity",
+                    "vendorasset_product_price",
+                    "vendorasset_renewal",
+                    "vendorasset_migration_pid_list",
+                    "vendorasset_service_price",
+                    "vendorasset_service_level",
+                    "vendorasset_existing_coverage_level_list_price",
+                    "vendorasset_auto_renewal",
+                    "vendorasset_installed_status",
+                    "vendorasset_atr_eligible",
+                    "vendorasset_do_not_renew_reason",
+                    "vendorasset_install_site_cr_parent_name",
+                    "vendorasset_install_site_cr_party_name",
+                    "vendorasset_best_partner_be_geo_id",
+                    "vendorasset_best_partner_be_geo_name",
+                    "vendorasset_start",
+                    "vendorasset_end",
+                ]
+
+                view_data = contract_repo.find_from_view_by_id(
+                    fields=", ".join(campos_variaveis),
+                    vendorasset_id=vendorasset_id,
+                    as_df=False,
+                )
+
+                if view_data is None:
+                    view_data = {}
+
+                for campo in campos_variaveis:
+                    novo_valor = vendorasset_data.get(campo)
+                    valor_atual = view_data.get(campo)
+                    if str(novo_valor) != str(valor_atual):
+                        update_data[campo] = novo_valor
+
+                if update_data:
+                    affected = contract_repo.update(
+                        data=update_data,
+                        where={"vendorasset_id": vendorasset_id},
+                    )
+                    if affected == 0:
+                        linha_sucesso = False
+                        log_repo.create(
+                            source="IMPORT_CISCO_READY",
+                            file=file_name,
+                            row=excel_row_number,
+                            message="Falha ao atualizar tbContractVendorAsset",
+                        )
+            except Exception as e:
+                linha_sucesso = False
+                log_repo.create(
+                    source="IMPORT_CISCO_READY",
+                    file=file_name,
+                    row=excel_row_number,
+                    message=f"Erro ao atualizar vendorasset_id: {e}",
+                )
+        else:
+            try:
+                new_id = contract_repo.insert(vendorasset_data)
+                if not new_id:
+                    linha_sucesso = False
+                    log_repo.create(
+                        source="IMPORT_CISCO_READY",
+                        file=file_name,
+                        row=excel_row_number,
+                        message="Falha ao inserir tbContractVendorAsset",
+                    )
+            except Exception as e:
+                linha_sucesso = False
+                log_repo.create(
+                    source="IMPORT_CISCO_READY",
+                    file=file_name,
+                    row=excel_row_number,
+                    message=f"Erro ao inserir tbContractVendorAsset: {e}",
+                )
+
+        if linha_sucesso:
+            linhas_sucesso += 1
+        else:
+            failed_rows.append(list(raw_row))
+
+    return linhas_processadas, linhas_sucesso
+
+
+# =============================================================================
+# FUNÇÃO PRINCIPAL
+# =============================================================================
+def run_import(file_name: str, user_id: Optional[str]) -> Dict[str, str]:
+    """
+    Função de entrada chamada pelo scheduler de importações.
+    Implementação com:
+    - Excel streaming (openpyxl)
+    - Processamento em chunks
+    - Cache de lookups
+    - Atualização de progresso na tbImportControl (status RUNNING)
+    """
+    logger.info("Iniciando import_cisco_ready para arquivo: %s", file_name)
+    start_time = datetime.now()
+
+    path = BASE_INPUT_PATH / file_name
+
+    log_repo = ImportLogRepository()
+    contract_repo = ContractVendorAssetRepository()
+    import_ctrl_repo = ImportControlRepository()
+    cache = LookupCache()
+
+    # Encontrar importctrl_id para este arquivo
+    importctrl_id = import_ctrl_repo.get_id_by_file(file_name)
+    if not importctrl_id:
+        msg = f"Registro de controle não encontrado para arquivo: {file_name}"
+        logger.error(msg)
+        # ainda assim logamos em tbImportLog
+        log_repo.create(
+            source="IMPORT_CISCO_READY",
+            file=file_name,
+            row=0,
+            message=msg,
+        )
+        return {"status": "FAILED", "message": msg}
+
+    # 1) Validação de existência e extensão
+    if not path.exists():
+        msg = f"Arquivo não encontrado: {path}"
+        logger.error(msg)
+        log_repo.create(
+            source="IMPORT_CISCO_READY",
+            file=file_name,
+            row=0,
+            message=msg,
+        )
+        import_ctrl_repo.fail_import(importctrl_id, message=msg)
+        return {"status": "FAILED", "message": msg}
+
+    if path.suffix.lower() != ".xlsx":
+        msg = "Arquivo deve possuir extensão .xlsx"
+        logger.error(msg)
+        log_repo.create(
+            source="IMPORT_CISCO_READY",
+            file=file_name,
+            row=0,
+            message=msg,
+        )
+        import_ctrl_repo.fail_import(importctrl_id, message=msg)
+        return {"status": "FAILED", "message": msg}
+
+    # Marca início da importação
+    import_ctrl_repo.start_import(
+        importctrl_id,
+        message=f"Iniciando processamento do arquivo {file_name}",
+    )
+
+    # 2) Leitura streaming do Excel
+    try:
+        headers, rows_iter, wb = _stream_excel_rows(path)
+    except Exception as e:
+        msg = f"Erro ao abrir Excel em streaming: {e}"
+        logger.exception(msg)
+        log_repo.create(
+            source="IMPORT_CISCO_READY",
+            file=file_name,
+            row=0,
+            message=msg,
+        )
+        import_ctrl_repo.fail_import(importctrl_id, message=msg)
+        return {"status": "FAILED", "message": msg}
+
+    # 3) Validação de colunas via domínio
+    validation = validate_cisco_ready_file_columns(headers)
+    missing_required = validation.get("missing_required") or []
+
+    if missing_required:
+        msg = f"Colunas obrigatórias ausentes: {', '.join(missing_required)}"
+        logger.error(msg)
+        log_repo.create(
+            source="IMPORT_CISCO_READY",
+            file=file_name,
+            row=0,
+            message=msg,
+        )
+        try:
+            wb.close()
+        except Exception:
+            pass
+        import_ctrl_repo.fail_import(importctrl_id, message=msg)
+        return {"status": "FAILED", "message": msg}
+
+    # 4) Estimar total de linhas com um segundo workbook leve
+    try:
+        wb2 = load_workbook(str(path), read_only=True, data_only=True)
+        total_rows = max(wb2.active.max_row - 1, 0)
+        wb2.close()
+    except Exception:
+        total_rows = 0  # fallback
+
+    # 5) Loop em chunks
+    failed_rows: List[List[Any]] = []
+    read_rows = 0
+    ok_rows = 0
+    last_status_update = 0
+
+    # status inicial na tbImportControl
+    try:
+        eta = _calc_eta(start_time, read_rows, total_rows)
+        progress_msg = _build_progress_message(
+            filename=file_name,
+            read_rows=read_rows,
+            total_rows=total_rows,
+            started_at=start_time,
+            eta_dt=eta,
+        )
+        import_ctrl_repo.update_status(
+            importctrl_id=importctrl_id,
+            status=ImportStatus.RUNNING,
+            message=progress_msg,
+        )
+    except Exception:
+        # não interrompe a importação por falha de status
+        pass
+
+    buffer: List[Tuple[Any, ...]] = []
+
+    try:
+        for raw_row in rows_iter:
+            buffer.append(raw_row)
+            if len(buffer) >= CHUNK_ROWS:
+                processed, success = _process_chunk(
+                    buffer=buffer,
+                    headers=headers,
+                    file_name=file_name,
+                    log_repo=log_repo,
+                    contract_repo=contract_repo,
+                    cache=cache,
+                    failed_rows=failed_rows,
+                )
+                read_rows += processed
+                ok_rows += success
+                buffer.clear()
+
+                if read_rows - last_status_update >= STATUS_EVERY:
+                    try:
+                        eta = _calc_eta(start_time, read_rows, total_rows)
+                        progress_msg = _build_progress_message(
+                            filename=file_name,
+                            read_rows=read_rows,
+                            total_rows=total_rows,
+                            started_at=start_time,
+                            eta_dt=eta,
+                        )
+                        import_ctrl_repo.update_status(
+                            importctrl_id=importctrl_id,
+                            status=ImportStatus.RUNNING,
+                            message=progress_msg,
+                        )
+                    except Exception:
+                        pass
+                    last_status_update = read_rows
+
+        # processar resto
+        if buffer:
+            processed, success = _process_chunk(
+                buffer=buffer,
+                headers=headers,
+                file_name=file_name,
+                log_repo=log_repo,
+                contract_repo=contract_repo,
+                cache=cache,
+                failed_rows=failed_rows,
+            )
+            read_rows += processed
+            ok_rows += success
+            buffer.clear()
+
+    except Exception as e:
+        msg = f"Erro durante processamento em chunks: {e}"
+        logger.exception(msg)
+        log_repo.create(
+            source="IMPORT_CISCO_READY",
+            file=file_name,
+            row=0,
+            message=msg,
+        )
+        try:
+            wb.close()
+        except Exception:
+            pass
+        import_ctrl_repo.fail_import(importctrl_id, message=msg)
+        return {"status": "FAILED", "message": msg}
+    finally:
+        try:
+            wb.close()
+        except Exception:
+            pass
+
+    # 6) Gravar Excel apenas com falhas
+    try:
+        if failed_rows:
+            df_failed = pd.DataFrame(failed_rows, columns=headers)
+        else:
+            df_failed = pd.DataFrame(columns=headers)
+        df_failed.to_excel(path, index=False)
+    except Exception as e:
+        logger.exception("Erro ao salvar Excel de saída: %s", e)
+        log_repo.create(
+            source="IMPORT_CISCO_READY",
+            file=file_name,
+            row=0,
+            message=f"Erro ao salvar Excel com falhas: {e}",
+        )
+
+    total_fail = len(failed_rows)
+    tempo_execucao = (datetime.now() - start_time).total_seconds()
+
+    # 7) Atualizar status final na tbImportControl
+    try:
+        if total_fail > 0:
+            final_msg = (
+                f"Importação Cisco Ready concluída com pendências. "
+                f"Total linhas estimadas: {total_rows}, "
+                f"Lidas: {read_rows}, "
+                f"Sucesso: {ok_rows}, "
+                f"Falha: {total_fail}, "
+                f"Tempo: {tempo_execucao:.2f}s."
+            )
+            import_ctrl_repo.finish_import(
+                importctrl_id=importctrl_id,
+                message=final_msg,
+            )
+            return {"status": "PENDING", "message": final_msg}
+
+        final_msg = (
+            f"Importação Cisco Ready concluída com sucesso. "
+            f"Total processado (estimado): {total_rows or read_rows}. "
+            f"Tempo: {tempo_execucao:.2f}s."
+        )
+        import_ctrl_repo.finish_import(
+            importctrl_id=importctrl_id,
+            message=final_msg,
+        )
+        return {"status": "FINISHED", "message": final_msg}
+    except Exception as e:
+        # Se falhar ao gravar status final, marcamos como FAILED
+        fail_msg = f"Falha ao atualizar status final da importação: {e}"
+        logger.exception(fail_msg)
+        import_ctrl_repo.fail_import(importctrl_id, message=fail_msg)
+        return {"status": "FAILED", "message": fail_msg}

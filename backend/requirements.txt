@@ -1,0 +1,32 @@
+--trusted-host pypi.org
+--trusted-host pypi.python.org
+--trusted-host files.pythonhosted.org
+
+# Web framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# Validation
+pydantic==2.9.0
+pydantic-settings==2.5.2
+
+# Database
+mysql-connector-python==9.0.0
+
+# Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.2.0
+
+# Environment
+python-dotenv==1.0.1
+
+# Utils
+python-multipart==0.0.12
+
+# Data Processing
+pandas==2.3.3
+
+# ORM & Async Database
+greenlet==3.2.5
+sqlalchemy==2.0.51

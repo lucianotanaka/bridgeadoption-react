@@ -1,0 +1,219 @@
+"""
+Elimina duplicidade de asset por serial + product_id.
+
+Regras:
+- Mantém o menor asset_id
+- Consolida dados no menor ID
+- Atualiza relacionamentos
+- Marca os demais como VAGO
+- Executa em transação por grupo
+- Registra progresso no ImportControl (id=1)
+- Calcula previsão estimada de término (ETA)
+"""
+
+import time
+from datetime import datetime, timedelta
+from typing import Any, Dict
+
+from src.infrastructure.database.connection import get_db_connection
+from src.infrastructure.database.repositories.import_control_repository import (
+    ImportControlRepository,
+    ImportStatus,
+)
+
+IMPORT_ID = 1
+
+
+# ======================================================
+# LOG DE PROGRESSO
+# ======================================================
+
+def log_progress(message: str) -> None:
+    repo = ImportControlRepository()
+    repo.update_status(
+        importctrl_id=IMPORT_ID,
+        status=ImportStatus.RUNNING,
+        message=message,
+    )
+
+
+# ======================================================
+# PROCESSO PRINCIPAL
+# ======================================================
+
+def eliminar_duplicidade_serial_asset():
+
+    inicio_execucao = time.time()
+    grupo_atual = 0
+
+    conn = get_db_connection()
+
+    # ---------------------------------------------------
+    # 1️⃣ Calcular total de grupos duplicados
+    # ---------------------------------------------------
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT COUNT(*) FROM (
+            SELECT asset_serial_number, asset_product_id
+            FROM tbAsset
+            WHERE asset_serial_number IS NOT NULL
+              AND LENGTH(asset_serial_number) > 3
+            GROUP BY asset_serial_number, asset_product_id
+            HAVING COUNT(*) > 1
+        ) X
+    """)
+    total_grupos = cursor.fetchone()[0]
+    cursor.close()
+
+    log_progress(f"Iniciando eliminação. Total de grupos: {total_grupos}")
+
+    try:
+        while True:
+
+            # ---------------------------------------------------
+            # Buscar próximo grupo duplicado
+            # ---------------------------------------------------
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT A.asset_serial_number, A.asset_product_id
+                FROM tbAsset A
+                WHERE A.asset_serial_number IS NOT NULL
+                  AND LENGTH(A.asset_serial_number) > 3
+                  AND EXISTS (
+                      SELECT 1 FROM tbAsset B
+                      WHERE B.asset_serial_number = A.asset_serial_number
+                        AND (
+                              (B.asset_product_id = A.asset_product_id)
+                              OR (B.asset_product_id IS NULL AND A.asset_product_id IS NULL)
+                            )
+                        AND B.asset_id <> A.asset_id
+                  )
+                LIMIT 1
+            """)
+            row = cursor.fetchone()
+            cursor.close()
+
+            if not row:
+                break
+
+            serial = row["asset_serial_number"]
+            product_id = row["asset_product_id"]
+
+            grupo_atual += 1
+
+            # ---------------------------------------------------
+            # Calcular ETA
+            # ---------------------------------------------------
+            tempo_decorrido = time.time() - inicio_execucao
+            tempo_medio = tempo_decorrido / grupo_atual
+            grupos_restantes = max(total_grupos - grupo_atual, 0)
+            eta_segundos = tempo_medio * grupos_restantes
+            horario_previsto = datetime.now() + timedelta(seconds=eta_segundos)
+
+            percentual = (
+                (grupo_atual / total_grupos) * 100
+                if total_grupos > 0 else 100
+            )
+
+            log_progress(
+                f"Grupo {grupo_atual}/{total_grupos} "
+                f"({percentual:.2f}%) | Serial: {serial} | "
+                f"Previsão término: {horario_previsto.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+
+            cursor = conn.cursor(dictionary=True)
+
+            try:
+                # Buscar todos do grupo
+                sql_assets = """
+                    SELECT *
+                    FROM tbAsset
+                    WHERE asset_serial_number = %s
+                """
+
+                params = [serial]
+
+                if product_id is None:
+                    sql_assets += " AND asset_product_id IS NULL"
+                else:
+                    sql_assets += " AND asset_product_id = %s"
+                    params.append(product_id)
+
+                sql_assets += " ORDER BY asset_id ASC"
+
+                cursor.execute(sql_assets, tuple(params))
+                assets = cursor.fetchall()
+
+                if not assets:
+                    conn.commit()
+                    continue
+
+                menor_id = assets[0]["asset_id"]
+
+                # Consolidar dados
+                consolidado: Dict[str, Any] = {
+                    k: v for k, v in assets[0].items() if k != "asset_id"
+                }
+
+                for asset in assets:
+                    for campo, valor in asset.items():
+                        if campo == "asset_id":
+                            continue
+                        if (
+                            (consolidado.get(campo) in (None, "", 0))
+                            and valor not in (None, "", 0)
+                        ):
+                            consolidado[campo] = valor
+
+                if consolidado:
+                    set_clause = ", ".join([f"{k}=%s" for k in consolidado])
+                    cursor.execute(
+                        f"UPDATE tbAsset SET {set_clause} WHERE asset_id=%s",
+                        tuple(consolidado.values()) + (menor_id,),
+                    )
+
+                for asset in assets[1:]:
+
+                    id_atual = asset["asset_id"]
+
+                    cursor.execute(
+                        "UPDATE tbContractNTTAsset SET nttasset_asset_id=%s WHERE nttasset_asset_id=%s",
+                        (menor_id, id_atual),
+                    )
+                    cursor.execute(
+                        "UPDATE tbContractVendorAsset SET vendorasset_asset_id=%s WHERE vendorasset_asset_id=%s",
+                        (menor_id, id_atual),
+                    )
+                    cursor.execute(
+                        "UPDATE tbNotaFiscalAsset SET nfasset_asset_id=%s WHERE nfasset_asset_id=%s",
+                        (menor_id, id_atual),
+                    )
+
+                    novo_serial = f"VAGO {id_atual} - subst. por {menor_id}"
+
+                    cursor.execute("""
+                        UPDATE tbAsset SET
+                            asset_product_id=0,
+                            asset_serial_number=%s
+                        WHERE asset_id=%s
+                    """, (novo_serial, id_atual))
+
+                conn.commit()
+
+            except Exception:
+                conn.rollback()
+                raise
+
+            finally:
+                cursor.close()
+
+        tempo_total_min = (time.time() - inicio_execucao) / 60
+
+        log_progress(
+            f"Finalizado com sucesso. "
+            f"Tempo total: {tempo_total_min:.2f} minutos. "
+            f"Total de grupos: {grupo_atual}"
+        )
+
+    finally:
+        conn.close()
