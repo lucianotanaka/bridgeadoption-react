@@ -42,6 +42,12 @@ from app.tasks.filter_service import (
     get_next_follow_up,
     get_activity_detail,
     update_activity,
+    get_company_list,
+    get_person_list,
+    get_task_raci,
+    add_raci,
+    remove_raci,
+    update_raci_responsibility,
 )
 from app.tasks.lci_viability_service import (
     get_lci_track_pm_list,
@@ -99,6 +105,18 @@ class UpdateTaskRequest(BaseModel):
 
 class UpdateActivityRequest(BaseModel):
     data: Dict[str, Any]
+
+
+class AddRACIRequest(BaseModel):
+    person_id: int
+    responsibility: str  # R, A, C, I
+    activity_id: Optional[int] = None
+    person_type: Optional[str] = "user"
+    subtask_id: Optional[int] = 0
+
+
+class UpdateRACIRequest(BaseModel):
+    responsibility: str  # R, A, C, I
 
 
 class AddHistoryRequest(BaseModel):
@@ -316,6 +334,75 @@ def lci_viability_save_group(
         user_name=user_name,
     )
     return save_group_status(req)
+
+
+# ─── RACI endpoints ───────────────────────────────────────────────────────────
+
+@router.get("/company-list", response_model=List[Dict[str, Any]])
+def task_company_list(current_user: Annotated[dict, Depends(get_current_user)]):
+    """Returns list of companies from tbCompany for RACI person filter."""
+    return get_company_list()
+
+
+@router.get("/person-list", response_model=List[Dict[str, Any]])
+def task_person_list(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    company_id: Optional[int] = Query(None),
+):
+    """Returns active persons from tbPerson, optionally filtered by company_id."""
+    return get_person_list(company_id=company_id)
+
+
+@router.get("/detail/{task_id}/raci", response_model=List[Dict[str, Any]])
+def task_raci_get(
+    task_id: int,
+    current_user: Annotated[dict, Depends(get_current_user)],
+    activity_id: Optional[int] = Query(None),
+):
+    """Returns active RACI records for a task (optionally filtered by activity)."""
+    return get_task_raci(task_id=task_id, activity_id=activity_id)
+
+
+@router.post("/detail/{task_id}/raci", response_model=Dict[str, Any])
+def task_raci_add(
+    task_id: int,
+    body: AddRACIRequest,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Adds a person to the RACI matrix for a task/activity."""
+    new_id = add_raci(
+        task_id=task_id,
+        person_id=body.person_id,
+        responsibility=body.responsibility,
+        activity_id=body.activity_id,
+        person_type=body.person_type or "user",
+        subtask_id=body.subtask_id or 0,
+    )
+    return {"success": new_id > 0, "raci_id": new_id}
+
+
+@router.patch("/detail/{task_id}/raci/{raci_id}", response_model=Dict[str, Any])
+def task_raci_update(
+    task_id: int,
+    raci_id: int,
+    body: UpdateRACIRequest,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Updates the responsibility of a RACI record."""
+    success = update_raci_responsibility(raci_id=raci_id, responsibility=body.responsibility)
+    return {"success": success}
+
+
+@router.delete("/detail/{task_id}/raci/{raci_id}", response_model=Dict[str, Any])
+def task_raci_remove(
+    task_id: int,
+    raci_id: int,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Disables (soft-deletes) a RACI record."""
+    user_name = current_user.get("user_name", "")
+    success = remove_raci(raci_id=raci_id, disabled_by=user_name)
+    return {"success": success}
 
 
 # ─── Activity endpoints ───────────────────────────────────────────────────────

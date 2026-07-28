@@ -171,6 +171,39 @@ export interface FollowUpItem {
   follow_up_date?: string;
 }
 
+export interface RACIItem {
+  taskraci_id: number;
+  taskraci_task_id?: number;
+  taskraci_activity_id?: number;
+  taskraci_person_id?: number;
+  taskraci_person_type?: string;
+  taskraci_responsibility?: string;
+  taskraci_enabled?: number;
+  person_name?: string;
+  person_email?: string;
+  person_job_title?: string;
+  person_telephone?: string;
+  person_cellphone?: string;
+  person_type_label?: string;
+  person_company_name?: string;
+  [key: string]: unknown;
+}
+
+export interface PersonItem {
+  person_id: number;
+  person_name: string;
+  person_type?: string;
+  person_company_id?: number;
+  person_job_title?: string;
+  [key: string]: unknown;
+}
+
+export interface CompanyItem {
+  company_id: number;
+  company_name: string;
+  [key: string]: unknown;
+}
+
 export const tasksApi = {
   // Overview & KPI
   getKPI: () => apiClient.get<TaskKPI>("/tasks/kpi"),
@@ -214,4 +247,21 @@ export const tasksApi = {
 
   // Follow-up
   getFollowUp: () => apiClient.get<FollowUpGroup>("/tasks/follow-up"),
+
+  // RACI
+  getRaci: (taskId: number, activityId?: number) => {
+    const params = activityId != null ? `?activity_id=${activityId}` : "";
+    return apiClient.get<RACIItem[]>(`/tasks/detail/${taskId}/raci${params}`);
+  },
+  addRaci: (taskId: number, data: { person_id: number; responsibility: string; activity_id?: number | null; person_type?: string; subtask_id?: number }) =>
+    apiClient.post<{ success: boolean; raci_id: number }>(`/tasks/detail/${taskId}/raci`, data),
+  updateRaci: (taskId: number, raciId: number, responsibility: string) =>
+    apiClient.patch<{ success: boolean }>(`/tasks/detail/${taskId}/raci/${raciId}`, { responsibility }),
+  removeRaci: (taskId: number, raciId: number) =>
+    apiClient.delete<{ success: boolean }>(`/tasks/detail/${taskId}/raci/${raciId}`),
+  getPersonList: (companyId?: number) => {
+    const params = companyId != null ? `?company_id=${companyId}` : "";
+    return apiClient.get<PersonItem[]>(`/tasks/person-list${params}`);
+  },
+  getCompanyList: () => apiClient.get<CompanyItem[]>("/tasks/company-list"),
 };

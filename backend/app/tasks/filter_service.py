@@ -359,3 +359,165 @@ def update_activity(activity_id: int, data: Dict[str, Any]) -> bool:
     except Exception as e:
         logger.error(f"update_activity: {e}")
         return False
+
+
+# ─────────────────────────────────────────
+# PERSON LIST  (para RACI selectbox)
+# ─────────────────────────────────────────
+
+def get_company_list() -> List[Dict[str, Any]]:
+    """Returns list of companies from tbCompany for RACI person filter."""
+    if not _REPOS_OK:
+        return []
+    try:
+        from src.infrastructure.database.repositories.company_repository import CompanyRepository
+        repo = CompanyRepository()
+        rows = repo.list_available_companies(as_df=False)
+        return [_serialize(dict(r)) for r in rows]
+    except Exception as e:
+        logger.error(f"get_company_list: {e}")
+        return []
+
+
+def get_person_list(company_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Returns active persons from tbPerson, optionally filtered by company."""
+    if not _REPOS_OK:
+        return []
+    try:
+        from src.infrastructure.database.repositories.person_repository import PersonRepository
+        repo = PersonRepository()
+        where: dict = {"person_enabled": 1}
+        if company_id is not None:
+            where["person_company_id"] = int(company_id)
+        rows = repo.list_by(where=where, as_df=False)
+        return [_serialize({
+            "person_id": r["person_id"],
+            "person_name": r["person_name"],
+            "person_type": r.get("person_type"),
+            "person_company_id": r.get("person_company_id"),
+            "person_job_title": r.get("person_job_title"),
+        }) for r in rows]
+    except Exception as e:
+        logger.error(f"get_person_list: {e}")
+        return []
+
+
+# ─────────────────────────────────────────
+# RACI
+# ─────────────────────────────────────────
+
+def get_task_raci(task_id: int, activity_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Returns active RACI records for a task/activity, joined with person name."""
+    if not _REPOS_OK:
+        return []
+    try:
+        from src.infrastructure.database.connection import get_db_connection
+        conditions = ["r.taskraci_task_id = %s", "r.taskraci_enabled = 1"]
+        params: List[Any] = [int(task_id)]
+
+        if activity_id is not None:
+            conditions.append("r.taskraci_activity_id = %s")
+            params.append(int(activity_id))
+        else:
+            conditions.append("(r.taskraci_activity_id IS NULL OR r.taskraci_activity_id = 0)")
+
+        where_clause = " AND ".join(conditions)
+        query = f"""
+            SELECT
+                r.taskraci_id,
+                r.taskraci_task_id,
+                r.taskraci_activity_id,
+                r.taskraci_person_id,
+                r.taskraci_person_type,
+                r.taskraci_responsibility,
+                r.taskraci_enabled,
+                COALESCE(p.person_name, CONCAT('Person #', r.taskraci_person_id)) AS person_name,
+                p.person_email,
+                p.person_job_title,
+                p.person_telephone,
+                p.person_cellphone,
+                p.person_type AS person_type_label,
+                c.company_name AS person_company_name
+            FROM tbTaskRACI r
+            LEFT JOIN tbPerson p ON p.person_id = r.taskraci_person_id
+            LEFT JOIN tbCompany c ON c.company_id = p.person_company_id
+            WHERE {where_clause}
+            ORDER BY r.taskraci_responsibility, person_name
+        """
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(query, tuple(params))
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return [_serialize(dict(r)) for r in rows]
+    except Exception as e:
+        logger.error(f"get_task_raci: {e}\n{traceback.format_exc()}")
+        return []
+
+
+def add_raci(
+    task_id: int,
+    person_id: int,
+    responsibility: str,
+    activity_id: Optional[int] = None,
+    person_type: str = "user",
+    subtask_id: int = 0,
+) -> int:
+    """Inserts a RACI record. Returns new taskraci_id or 0 on error."""
+    if not _REPOS_OK:
+        return 0
+    try:
+        from src.infrastructure.database.repositories.task_raci_repository import TaskRACIRepository
+        repo = TaskRACIRepository()
+        data = {
+            "taskraci_task_id": int(task_id),
+            "taskraci_activity_id": int(activity_id) if activity_id is not None else 0,
+            "taskraci_subtask_id": subtask_id,
+            "taskraci_person_id": int(person_id),
+            "taskraci_person_type": person_type,
+            "taskraci_responsibility": responsibility,
+            "taskraci_enabled": 1,
+        }
+        return repo.insert(data)
+    except Exception as e:
+        logger.error(f"add_raci: {e}")
+        return 0
+
+
+def remove_raci(raci_id: int, disabled_by: str) -> bool:
+    """Disables a RACI record (soft delete)."""
+    if not _REPOS_OK:
+        return False
+    try:
+        from src.infrastructure.database.repositories.task_raci_repository import TaskRACIRepository
+        repo = TaskRACIRepository()
+        rows = repo.update(
+            data={
+                "taskraci_enabled": 0,
+                "taskraci_disabled_by": disabled_by,
+                "taskraci_disabled_date": date.today().isoformat(),
+            },
+            where={"taskraci_id": raci_id},
+        )
+        return rows > 0
+    except Exception as e:
+        logger.error(f"remove_raci: {e}")
+        return False
+
+
+def update_raci_responsibility(raci_id: int, responsibility: str) -> bool:
+    """Updates the responsibility (R/A/C/I) of an existing RACI record."""
+    if not _REPOS_OK:
+        return False
+    try:
+        from src.infrastructure.database.repositories.task_raci_repository import TaskRACIRepository
+        repo = TaskRACIRepository()
+        rows = repo.update(
+            data={"taskraci_responsibility": responsibility},
+            where={"taskraci_id": raci_id, "taskraci_enabled": 1},
+        )
+        return rows > 0
+    except Exception as e:
+        logger.error(f"update_raci_responsibility: {e}")
+        return False

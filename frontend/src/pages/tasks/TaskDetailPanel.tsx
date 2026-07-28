@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { ChevronLeft, ChevronRight, Save, History, X, Edit2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Save, History, X, Edit2, Users, Info } from "lucide-react";
 import { tasksApi } from "@/api/tasks";
-import type { TaskItem, ActivityItem, HistoryItem, CSMItem, StatusType } from "@/api/tasks";
+import type { TaskItem, ActivityItem, HistoryItem, CSMItem, StatusType, RACIItem, PersonItem, CompanyItem } from "@/api/tasks";
 
 interface Props {
   tasks: TaskItem[];
@@ -387,6 +387,239 @@ function TaskEditForm({ task, csms, statusTypes, onSaved }: { task: TaskItem; cs
   );
 }
 
+// ─── RACI Matrix ──────────────────────────────────────────────────────────────
+
+const RACI_COLS: { key: string; label: string; color: string; bg: string }[] = [
+  { key: "R", label: "R — Responsible", color: "text-blue-700 dark:text-blue-300", bg: "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800" },
+  { key: "A", label: "A — Accountable", color: "text-purple-700 dark:text-purple-300", bg: "bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800" },
+  { key: "C", label: "C — Consulted", color: "text-amber-700 dark:text-amber-300", bg: "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800" },
+  { key: "I", label: "I — Informed", color: "text-gray-600 dark:text-gray-400", bg: "bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700" },
+];
+
+function RACIMatrix({ task, taskId, selectedActivityId, selectedActivityName }: {
+  task: TaskItem; taskId: number;
+  selectedActivityId: number | null;
+  selectedActivityName?: string;
+}) {
+  const qc = useQueryClient();
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newPersonId, setNewPersonId] = useState("");
+  const [newResponsibility, setNewResponsibility] = useState("R");
+
+  const isTask = selectedActivityId === null;
+
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
+
+  const raciQ = useQuery({
+    queryKey: ["task-raci", taskId, selectedActivityId],
+    queryFn: () => tasksApi.getRaci(taskId, selectedActivityId ?? undefined).then((r) => r.data),
+    staleTime: 60000,
+  });
+
+  const companyQ = useQuery({
+    queryKey: ["company-list"],
+    queryFn: () => tasksApi.getCompanyList().then((r) => r.data),
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const personQ = useQuery({
+    queryKey: ["person-list", selectedCompanyId],
+    queryFn: () => tasksApi.getPersonList(selectedCompanyId ? parseInt(selectedCompanyId) : undefined).then((r) => r.data),
+    staleTime: 5 * 60 * 1000,
+    enabled: true,
+  });
+
+  const addMut = useMutation<unknown, Error, void>({
+    mutationFn: () => {
+      if (!newPersonId) return Promise.resolve(null);
+      return tasksApi.addRaci(taskId, {
+        person_id: parseInt(newPersonId),
+        responsibility: newResponsibility,
+        activity_id: selectedActivityId,
+        person_type: "user",
+      }).then((r) => r.data);
+    },
+    onSuccess: () => {
+      setNewPersonId(""); setShowAddForm(false);
+      void qc.invalidateQueries({ queryKey: ["task-raci", taskId] });
+    },
+  });
+
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editRole, setEditRole] = useState("R");
+  const [infoId, setInfoId] = useState<number | null>(null);
+
+  const updateMut = useMutation<unknown, Error, { raciId: number; responsibility: string }>({
+    mutationFn: ({ raciId, responsibility }) => tasksApi.updateRaci(taskId, raciId, responsibility).then((r) => r.data),
+    onSuccess: () => {
+      setEditingId(null);
+      void qc.invalidateQueries({ queryKey: ["task-raci", taskId] });
+    },
+  });
+
+  const removeMut = useMutation<unknown, Error, number>({
+    mutationFn: (raciId) => tasksApi.removeRaci(taskId, raciId).then((r) => r.data),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["task-raci", taskId] }),
+  });
+
+  const raci = raciQ.data ?? [];
+  const persons = personQ.data ?? [];
+  const byRole = (role: string) => raci.filter((r) => r.taskraci_responsibility === role);
+
+  const personOptions = persons.map((p) => ({ value: String(p.person_id), label: p.person_name }));
+  const alreadyAssigned = new Set(raci.map((r) => `${r.taskraci_person_id}-${r.taskraci_responsibility}`));
+  const availablePersons = personOptions.filter((p) => !alreadyAssigned.has(`${p.value}-${newResponsibility}`));
+
+  return (
+    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3 gap-2">
+        <p className="text-xs font-bold uppercase text-gray-600 dark:text-gray-400 flex items-center gap-1.5">
+          <Users size={12} />
+          {isTask ? `RACI Matrix — Task #${task.task_id}` : `RACI Matrix — ${selectedActivityName ?? "Activity"}`}
+        </p>
+        <button onClick={() => setShowAddForm(!showAddForm)}
+          className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors shrink-0 ${showAddForm ? "bg-blue-600 text-white border-blue-600" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>
+          + Add
+        </button>
+      </div>
+
+      {/* Add form */}
+      {showAddForm && (
+        <div className="mb-3 p-3 bg-gray-50 dark:bg-gray-800/40 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="flex items-end gap-2 flex-wrap">
+            <div className="w-48 shrink-0">
+              <label className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase mb-1 block">Company</label>
+              <select value={selectedCompanyId} onChange={(e) => { setSelectedCompanyId(e.target.value); setNewPersonId(""); }}
+                className="w-full text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                <option value="">All companies</option>
+                {(companyQ.data ?? []).map((c) => <option key={c.company_id} value={String(c.company_id)}>{c.company_name}</option>)}
+              </select>
+            </div>
+            <div className="flex-1 min-w-[160px]">
+              <label className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase mb-1 block">Person</label>
+              <select value={newPersonId} onChange={(e) => setNewPersonId(e.target.value)}
+                className="w-full text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                <option value="">Select person...</option>
+                {availablePersons.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+              </select>
+            </div>
+            <div className="w-36">
+              <label className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase mb-1 block">Role</label>
+              <select value={newResponsibility} onChange={(e) => setNewResponsibility(e.target.value)}
+                className="w-full text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                {RACI_COLS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => { setShowAddForm(false); setNewPersonId(""); }}
+                className="px-2.5 py-1.5 text-[10px] font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 transition-colors">
+                Cancel
+              </button>
+              <button onClick={() => addMut.mutate()} disabled={!newPersonId || addMut.isPending}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white transition-colors">
+                {addMut.isPending ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Save size={10} />}
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RACI grid */}
+      {raciQ.isLoading ? (
+        <div className="flex justify-center py-4"><div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
+      ) : (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          {RACI_COLS.map((col) => {
+            const members = byRole(col.key);
+            return (
+              <div key={col.key} className={`rounded-lg border p-2.5 ${col.bg}`}>
+                <p className={`text-[10px] font-bold uppercase mb-2 ${col.color}`}>{col.label}</p>
+                {members.length === 0 ? (
+                  <p className="text-[10px] text-gray-400 dark:text-gray-600 italic">—</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {members.map((m) => (
+                      <div key={m.taskraci_id} className="group">
+                        {editingId === m.taskraci_id ? (
+                          <div className="space-y-1.5">
+                            <p className="text-[9px] text-gray-500 dark:text-gray-400 truncate">{m.person_name ?? `#${m.taskraci_person_id}`}</p>
+                            <div className="flex flex-wrap gap-1">
+                              {RACI_COLS.map((c) => (
+                                <button key={c.key} onClick={() => setEditRole(c.key)}
+                                  className={`px-2 py-0.5 text-[9px] font-bold rounded transition-colors ${editRole === c.key ? "bg-blue-600 text-white" : "border border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-500"}`}>
+                                  {c.key}
+                                </button>
+                              ))}
+                              <button onClick={() => { removeMut.mutate(m.taskraci_id); setEditingId(null); }}
+                                disabled={removeMut.isPending}
+                                className="px-2 py-0.5 text-[9px] font-bold rounded border border-red-300 dark:border-red-700 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors">
+                                Remove
+                              </button>
+                            </div>
+                            <div className="flex gap-1">
+                              <button onClick={() => updateMut.mutate({ raciId: m.taskraci_id, responsibility: editRole })}
+                                disabled={updateMut.isPending || editRole === (m.taskraci_responsibility ?? "R")}
+                                className="flex items-center gap-0.5 px-2 py-0.5 text-[9px] font-medium rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white transition-colors">
+                                {updateMut.isPending ? <div className="w-2.5 h-2.5 border border-white border-t-transparent rounded-full animate-spin" /> : <Save size={8} />}
+                                Save
+                              </button>
+                              <button onClick={() => setEditingId(null)}
+                                className="px-2 py-0.5 text-[9px] font-medium rounded border border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 transition-colors">
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-gray-700 dark:text-gray-300 leading-tight truncate flex-1">
+                                {m.person_name ?? `#${m.taskraci_person_id}`}
+                              </span>
+                              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all shrink-0">
+                                <button
+                                  onClick={() => { setEditingId(m.taskraci_id); setEditRole(m.taskraci_responsibility ?? "R"); }}
+                                  className="p-0.5 rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+                                  title="Edit role / Remove">
+                                  <Edit2 size={9} />
+                                </button>
+                                <button
+                                  onClick={() => setInfoId(infoId === m.taskraci_id ? null : m.taskraci_id)}
+                                  className={`p-0.5 rounded transition-colors ${infoId === m.taskraci_id ? "text-blue-600 bg-blue-50 dark:bg-blue-900/30" : "text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30"}`}
+                                  title="Contact info">
+                                  <Info size={9} />
+                                </button>
+                              </div>
+                            </div>
+                            {infoId === m.taskraci_id && (
+                              <div className="mt-1 p-2 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 shadow-lg text-[9px] space-y-0.5">
+                                {m.person_company_name && <p className="text-gray-700 dark:text-gray-200 font-medium">{m.person_company_name}</p>}
+                                {m.person_job_title && <p className="text-gray-500 dark:text-gray-400 italic">{m.person_job_title}</p>}
+                                {m.person_type_label && <p className="text-gray-500 dark:text-gray-400">{m.person_type_label}</p>}
+                                {m.person_email && <p className="text-blue-600 dark:text-blue-400 break-all">{m.person_email}</p>}
+                                {m.person_telephone && <p className="text-gray-600 dark:text-gray-300">📞 {m.person_telephone}</p>}
+                                {m.person_cellphone && <p className="text-gray-600 dark:text-gray-300">📱 {m.person_cellphone}</p>}
+                                {!m.person_company_name && !m.person_email && !m.person_telephone && !m.person_cellphone && !m.person_job_title && (
+                                  <p className="text-gray-400 italic">No contact info</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HistorySection({ task, activities, taskId, selectedActivityId }: {
   task: TaskItem; activities: ActivityItem[]; taskId: number;
   selectedActivityId: number | null;
@@ -655,6 +888,14 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, onClose }: Pr
           )}
         </div>
       </div>
+
+      {/* ── RACI Matrix ── */}
+      <RACIMatrix
+        task={task}
+        taskId={taskId!}
+        selectedActivityId={selectedActivityId}
+        selectedActivityName={activities.find((a) => a.activity_id === selectedActivityId)?.activity_name}
+      />
 
       {/* ── History section (always visible) ── */}
       <HistorySection
