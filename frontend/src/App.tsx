@@ -5,6 +5,7 @@ import "@/i18n";
 
 import AppLayout from "@/components/layout/AppLayout";
 import PrivateRoute from "@/router/PrivateRoute";
+import PermissionRoute, { AdminRoute } from "@/router/PermissionRoute";
 import LoginPage from "@/pages/auth/LoginPage";
 import DashboardPage from "@/pages/dashboard/DashboardPage";
 import TaskPage from "@/pages/tasks/TaskPage";
@@ -67,59 +68,100 @@ export default function App() {
       <BrowserRouter basename="/bridgeadoption">
         <Suspense fallback={<LoadingFallback />}>
           <Routes>
-            {/* Public */}
+            {/* Public (unauthenticated) */}
             <Route path="/login" element={<LoginPage />} />
 
-            {/* Protected */}
+            {/* Protected — requires valid JWT token */}
             <Route element={<PrivateRoute />}>
               <Route element={<AppLayout />}>
+
+                {/* Dashboard — always accessible when authenticated */}
                 <Route path="/" element={<DashboardPage />} />
-                <Route path="/tasks" element={<TaskPage />} />
+
+                {/* Tasks */}
+                <Route element={<PermissionRoute resourceKey="task.task" />}>
+                  <Route path="/tasks" element={<TaskPage />} />
+                </Route>
 
                 {/* Adoption */}
-                <Route path="/adoption/kpi" element={<PlaceholderPage title="KPIs" />} />
-                <Route path="/adoption/forecast" element={<ForecastPage />} />
-                <Route path="/adoption/cisco-lci" element={<CiscoLCIPage />} />
-                <Route path="/adoption/csm-account" element={<CsmAccountPage />} />
-                <Route path="/adoption/team-target" element={<TeamTargetPage />} />
-                <Route path="/adoption/lci-status" element={<LCIStatusPage />} />
-                <Route path="/adoption/lci-solution-vs-project" element={<LCISolutionVsProjectPage />} />
-                <Route path="/adoption/rebate" element={<RebatePage />} />
-                <Route path="/adoption/use-cases" element={<UseCasesPage />} />
+                <Route element={<PermissionRoute resourceKey="adoption.report_forecast" />}>
+                  <Route path="/adoption/forecast" element={<ForecastPage />} />
+                </Route>
+                <Route element={<PermissionRoute resourceKey="adoption.report_cisco_lci" />}>
+                  <Route path="/adoption/cisco-lci" element={<CiscoLCIPage />} />
+                </Route>
+                <Route element={<PermissionRoute resourceKey="adoption.report_csm_account" />}>
+                  <Route path="/adoption/csm-account" element={<CsmAccountPage />} />
+                </Route>
+                <Route element={<PermissionRoute resourceKey="adoption.report_team_target" />}>
+                  <Route path="/adoption/team-target" element={<TeamTargetPage />} />
+                </Route>
+                <Route element={<PermissionRoute resourceKey="adoption.report_lci_eligible_status" />}>
+                  <Route path="/adoption/lci-status" element={<LCIStatusPage />} />
+                  <Route path="/adoption/lci-solution-vs-project" element={<LCISolutionVsProjectPage />} />
+                </Route>
+                <Route element={<PermissionRoute resourceKey="adoption.report_rebate_and_opportunities" />}>
+                  <Route path="/adoption/rebate" element={<RebatePage />} />
+                </Route>
+                <Route element={<PermissionRoute resourceKey="adoption.use_case" />}>
+                  <Route path="/adoption/use-cases" element={<UseCasesPage />} />
+                </Route>
 
                 {/* Portfolio */}
-                <Route path="/portfolio" element={<PortfolioPage />} />
-                <Route path="/portfolio/farol" element={<FarolPage />} />
-                <Route path="/portfolio/asset" element={<AssetPage />} />
-                <Route path="/portfolio/account-team" element={<AccountTeamPage />} />
-                <Route path="/portfolio/adoption-tasks" element={<AdoptionTasksPage />} />
-                <Route path="/portfolio/client-overview" element={<ClientOverviewPage />} />
-
-                {/* Renewals */}
-                <Route path="/renewals" element={<RenewalsPage />} />
-
-                {/* Pre-sales */}
-                <Route path="/presales" element={<PlaceholderPage title="Pré-vendas" />} />
+                <Route element={<PermissionRoute resourceKey="portfolio.farol" />}>
+                  <Route path="/portfolio" element={<PortfolioPage />} />
+                  <Route path="/portfolio/farol" element={<FarolPage />} />
+                </Route>
+                <Route element={<PermissionRoute resourceKey="portfolio.asset" />}>
+                  <Route path="/portfolio/asset" element={<AssetPage />} />
+                </Route>
+                <Route element={<PermissionRoute resourceKey="portfolio.account_team" />}>
+                  <Route path="/portfolio/account-team" element={<AccountTeamPage />} />
+                </Route>
+                <Route element={<PermissionRoute resourceKey="portfolio.adoption_tasks" />}>
+                  <Route path="/portfolio/adoption-tasks" element={<AdoptionTasksPage />} />
+                </Route>
+                <Route element={<PermissionRoute resourceKey="portfolio.client_overview" />}>
+                  <Route path="/portfolio/client-overview" element={<ClientOverviewPage />} />
+                </Route>
 
                 {/* Projects */}
-                <Route path="/projects" element={<ProjectsPage />} />
+                <Route element={<PermissionRoute resourceKey="project.project" />}>
+                  <Route path="/projects" element={<ProjectsPage />} />
+                </Route>
 
-                {/* Technical */}
-                <Route path="/technical" element={<PlaceholderPage title="Técnico" />} />
+                {/* Renewals (no specific resourceKey yet — accessible when authenticated) */}
+                <Route path="/renewals" element={<RenewalsPage />} />
 
-                {/* Public */}
-                <Route path="/public/csm-account" element={<PublicCsmAccountPage />} />
-                <Route path="/public/importer" element={<ImporterPage />} />
-                {/* Legacy importer redirect */}
-                <Route path="/importer" element={<ImporterPage />} />
+                {/* Public modules */}
+                <Route element={<PermissionRoute resourceKey="public.csm_account" />}>
+                  <Route path="/public/csm-account" element={<PublicCsmAccountPage />} />
+                </Route>
+                <Route element={<PermissionRoute resourceKey="public.importer" />}>
+                  <Route path="/public/importer" element={<ImporterPage />} />
+                  <Route path="/importer" element={<ImporterPage />} />
+                </Route>
 
-                {/* Admin */}
-                <Route path="/admin" element={<AdminPage />} />
-                <Route path="/admin/users" element={<AdminUsersPage />} />
-                <Route path="/admin/companies" element={<AdminCompaniesPage />} />
-                <Route path="/admin/roles" element={<AdminRolesPage />} />
-                <Route path="/admin/team-goals" element={<AdminTeamGoalsPage />} />
-                <Route path="/admin/tasks" element={<AdminTasksPage />} />
+                {/* Admin — requires ADMIN role */}
+                <Route element={<AdminRoute />}>
+                  <Route path="/admin" element={<AdminPage />} />
+                  <Route element={<PermissionRoute resourceKey="admin.admin_user" />}>
+                    <Route path="/admin/users" element={<AdminUsersPage />} />
+                  </Route>
+                  <Route element={<PermissionRoute resourceKey="admin.admin_company" />}>
+                    <Route path="/admin/companies" element={<AdminCompaniesPage />} />
+                  </Route>
+                  <Route element={<PermissionRoute resourceKey="admin.admin_auth_role" />}>
+                    <Route path="/admin/roles" element={<AdminRolesPage />} />
+                  </Route>
+                  <Route element={<PermissionRoute resourceKey="admin.admin_team_goal" />}>
+                    <Route path="/admin/team-goals" element={<AdminTeamGoalsPage />} />
+                  </Route>
+                  <Route element={<PermissionRoute resourceKey="admin.admin_task" />}>
+                    <Route path="/admin/tasks" element={<AdminTasksPage />} />
+                  </Route>
+                </Route>
+
               </Route>
             </Route>
 
@@ -129,17 +171,5 @@ export default function App() {
         </Suspense>
       </BrowserRouter>
     </QueryClientProvider>
-  );
-}
-
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center h-64 text-center">
-      <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4">
-        <span className="text-2xl">🚧</span>
-      </div>
-      <h2 className="text-xl font-semibold text-gray-700 mb-2">{title}</h2>
-      <p className="text-gray-400 text-sm">Módulo em desenvolvimento — migração em andamento</p>
-    </div>
   );
 }

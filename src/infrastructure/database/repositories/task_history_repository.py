@@ -330,12 +330,28 @@ class TaskHistoryRepository:
     def _fetch_all_follow_ups_raw(self) -> pd.DataFrame:
         """
         Executa UMA única query que traz todos os follow-ups relevantes
-        (atrasados + semana atual + semana seguinte) e armazena o resultado
-        em cache de instância.
+        (atrasados + hoje + semana atual + semana seguinte) e armazena o
+        resultado em cache de instância.
 
         Ao ser chamado 4 vezes na mesma renderização de página, apenas a
         primeira chamada acessa o banco; as 3 seguintes retornam o cache.
         O cache é invalidado automaticamente quando a data muda.
+
+        Espelha a lógica das views:
+            vwTaskRecordNextFollowUpDelayed
+            vwTaskRecordNextFollowUpToday
+            vwTaskRecordNextFollowUpCurrentWeek
+            vwTaskRecordNextFollowUpNextWeek
+
+        CORREÇÕES aplicadas em relação à versão anterior:
+            1. Usa MAX(taskrecord_next_followup) — data AGENDADA do follow-up —
+               em vez de taskrecord_date (data de criação do registro).
+            2. Agrega por (activity_id, task_id) via GROUP BY para pegar apenas
+               o follow-up mais recente por atividade, assim como a CTE `latest`
+               das views do banco.
+            3. Filtra tarefas e atividades com status encerrado/cancelado
+               (espelha os WHERE das views: status NOT IN (4,5,6,10)).
+            4. Exclui registros sem data de follow-up agendada.
 
         Retorna:
             DataFrame com colunas:
@@ -348,28 +364,49 @@ class TaskHistoryRepository:
         if self._follow_ups_cache_date == today and self._follow_ups_cache_df is not None:
             return self._follow_ups_cache_df
 
-        # Cobertura: tudo até o fim da próxima semana (delayed tem data < hoje, sem lower bound)
+        # Cobertura: delayed (sem lower bound) + semana atual + próxima semana
         days_to_sunday = 6 - today.weekday()
         next_sunday = today + timedelta(days=days_to_sunday + 7)
 
+        # ----------------------------------------------------------------
+        # ATENÇÃO: a coluna de data correta é taskrecord_next_followup
+        # (data agendada para o próximo contato), NÃO taskrecord_date
+        # (que é o timestamp de criação do registro e está sempre no passado).
+        # O MAX garante que usamos apenas o follow-up mais recente por
+        # atividade, replicando a CTE `latest` das views do banco.
+        # ----------------------------------------------------------------
         query = """
             SELECT
-                tr.taskrecord_activity_id   AS activity_id,
-                tr.taskrecord_task_id       AS task_id,
+                tr.taskrecord_activity_id           AS activity_id,
+                tr.taskrecord_task_id               AS task_id,
                 ta.activity_name,
-                vt.task_customer_name,
-                vt.task_type_name,
-                vt.task_owner_id,
-                tr.taskrecord_date          AS follow_up_date
+                c.company_name                      AS task_customer_name,
+                ty.tasktype_name                    AS task_type_name,
+                t.task_owner_id,
+                MAX(tr.taskrecord_next_followup)    AS follow_up_date
             FROM tbTaskRecord tr
             INNER JOIN tbTaskActivity ta
-                    ON tr.taskrecord_activity_id = ta.activity_id
-            INNER JOIN vwTask vt
-                    ON tr.taskrecord_task_id = vt.task_id
+                    ON ta.activity_id = tr.taskrecord_activity_id
+            INNER JOIN tbTask t
+                    ON t.task_id = tr.taskrecord_task_id
+            LEFT  JOIN tbTaskType ty
+                    ON ty.tasktype_id = t.task_tasktype_id
+            LEFT  JOIN tbCompany c
+                    ON c.company_id = t.task_customer_id
             WHERE tr.taskrecord_activity_id IS NOT NULL
               AND tr.taskrecord_activity_id > 0
-              AND tr.taskrecord_date <= %s
-            ORDER BY tr.taskrecord_date, tr.taskrecord_id
+              AND tr.taskrecord_next_followup IS NOT NULL
+              AND ta.activity_status NOT IN (4, 5, 6, 10)
+              AND t.task_status    NOT IN (4, 10)
+            GROUP BY
+                tr.taskrecord_activity_id,
+                tr.taskrecord_task_id,
+                ta.activity_name,
+                c.company_name,
+                ty.tasktype_name,
+                t.task_owner_id
+            HAVING MAX(tr.taskrecord_next_followup) <= %s
+            ORDER BY follow_up_date, tr.taskrecord_activity_id
         """
 
         try:
@@ -509,8 +546,12 @@ class TaskHistoryRepository:
         params: List[Any] = [int(task_id)]
 
         if activity_id is not None:
+            # Filtrar pelo activity_id específico
             conditions.append("taskrecord_activity_id = %s")
             params.append(int(activity_id))
+        else:
+            # Mostrar apenas registros da task (sem activity associada)
+            conditions.append("(taskrecord_activity_id IS NULL OR taskrecord_activity_id = 0)")
 
         where_clause = " AND ".join(conditions)
         query = f"""
@@ -564,10 +605,15 @@ class TaskHistoryRepository:
             ID do novo registro inserido, ou 0 em caso de erro
         """
 
-        payload = data if data is not None else record
+        payload = dict(data if data is not None else record)
 
         if not payload:
             raise ValueError("Dicionário de inserção não pode ser vazio.")
+
+        # Garante que taskrecord_date sempre seja preenchido
+        if "taskrecord_date" not in payload:
+            from datetime import datetime
+            payload["taskrecord_date"] = datetime.now()
 
         columns = ", ".join(payload.keys())
         placeholders = ", ".join(["%s"] * len(payload))

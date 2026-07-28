@@ -11,8 +11,6 @@ interface Props {
   onClose?: () => void;
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
 const CLOSED_STATUS = new Set([4, 5, 6, 10]);
 const PROGRESS_OPTIONS = ["0%", "25%", "50%", "75%", "100%"];
 const PROGRESS_MAP: Record<string, number> = { "0%": 0, "25%": 0.25, "50%": 0.5, "75%": 0.75, "100%": 1 };
@@ -20,8 +18,6 @@ const REVERSE_PROGRESS: Record<string, string> = { "0": "0%", "0.25": "25%", "0.
 const PRIORITY_OPTIONS = ["HIGH", "MEDIUM", "LOW"];
 const CURRENCY_OPTIONS = ["BRL", "USD", "EUR"];
 const DEADLINE_ICON: Record<string, string> = { delayed: "🚨", today: "⚠️", this_week: "⏳", next_week: "📅", future: "🕒" };
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtDate(iso?: string | null): string {
   return iso ? iso.slice(0, 10) : "";
@@ -45,7 +41,41 @@ function deadlineBucket(endDate?: string | null): string {
   return "future";
 }
 
-// ─── Small UI atoms ───────────────────────────────────────────────────────────
+function statusBadgeClass(name?: string | null): string {
+  const n = (name ?? "").toUpperCase();
+  if (n.includes("DELAYED") || n.includes("ATRASAD")) return "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700";
+  if (n.includes("ACTIVE") || n.includes("PROGRESS") || n.includes("ATIV")) return "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-700";
+  if (n.includes("HOLD") || n.includes("PENDING") || n.includes("AGUARD") || n.includes("WAIT")) return "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300 border border-yellow-300 dark:border-yellow-700";
+  if (n.includes("CLOSED") || n.includes("DONE") || n.includes("COMPLET") || n.includes("FECHAD")) return "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-300 dark:border-gray-600";
+  if (n.includes("CANCEL")) return "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 border border-gray-300 dark:border-gray-600";
+  return "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700";
+}
+
+function statusEmoji(name?: string | null): string {
+  const n = (name ?? "").toUpperCase();
+  if (n.includes("DELAYED") || n.includes("ATRASAD")) return "🚨";
+  if (n.includes("ACTIVE") || n.includes("PROGRESS") || n.includes("ATIV")) return "🟢";
+  if (n.includes("HOLD") || n.includes("PENDING") || n.includes("AGUARD") || n.includes("WAIT")) return "⏸️";
+  if (n.includes("CLOSED") || n.includes("DONE") || n.includes("COMPLET") || n.includes("FECHAD")) return "✅";
+  if (n.includes("CANCEL")) return "🚫";
+  return "🔵";
+}
+
+function priorityBadgeClass(priority?: string | null): string {
+  const p = (priority ?? "").toUpperCase();
+  if (p === "HIGH") return "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700";
+  if (p === "MEDIUM") return "bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-700";
+  if (p === "LOW") return "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-700";
+  return "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600";
+}
+
+function priorityEmoji(priority?: string | null): string {
+  const p = (priority ?? "").toUpperCase();
+  if (p === "HIGH") return "🔴";
+  if (p === "MEDIUM") return "🟡";
+  if (p === "LOW") return "🟢";
+  return "";
+}
 
 function LabelInput({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -79,39 +109,49 @@ function Textarea({ value, onChange, disabled, placeholder, rows = 3 }: { value:
   );
 }
 
-// ─── History Panel ─────────────────────────────────────────────────────────────
-
 function HistoryPanel({ items }: { items: HistoryItem[] }) {
   const { t } = useTranslation();
   if (!items.length) return <p className="text-xs text-gray-400 py-3">{t("task.noHistory")}</p>;
   return (
     <div className="space-y-2 max-h-64 overflow-y-auto">
       {items.map((h) => (
-        <div key={h.taskrecord_id} className="text-xs border-b border-gray-100 dark:border-gray-800 pb-2">
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-gray-400 dark:text-gray-500">{h.taskrecord_date ? String(h.taskrecord_date).slice(0, 10) : "—"}</span>
-            {h.taskrecord_type && <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${h.taskrecord_type === "BLOCKER" ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300" : h.taskrecord_type === "ISSUE" ? "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"}`}>{h.taskrecord_type}</span>}
-            {h.taskrecord_status && <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{h.taskrecord_status}</span>}
-            <span className="ml-auto text-gray-400 dark:text-gray-500">{String(h.taskrecord_updated_by ?? "")}</span>
-          </div>
-          <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{String(h.taskrecord_remark ?? "")}</p>
-        </div>
+              <div key={h.taskrecord_id} className="text-xs border-b border-gray-100 dark:border-gray-800 pb-2">
+                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                  <span className="text-gray-400 dark:text-gray-500">
+                    {h.taskrecord_date ? (() => {
+                      const d = new Date(String(h.taskrecord_date));
+                      const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+                      const dd = String(d.getDate()).padStart(2, "0");
+                      const mmm = months[d.getMonth()];
+                      const yyyy = d.getFullYear();
+                      const hh = String(d.getHours()).padStart(2, "0");
+                      const mi = String(d.getMinutes()).padStart(2, "0");
+                      const ss = String(d.getSeconds()).padStart(2, "0");
+                      return `${dd}/${mmm}/${yyyy} ${hh}:${mi}:${ss}`;
+                    })() : "—"}
+                  </span>
+                  {h.taskrecord_type && <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${h.taskrecord_type === "BLOCKER" ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300" : h.taskrecord_type === "ISSUE" ? "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"}`}>{h.taskrecord_type}</span>}
+                  {h.taskrecord_status && <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{h.taskrecord_status}</span>}
+                  {(h as Record<string, unknown>).taskrecord_next_followup && (
+                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                      ⏰ {String((h as Record<string, unknown>).taskrecord_next_followup).slice(0, 10)}
+                    </span>
+                  )}
+                  <span className="ml-auto text-gray-400 dark:text-gray-500">{String(h.taskrecord_updated_by ?? "")}</span>
+                </div>
+                <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{String(h.taskrecord_remark ?? "")}</p>
+              </div>
       ))}
     </div>
   );
 }
 
-// ─── Activity Row (expandable edit form) ─────────────────────────────────────
-
-function ActivityRow({ act, statusTypes, taskId, onUpdated }: { act: ActivityItem; statusTypes: StatusType[]; taskId: number; onUpdated: () => void }) {
+function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isSelectedForHistory }: { act: ActivityItem; statusTypes: StatusType[]; taskId: number; onUpdated: () => void; onSelectHistory?: (activityId: number | null) => void; isSelectedForHistory?: boolean }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [tab, setTab] = useState<"objective" | "scope" | "results" | "track">("objective");
-  const [showHistory, setShowHistory] = useState(false);
   const [edits, setEdits] = useState<Record<string, string>>({});
-  const [note, setNote] = useState("");
-  const [nextFU, setNextFU] = useState("");
   const [saved, setSaved] = useState(false);
 
   const pct = Math.min(100, Math.max(0, ((act.activity_completed ?? 0) <= 1 ? (act.activity_completed ?? 0) * 100 : act.activity_completed ?? 0)));
@@ -122,70 +162,51 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated }: { act: ActivityIte
   const g = (k: string, fallback: string = ""): string => k in edits ? edits[k] : String((act as Record<string, unknown>)[k] ?? fallback);
   const s = (k: string, v: string) => { setEdits((p) => ({ ...p, [k]: v })); setSaved(false); };
 
-  const histQ = useQuery({ queryKey: ["act-hist", act.activity_id], queryFn: () => tasksApi.getHistory(taskId, act.activity_id).then((r) => r.data), enabled: showHistory, staleTime: 60000 });
-
   const saveMut = useMutation<unknown, Error, void>({
     mutationFn: () => {
       const data: Record<string, unknown> = {};
       const changes: string[] = [];
-
-      // seq
       const seq = parseInt(edits.activity_seq ?? "");
       if (!isNaN(seq) && seq !== act.activity_seq) data.activity_seq = seq;
-
-      // status
       if ("activity_status_name" in edits && edits.activity_status_name !== act.activity_status_name) {
-        const found = statusTypes.find((s) => s.statustype_name === edits.activity_status_name);
+        const found = statusTypes.find((sx) => sx.statustype_name === edits.activity_status_name);
         if (found) { data.activity_status = found.statustype_id; changes.push(`Status → ${edits.activity_status_name}`); }
       }
-
-      // completed
       if ("activity_completed_pct" in edits) {
         const pctNum = PROGRESS_MAP[edits.activity_completed_pct] ?? 0;
         if (pctNum !== act.activity_completed) data.activity_completed = pctNum;
       }
-
-      // dates
       const sp = edits.activity_start_performed;
       if (sp !== undefined && sp !== fmtDate(act.activity_start_performed)) { data.activity_start_performed = sp || null; changes.push(`Start → ${sp}`); }
       const ep = edits.activity_end_performed;
       if (ep !== undefined && ep !== fmtDate(act.activity_end_performed)) { data.activity_end_performed = ep || null; changes.push(`End → ${ep}`); }
-
-      // effort
       if ("activity_effort_performed" in edits) {
         const ef = parseFloat(edits.activity_effort_performed);
         if (!isNaN(ef) && ef !== act.activity_effort_performed) { data.activity_effort_performed = ef; changes.push(`Effort → ${ef}h`); }
       }
-
-      // text fields
       ["activity_objective", "activity_scope", "activity_expected_results", "activity_track", "activity_sub_track", "activity_deal_id", "activity_ws", "activity_value", "activity_currency"].forEach((k) => {
         if (k in edits && edits[k] !== String((act as Record<string, unknown>)[k] ?? "")) data[k] = edits[k];
       });
-
-      const remark = changes.length > 0 ? (note.trim() ? `${changes.join("; ")}; ${note.trim()}` : changes.join("; ")) : note.trim();
-      const history = remark
-        ? { taskrecord_task_id: taskId, taskrecord_activity_id: act.activity_id, taskrecord_remark: remark, taskrecord_next_followup: nextFU || undefined }
-        : nextFU ? { taskrecord_task_id: taskId, taskrecord_activity_id: act.activity_id, taskrecord_remark: `Follow-up: ${nextFU}`, taskrecord_next_followup: nextFU } : undefined;
-
+      const remark = changes.join("; ");
+      const history = remark ? { taskrecord_task_id: taskId, taskrecord_activity_id: act.activity_id, taskrecord_remark: remark } : undefined;
       return Promise.all([
         Object.keys(data).length > 0 ? tasksApi.updateActivity(act.activity_id, data).then((r) => r.data) : Promise.resolve(null),
         history ? tasksApi.addHistory(taskId, history).then((r) => r.data) : Promise.resolve(null),
       ]);
     },
     onSuccess: () => {
-      setEdits({}); setNote(""); setNextFU(""); setSaved(true);
+      setEdits({}); setSaved(true);
       void qc.invalidateQueries({ queryKey: ["task-activities", taskId] });
-      void qc.invalidateQueries({ queryKey: ["act-hist", act.activity_id] });
+      void qc.invalidateQueries({ queryKey: ["act-hist"] });
       onUpdated();
     },
   });
 
-  const statusOptions = statusTypes.filter((s) => s.statustype_id !== 5).map((s) => s.statustype_name);
+  const statusOptions = statusTypes.filter((sx) => sx.statustype_id !== 5).map((sx) => sx.statustype_name);
 
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden mb-2">
-      {/* Collapsed header */}
-      <button onClick={() => setExpanded(!expanded)} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left">
+      <button onClick={() => { const next = !expanded; setExpanded(next); onSelectHistory?.(next ? act.activity_id : null); }} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left">
         <span className="text-xs font-mono text-gray-400 dark:text-gray-500 w-4">{act.activity_seq}</span>
         <div className="flex-1 min-w-0">
           <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">{act.activity_name ?? "—"}</p>
@@ -201,15 +222,10 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated }: { act: ActivityIte
         <span className="text-[10px] text-gray-400 dark:text-gray-500 hidden sm:block">{fmtDate(act.activity_end_performed ?? act.activity_end) || "—"}</span>
         <Edit2 size={11} className="text-gray-400 shrink-0" />
       </button>
-
-      {/* Expanded */}
       {expanded && (
         <div className="border-t border-gray-100 dark:border-gray-800 p-4 bg-gray-50/30 dark:bg-gray-800/20 space-y-3">
-          {/* Row 1: dates, effort, progress, status */}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            <LabelInput label={t("task.formSeq")}>
-              <Inp value={g("activity_seq", String(act.activity_seq ?? "1"))} onChange={(v) => s("activity_seq", v)} disabled={isClosed} type="number" />
-            </LabelInput>
+            <LabelInput label={t("task.formSeq")}><Inp value={g("activity_seq", String(act.activity_seq ?? "1"))} onChange={(v) => s("activity_seq", v)} disabled={isClosed} type="number" /></LabelInput>
             <LabelInput label={`${t("task.formStart")}${bucket === "delayed" ? " 🚨" : ""}`}>
               <Inp value={g("activity_start_performed", fmtDate(act.activity_start_performed))} onChange={(v) => s("activity_start_performed", v)} disabled={isClosed} type="date" />
               <p className="text-[10px] text-gray-400 mt-0.5">{t("task.formExpected")} {fmtDate(act.activity_start) || "—"}</p>
@@ -222,35 +238,17 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated }: { act: ActivityIte
               <Inp value={g("activity_effort_performed", String(act.activity_effort_performed ?? "0"))} onChange={(v) => s("activity_effort_performed", v)} disabled={isClosed} type="number" />
               <p className="text-[10px] text-gray-400 mt-0.5">{t("task.formExpected")} {String(act.activity_effort ?? 0)}</p>
             </LabelInput>
-            <LabelInput label={t("task.formCompleted")}>
-              <Sel value={g("activity_completed_pct", pctLabel(act.activity_completed))} onChange={(v) => s("activity_completed_pct", v)} options={PROGRESS_OPTIONS} disabled={isClosed} />
-            </LabelInput>
+            <LabelInput label={t("task.formCompleted")}><Sel value={g("activity_completed_pct", pctLabel(act.activity_completed))} onChange={(v) => s("activity_completed_pct", v)} options={PROGRESS_OPTIONS} disabled={isClosed} /></LabelInput>
           </div>
-
-          {/* Status */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <LabelInput label={t("task.formStatus")}>
-              <Sel value={g("activity_status_name", act.activity_status_name ?? "")} onChange={(v) => s("activity_status_name", v)} options={statusOptions} disabled={isClosed} />
-            </LabelInput>
-            <LabelInput label={t("task.formDealId")}>
-              <Inp value={g("activity_deal_id", String(act.activity_deal_id ?? ""))} onChange={(v) => s("activity_deal_id", v)} disabled={isClosed} />
-            </LabelInput>
-            <LabelInput label="WS">
-              <Inp value={g("activity_ws", String(act.activity_ws ?? ""))} onChange={(v) => s("activity_ws", v)} disabled={isClosed} />
-            </LabelInput>
+            <LabelInput label={t("task.formStatus")}><Sel value={g("activity_status_name", act.activity_status_name ?? "")} onChange={(v) => s("activity_status_name", v)} options={statusOptions} disabled={isClosed} /></LabelInput>
+            <LabelInput label={t("task.formDealId")}><Inp value={g("activity_deal_id", String(act.activity_deal_id ?? ""))} onChange={(v) => s("activity_deal_id", v)} disabled={isClosed} /></LabelInput>
+            <LabelInput label="WS"><Inp value={g("activity_ws", String(act.activity_ws ?? ""))} onChange={(v) => s("activity_ws", v)} disabled={isClosed} /></LabelInput>
           </div>
-
-          {/* Value + currency */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <LabelInput label={t("task.formValueDollar")}>
-              <Inp value={g("activity_value", String(act.activity_value ?? "0"))} onChange={(v) => s("activity_value", v)} disabled={isClosed} type="number" />
-            </LabelInput>
-            <LabelInput label={t("task.formCurrency")}>
-              <Sel value={g("activity_currency", String(act.activity_currency ?? "USD"))} onChange={(v) => s("activity_currency", v)} options={CURRENCY_OPTIONS} disabled={isClosed} />
-            </LabelInput>
+            <LabelInput label={t("task.formValueDollar")}><Inp value={g("activity_value", String(act.activity_value ?? "0"))} onChange={(v) => s("activity_value", v)} disabled={isClosed} type="number" /></LabelInput>
+            <LabelInput label={t("task.formCurrency")}><Sel value={g("activity_currency", String(act.activity_currency ?? "USD"))} onChange={(v) => s("activity_currency", v)} options={CURRENCY_OPTIONS} disabled={isClosed} /></LabelInput>
           </div>
-
-          {/* Tabs: Objective / Scope / Expected Results / Track */}
           <div>
             <div className="flex gap-1 mb-2 border-b border-gray-200 dark:border-gray-700">
               {(["objective", "scope", "results", "track"] as const).map((tabKey) => (
@@ -269,56 +267,28 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated }: { act: ActivityIte
               </div>
             )}
           </div>
-
-          {/* Notes + next follow-up + save */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-2">
-              <LabelInput label={t("task.formNotesUpdate")}>
-                <Textarea value={note} onChange={setNote} disabled={isClosed} placeholder={t("task.noteUpdatePlaceholder")} rows={3} />
-              </LabelInput>
-            </div>
-            <div className="space-y-2">
-              <LabelInput label={t("task.formNextFollowUp")}>
-                <Inp value={nextFU} onChange={setNextFU} disabled={isClosed} type="date" />
-              </LabelInput>
-              <div className="flex gap-2">
-                <button onClick={() => setShowHistory(!showHistory)} className={`flex items-center gap-1 px-2 py-1.5 text-[10px] font-medium rounded-lg border transition-colors ${showHistory ? "bg-blue-600 text-white border-blue-600" : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"}`}>
-                  <History size={11} /> {t("task.historyBtn")}
-                </button>
-                <button onClick={() => !isClosed && saveMut.mutate()} disabled={isClosed || saveMut.isPending}
-                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 dark:disabled:bg-blue-800 text-white transition-colors">
-                  {saveMut.isPending ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Save size={11} />}
-                  {saveMut.isPending ? t("task.savingIndicator") : t("task.saveBtn")}
-                </button>
-              </div>
+          <div className="flex items-center justify-end pt-2 border-t border-gray-100 dark:border-gray-800">
+            <div className="flex items-center gap-2">
               {saved && <p className="text-[10px] text-green-600 dark:text-green-400">{t("task.savedSuccess")}</p>}
               {saveMut.isError && <p className="text-[10px] text-red-600 dark:text-red-400">{t("task.saveFailed")}</p>}
+              <button onClick={() => !isClosed && saveMut.mutate()} disabled={isClosed || saveMut.isPending}
+                className="flex items-center justify-center gap-1 px-3 py-1.5 text-[10px] font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 dark:disabled:bg-blue-800 text-white transition-colors">
+                {saveMut.isPending ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Save size={11} />}
+                {saveMut.isPending ? t("task.savingIndicator") : t("task.saveBtn")}
+              </button>
             </div>
           </div>
-
-          {/* Activity history */}
-          {showHistory && (
-            <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
-              <p className="text-[10px] font-bold uppercase text-gray-500 dark:text-gray-400 mb-2">{t("task.activityHistory")}</p>
-              {histQ.isLoading ? <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /> : <HistoryPanel items={histQ.data ?? []} />}
-            </div>
-          )}
         </div>
       )}
     </div>
   );
 }
 
-// ─── Task Edit Form ────────────────────────────────────────────────────────────
-
 function TaskEditForm({ task, csms, statusTypes, onSaved }: { task: TaskItem; csms: CSMItem[]; statusTypes: StatusType[]; onSaved: () => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const isClosed = CLOSED_STATUS.has(task.task_status_id ?? 0);
   const [edits, setEdits] = useState<Record<string, string>>({});
-  const [note, setNote] = useState("");
-  const [noteType, setNoteType] = useState("INFO");
-  const [nextFU, setNextFU] = useState("");
   const [saved, setSaved] = useState(false);
 
   const g = (k: string, fallback: string = ""): string => k in edits ? edits[k] : String((task as Record<string, unknown>)[k] ?? fallback);
@@ -331,7 +301,6 @@ function TaskEditForm({ task, csms, statusTypes, onSaved }: { task: TaskItem; cs
     mutationFn: () => {
       const data: Record<string, unknown> = {};
       const changes: string[] = [];
-
       const mapField = (k: string, label: string, transform?: (v: string) => unknown) => {
         if (!(k in edits)) return;
         const orig = String((task as Record<string, unknown>)[k] ?? "");
@@ -339,27 +308,20 @@ function TaskEditForm({ task, csms, statusTypes, onSaved }: { task: TaskItem; cs
         data[k] = transform ? transform(edits[k]) : edits[k];
         changes.push(`${label} → ${edits[k]}`);
       };
-
-      // Owner
       if ("task_owner_name" in edits && edits.task_owner_name !== (task.task_owner_name ?? "")) {
         const csm = csms.find((c) => c.csm_name === edits.task_owner_name);
         data.task_owner_id = csm ? csm.csm_id : 0;
         changes.push(`Owner → ${edits.task_owner_name || "UNASSIGNED"}`);
       }
-
-      // Temp owner
       if ("task_temp_owner_name" in edits && edits.task_temp_owner_name !== (task.task_temp_owner_name ?? "")) {
         const csm = csms.find((c) => c.csm_name === edits.task_temp_owner_name);
         data.task_temp_owner_id = csm ? csm.csm_id : 0;
         changes.push(`Temp Owner → ${edits.task_temp_owner_name || "none"}`);
       }
-
-      // Status
       if ("task_status_name" in edits && edits.task_status_name !== (task.task_status_name ?? "")) {
         const st = statusTypes.find((x) => x.statustype_name === edits.task_status_name);
         if (st) { data.task_status = st.statustype_id; changes.push(`Status → ${edits.task_status_name}`); }
       }
-
       mapField("task_priority", "Priority");
       mapField("task_reference", "Reference");
       mapField("task_ws", "WS");
@@ -367,14 +329,12 @@ function TaskEditForm({ task, csms, statusTypes, onSaved }: { task: TaskItem; cs
       mapField("task_value", "Value", (v) => parseFloat(v) || 0);
       mapField("task_start_performed", "Start");
       mapField("task_end_performed", "End");
-
-      const remark = changes.length > 0 ? (note.trim() ? `${changes.join("; ")}; ${note.trim()}` : changes.join("; ")) : note.trim();
-      const history = remark ? { taskrecord_remark: remark, taskrecord_type: noteType, taskrecord_next_followup: nextFU || undefined } : (nextFU ? { taskrecord_remark: `Next follow-up: ${nextFU}`, taskrecord_next_followup: nextFU } : undefined);
-
+      const remark = changes.join("; ");
+      const history = remark ? { taskrecord_remark: remark } : undefined;
       return tasksApi.updateTask(task.task_id, data, history).then((r) => r.data);
     },
     onSuccess: () => {
-      setEdits({}); setNote(""); setNextFU(""); setSaved(true);
+      setEdits({}); setSaved(true);
       void qc.invalidateQueries({ queryKey: ["task-activities", task.task_id] });
       void qc.invalidateQueries({ queryKey: ["task-history", task.task_id] });
       onSaved();
@@ -383,10 +343,8 @@ function TaskEditForm({ task, csms, statusTypes, onSaved }: { task: TaskItem; cs
 
   return (
     <div className="space-y-3">
-      {/* Row 1: ID, Type, Owner, Status */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <LabelInput label={t("task.formTaskId")}><Inp value={String(task.task_id)} onChange={() => void 0} disabled /></LabelInput>
-        <LabelInput label={t("task.formTaskType")}><Inp value={String(task.task_type_name ?? "")} onChange={() => void 0} disabled /></LabelInput>
+      {/* Row 1: Owner, Status */}
+      <div className="grid grid-cols-2 gap-3">
         <LabelInput label={t("task.formOwner")}>
           <Sel value={g("task_owner_name", task.task_owner_name ?? "")} onChange={(v) => s("task_owner_name", v)} options={csmOptions} disabled={isClosed} />
         </LabelInput>
@@ -394,10 +352,8 @@ function TaskEditForm({ task, csms, statusTypes, onSaved }: { task: TaskItem; cs
           <Sel value={g("task_status_name", task.task_status_name ?? "")} onChange={(v) => s("task_status_name", v)} options={statusOptions} disabled={isClosed} />
         </LabelInput>
       </div>
-
-      {/* Row 2: Client, Temp Owner, Priority */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <LabelInput label={t("task.formClient")}><Inp value={String(task.task_customer_name ?? "")} onChange={() => void 0} disabled /></LabelInput>
+      {/* Row 2: Temp Owner, Priority */}
+      <div className="grid grid-cols-2 gap-3">
         <LabelInput label={t("task.formTempOwner")}>
           <Sel value={g("task_temp_owner_name", task.task_temp_owner_name ?? "")} onChange={(v) => s("task_temp_owner_name", v)} options={csmOptions} disabled={isClosed} />
         </LabelInput>
@@ -405,60 +361,192 @@ function TaskEditForm({ task, csms, statusTypes, onSaved }: { task: TaskItem; cs
           <Sel value={g("task_priority", task.task_priority ?? "LOW")} onChange={(v) => s("task_priority", v)} options={PRIORITY_OPTIONS} disabled={isClosed} />
         </LabelInput>
       </div>
-
       {/* Row 3: Reference, WS, Deal ID */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <LabelInput label={t("task.formReference")}><Inp value={g("task_reference", task.task_reference ?? "")} onChange={(v) => s("task_reference", v)} disabled={isClosed} /></LabelInput>
         <LabelInput label={t("task.formWsSub")}><Inp value={g("task_ws", task.task_ws ?? "")} onChange={(v) => s("task_ws", v)} disabled={isClosed} /></LabelInput>
         <LabelInput label={t("task.formDealId")}><Inp value={g("task_deal_id", task.task_deal_id ?? "")} onChange={(v) => s("task_deal_id", v)} disabled={isClosed} /></LabelInput>
       </div>
-
       {/* Row 4: Track (read-only), Value, Start, End */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <LabelInput label={t("task.formTrack")}><Inp value={String(task.task_track ?? "")} onChange={() => void 0} disabled /></LabelInput>
         <LabelInput label={t("task.formValue")}><Inp value={g("task_value", String(task.task_value ?? "0"))} onChange={(v) => s("task_value", v)} disabled={isClosed} type="number" /></LabelInput>
-        <LabelInput label={t("task.formStart")}>
-          <Inp value={g("task_start_performed", fmtDate(task.task_start_performed ?? task.task_start))} onChange={(v) => s("task_start_performed", v)} disabled={isClosed} type="date" />
-        </LabelInput>
-        <LabelInput label={t("task.formEnd")}>
-          <Inp value={g("task_end_performed", fmtDate(task.task_end_performed ?? task.task_end))} onChange={(v) => s("task_end_performed", v)} disabled={isClosed} type="date" />
-        </LabelInput>
+        <LabelInput label={t("task.formStart")}><Inp value={g("task_start_performed", fmtDate(task.task_start_performed ?? task.task_start))} onChange={(v) => s("task_start_performed", v)} disabled={isClosed} type="date" /></LabelInput>
+        <LabelInput label={t("task.formEnd")}><Inp value={g("task_end_performed", fmtDate(task.task_end_performed ?? task.task_end))} onChange={(v) => s("task_end_performed", v)} disabled={isClosed} type="date" /></LabelInput>
       </div>
-
-      {/* Notes + type + next follow-up + save */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="col-span-2">
-          <LabelInput label={t("task.formNotes")}>
-            <Textarea value={note} onChange={setNote} placeholder={t("task.noteTaskPlaceholder")} rows={3} />
-          </LabelInput>
-        </div>
-        <div className="space-y-2">
-          <LabelInput label={t("task.formNoteType")}>
-            <Sel value={noteType} onChange={setNoteType} options={["INFO", "ISSUE", "BLOCKER"]} />
-          </LabelInput>
-          <LabelInput label={t("task.formNextFollowUp")}>
-            <Inp value={nextFU} onChange={setNextFU} disabled={isClosed} type="date" />
-          </LabelInput>
-          <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}
-            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white transition-colors">
-            {saveMut.isPending ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Save size={12} />}
-            {saveMut.isPending ? t("task.savingChanges") : t("task.saveChanges")}
-          </button>
-          {saved && <p className="text-xs text-green-600 dark:text-green-400 text-center">{t("task.savedSuccess")}</p>}
-          {saveMut.isError && <p className="text-xs text-red-600 dark:text-red-400 text-center">{t("task.saveFailed")}</p>}
-        </div>
+      <div className="flex items-center justify-end gap-3 pt-1">
+        {saved && <p className="text-xs text-green-600 dark:text-green-400">{t("task.savedSuccess")}</p>}
+        {saveMut.isError && <p className="text-xs text-red-600 dark:text-red-400">{t("task.saveFailed")}</p>}
+        <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}
+          className="flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white transition-colors">
+          {saveMut.isPending ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Save size={12} />}
+          {saveMut.isPending ? t("task.savingChanges") : t("task.saveChanges")}
+        </button>
       </div>
     </div>
   );
 }
 
-// ─── Main TaskDetailPanel ─────────────────────────────────────────────────────
+function HistorySection({ task, activities, taskId, selectedActivityId }: {
+  task: TaskItem; activities: ActivityItem[]; taskId: number;
+  selectedActivityId: number | null;
+}) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const PAGE_SIZE = 3;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [showAddNote, setShowAddNote] = useState(false);
+  const [noteText, setNoteText] = useState("");
+  const [noteType, setNoteType] = useState("INFO");
+  const [nextFU, setNextFU] = useState("");
+  const [noteSaved, setNoteSaved] = useState(false);
+
+  const isTask = selectedActivityId === null;
+  const selectedAct = activities.find((a) => a.activity_id === selectedActivityId);
+
+  const taskHistQ = useQuery({
+    queryKey: ["task-history", taskId],
+    queryFn: () => tasksApi.getHistory(taskId).then((r) => r.data),
+    staleTime: 60000,
+  });
+
+  const actHistQ = useQuery({
+    queryKey: ["act-hist", selectedActivityId],
+    queryFn: () => tasksApi.getHistory(taskId, selectedActivityId!).then((r) => r.data),
+    enabled: !isTask,
+    staleTime: 60000,
+  });
+
+  // Reset pagination when context changes
+  const prevTarget = isTask ? "task" : selectedActivityId;
+  const [lastTarget, setLastTarget] = useState(prevTarget);
+  if (lastTarget !== prevTarget) { setLastTarget(prevTarget); setVisibleCount(PAGE_SIZE); }
+
+  const addNoteMut = useMutation<unknown, Error, void>({
+    mutationFn: () => {
+      if (!noteText.trim()) return Promise.resolve(null);
+      const payload = isTask
+        ? { taskrecord_remark: noteText.trim(), taskrecord_type: noteType, taskrecord_next_followup: nextFU || undefined }
+        : { taskrecord_task_id: taskId, taskrecord_activity_id: selectedActivityId!, taskrecord_remark: noteText.trim(), taskrecord_type: noteType, taskrecord_next_followup: nextFU || undefined };
+      return tasksApi.addHistory(taskId, payload).then((r) => r.data);
+    },
+    onSuccess: () => {
+      setNoteText(""); setNextFU(""); setNoteSaved(true);
+      void qc.invalidateQueries({ queryKey: ["task-history", taskId] });
+      void qc.invalidateQueries({ queryKey: ["act-hist"] });
+      setTimeout(() => { setNoteSaved(false); setShowAddNote(false); }, 1500);
+    },
+  });
+
+  const allItems = isTask ? (taskHistQ.data ?? []) : (actHistQ.data ?? []);
+  const isLoading = isTask ? taskHistQ.isLoading : actHistQ.isLoading;
+  const visibleItems = allItems.slice(0, visibleCount);
+  const hasMore = visibleCount < allItems.length;
+
+  return (
+    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3 gap-2">
+        <p className="text-xs font-bold uppercase text-gray-600 dark:text-gray-400 flex items-center gap-1.5">
+          <History size={12} />
+          {isTask
+            ? `${t("task.taskHistory")} — Task #${task.task_id}`
+            : `${t("task.activityHistory")} — ${selectedAct?.activity_name ?? ""}`}
+        </p>
+        <button onClick={() => { setShowAddNote(!showAddNote); }}
+          className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors shrink-0 ${showAddNote ? "bg-blue-600 text-white border-blue-600" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>
+          + {t("task.addNoteBtn", { defaultValue: "Add Note" })}
+        </button>
+      </div>
+
+      {/* Add Note form */}
+      {showAddNote && (
+        <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800/40 rounded-lg border border-gray-200 dark:border-gray-700 space-y-3">
+          <p className="text-[10px] text-gray-500 dark:text-gray-400">
+            {isTask ? `Adding note to Task #${task.task_id}` : `Adding note to: ${selectedAct?.activity_name ?? "activity"}`}
+          </p>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="col-span-2">
+              <LabelInput label={t("task.formNotes")}>
+                <Textarea value={noteText} onChange={setNoteText} placeholder={t("task.noteTaskPlaceholder")} rows={3} />
+              </LabelInput>
+            </div>
+            <div className="space-y-2">
+              <LabelInput label={t("task.formNoteType")}>
+                <Sel value={noteType} onChange={setNoteType} options={["INFO", "ISSUE", "BLOCKER"]} />
+              </LabelInput>
+              <LabelInput label={t("task.formNextFollowUp")}>
+                <Inp value={nextFU} onChange={setNextFU} type="date" />
+              </LabelInput>
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            {noteSaved && <p className="text-[10px] text-green-600 dark:text-green-400">{t("task.savedSuccess")}</p>}
+            {addNoteMut.isError && <p className="text-[10px] text-red-600 dark:text-red-400">{t("task.saveFailed")}</p>}
+            <button onClick={() => { setShowAddNote(false); setNoteText(""); }} className="px-2.5 py-1.5 text-[10px] font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 transition-colors">
+              {t("task.cancelBtn", { defaultValue: "Cancel" })}
+            </button>
+            <button onClick={() => addNoteMut.mutate()} disabled={!noteText.trim() || addNoteMut.isPending}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white transition-colors">
+              {addNoteMut.isPending ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Save size={10} />}
+              {t("task.saveBtn")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* History list with pagination */}
+      {isLoading ? (
+        <div className="flex justify-center py-4"><div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
+      ) : (
+        <>
+          <div className="space-y-2">
+            {visibleItems.map((h) => (
+              <div key={h.taskrecord_id} className="text-xs border-b border-gray-100 dark:border-gray-800 pb-2">
+                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                  <span className="text-gray-400 dark:text-gray-500">
+                    {h.taskrecord_date ? (() => {
+                      const d = new Date(String(h.taskrecord_date));
+                      const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+                      const dd = String(d.getDate()).padStart(2, "0");
+                      const mmm = months[d.getMonth()];
+                      const yyyy = d.getFullYear();
+                      const hh = String(d.getHours()).padStart(2, "0");
+                      const mi = String(d.getMinutes()).padStart(2, "0");
+                      const ss = String(d.getSeconds()).padStart(2, "0");
+                      return `${dd}/${mmm}/${yyyy} ${hh}:${mi}:${ss}`;
+                    })() : "—"}
+                  </span>
+                  {h.taskrecord_type && <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${h.taskrecord_type === "BLOCKER" ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300" : h.taskrecord_type === "ISSUE" ? "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"}`}>{h.taskrecord_type}</span>}
+                  {h.taskrecord_status && <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{h.taskrecord_status}</span>}
+                  {(h as Record<string, unknown>).taskrecord_next_followup && (
+                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                      ⏰ {String((h as Record<string, unknown>).taskrecord_next_followup).slice(0, 10)}
+                    </span>
+                  )}
+                  <span className="ml-auto text-gray-400 dark:text-gray-500">{String(h.taskrecord_updated_by ?? "")}</span>
+                </div>
+                <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{String(h.taskrecord_remark ?? "")}</p>
+              </div>
+            ))}
+            {!allItems.length && <p className="text-xs text-gray-400 py-3">{t("task.noHistory")}</p>}
+          </div>
+          {hasMore && (
+            <button onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+              className="mt-3 w-full text-[10px] font-medium text-blue-600 dark:text-blue-400 hover:underline py-1">
+              {t("task.showMore", { defaultValue: `Show more (${allItems.length - visibleCount} remaining)` })}
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function TaskDetailPanel({ tasks, initialIndex = 0, onClose }: Props) {
   const { t } = useTranslation();
   const [idx, setIdx] = useState(Math.min(initialIndex, tasks.length - 1));
-  const [showHistory, setShowHistory] = useState(false);
-  const [activeSection, setActiveSection] = useState<"info" | "edit">("info");
+  const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null);
   const qc = useQueryClient();
 
   const task = tasks[idx];
@@ -469,13 +557,6 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, onClose }: Pr
     queryFn: () => tasksApi.getActivities(taskId!).then((r) => r.data),
     enabled: !!taskId,
     staleTime: 2 * 60 * 1000,
-  });
-
-  const historyQuery = useQuery({
-    queryKey: ["task-history", taskId],
-    queryFn: () => tasksApi.getHistory(taskId!).then((r) => r.data),
-    enabled: !!taskId && showHistory,
-    staleTime: 60 * 1000,
   });
 
   const csmQuery = useQuery({
@@ -495,89 +576,65 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, onClose }: Pr
   const activities = activitiesQuery.data ?? [];
   const csms = csmQuery.data ?? [];
   const statusTypes = statusQuery.data ?? [];
-  const isClosed = CLOSED_STATUS.has(task.task_status_id ?? 0);
 
   const navigate = (dir: -1 | 1) => {
     const next = idx + dir;
-    if (next >= 0 && next < tasks.length) { setIdx(next); setShowHistory(false); setActiveSection("info"); }
+    if (next >= 0 && next < tasks.length) { setIdx(next); setSelectedActivityId(null); }
   };
 
   const critColor = (lvl?: string) => lvl === "N1" ? "text-red-600 dark:text-red-400" : lvl === "N2" ? "text-orange-600 dark:text-orange-400" : "";
 
   return (
     <div className="space-y-3">
-      {/* Navigation header */}
-      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button onClick={() => navigate(-1)} disabled={idx === 0} className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40 transition-colors">
-            <ChevronLeft size={16} />
+      {/* ── Navigation bar ── */}
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 px-3 py-2 flex items-center justify-between">
+        {/* Prev / counter / Next */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => navigate(-1)}
+            disabled={idx === 0}
+            className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 transition-colors text-gray-500 dark:text-gray-400"
+          >
+            <ChevronLeft size={15} />
           </button>
-          <span className="text-xs text-gray-500 dark:text-gray-400">{t("task.taskOf", { current: idx + 1, total: tasks.length })}</span>
-          <button onClick={() => navigate(1)} disabled={idx === tasks.length - 1} className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40 transition-colors">
-            <ChevronRight size={16} />
+          <span className="text-xs font-medium text-gray-500 dark:text-gray-400 select-none px-1">
+            {t("task.taskOf", { current: idx + 1, total: tasks.length })}
+          </span>
+          <button
+            onClick={() => navigate(1)}
+            disabled={idx === tasks.length - 1}
+            className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 transition-colors text-gray-500 dark:text-gray-400"
+          >
+            <ChevronRight size={15} />
           </button>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-            {(["info", "edit"] as const).map((sec) => (
-              <button key={sec} onClick={() => setActiveSection(sec)}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${activeSection === sec ? "bg-blue-600 text-white" : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>
-                {sec === "info" ? t("task.viewMode") : t("task.editMode")}
-              </button>
-            ))}
-          </div>
-          <button onClick={() => setShowHistory(!showHistory)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${showHistory ? "bg-blue-600 text-white border-blue-600" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>
-            <History size={13} /> {t("task.historyBtn")}
+
+        {/* Close */}
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+          >
+            <X size={15} />
           </button>
-          {onClose && (
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 transition-colors">
-              <X size={16} />
-            </button>
-          )}
-        </div>
+        )}
       </div>
 
-      {/* Main content */}
+      {/* ── Main content ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {/* LEFT: task info or edit form */}
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300">
+          {/* Card header: title */}
+          <div className="flex items-center mb-3 gap-2 min-w-0">
+            <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 truncate">
               #{task.task_id} — <span className="font-normal text-gray-500 dark:text-gray-400">{task.task_type_name ?? "—"}</span>
             </h3>
             {task.critical_level && task.critical_level !== "NONE" && (
-              <span className={`text-xs font-bold ${critColor(task.critical_level)}`}>CRIT {task.critical_level}</span>
+              <span className={`text-xs font-bold shrink-0 ${critColor(task.critical_level)}`}>CRIT {task.critical_level}</span>
             )}
           </div>
 
-          {activeSection === "info" ? (
-            <div className="space-y-0">
-              {[
-                [t("task.fieldClient"), task.task_customer_name],
-                [t("task.fieldOwner"), task.task_owner_name + (task.task_temp_owner_name ? ` (temp: ${task.task_temp_owner_name})` : "")],
-                [t("task.fieldStatus"), task.task_status_reclassified ?? task.task_status_name],
-                [t("task.fieldPriority"), task.task_priority],
-                [t("task.fieldReference"), task.task_reference],
-                [t("task.fieldWsSub"), task.task_ws],
-                [t("task.fieldDealId"), task.task_deal_id],
-                [t("task.fieldTrack"), task.task_track + (task.task_subtrack ? ` / ${task.task_subtrack}` : "")],
-                [t("task.fieldValue"), task.task_value != null ? String(task.task_value) : null],
-                [t("task.fieldStart"), fmtDate(task.task_start_performed ?? task.task_start) || "—"],
-                [t("task.fieldEnd"), fmtDate(task.task_end_performed ?? task.task_end) || "—"],
-                [t("task.fieldProject"), task.task_project_name],
-                [t("task.fieldEaTelemetry"), task.task_ea_flag != null ? `${task.task_ea_flag ? "✅" : "❌"} EA • ${task.task_telemetry_flag ? "✅" : "❌"} Telemetry` : null],
-                [t("task.fieldSpiStage"), task.spi_lifecycle_stage],
-              ].map(([label, value]) => value ? (
-                <div key={String(label)} className="flex items-start gap-2 py-1.5 border-b border-gray-100 dark:border-gray-800 last:border-0">
-                  <span className="text-xs text-gray-500 dark:text-gray-400 w-28 shrink-0">{label}</span>
-                  <span className="text-xs text-gray-800 dark:text-gray-200 flex-1">{value}</span>
-                </div>
-              ) : null)}
-            </div>
-          ) : (
-            <TaskEditForm task={task} csms={csms} statusTypes={statusTypes} onSaved={() => { setActiveSection("info"); void qc.invalidateQueries({ queryKey: ["task-activities", taskId] }); }} />
-          )}
+          <TaskEditForm task={task} csms={csms} statusTypes={statusTypes} onSaved={() => { void qc.invalidateQueries({ queryKey: ["task-activities", taskId] }); }} />
         </div>
 
         {/* RIGHT: activities */}
@@ -592,22 +649,20 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, onClose }: Pr
           ) : (
             <div className="space-y-0 max-h-[480px] overflow-y-auto">
               {activities.map((act) => (
-                <ActivityRow key={act.activity_id} act={act} statusTypes={statusTypes} taskId={taskId!} onUpdated={() => void activitiesQuery.refetch()} />
+                <ActivityRow key={act.activity_id} act={act} statusTypes={statusTypes} taskId={taskId!} onUpdated={() => void activitiesQuery.refetch()} onSelectHistory={(id) => setSelectedActivityId(id)} isSelectedForHistory={selectedActivityId === act.activity_id} />
               ))}
             </div>
           )}
         </div>
       </div>
 
-      {/* History */}
-      {showHistory && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <h3 className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-3">{t("task.taskHistory")}</h3>
-          {historyQuery.isLoading ? (
-            <div className="flex justify-center py-4"><div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
-          ) : <HistoryPanel items={historyQuery.data ?? []} />}
-        </div>
-      )}
+      {/* ── History section (always visible) ── */}
+      <HistorySection
+        task={task}
+        activities={activities}
+        taskId={taskId!}
+        selectedActivityId={selectedActivityId}
+      />
     </div>
   );
 }
