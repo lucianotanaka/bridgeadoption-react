@@ -48,6 +48,9 @@ from app.tasks.filter_service import (
     add_raci,
     remove_raci,
     update_raci_responsibility,
+    get_status_justifications,
+    get_projects_for_task,
+    get_project_team_for_task,
 )
 from app.tasks.lci_viability_service import (
     get_lci_track_pm_list,
@@ -403,6 +406,37 @@ def task_raci_remove(
     user_name = current_user.get("user_name", "")
     success = remove_raci(raci_id=raci_id, disabled_by=user_name)
     return {"success": success}
+
+
+# ─── Status justifications ────────────────────────────────────────────────────
+
+@router.get("/status-justifications", response_model=List[Dict[str, Any]])
+def task_status_justifications(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    status_id: Optional[int] = Query(None),
+):
+    """Returns status justification options for a given status_id (3=ON HOLD, 4=CANCELLED)."""
+    return get_status_justifications(status_id=status_id)
+
+
+# ─── Projects ─────────────────────────────────────────────────────────────────
+
+@router.get("/projects", response_model=List[Dict[str, Any]])
+def task_projects(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    customer_id: int = Query(...),
+):
+    """Returns active projects for a customer (for task_project_id selection)."""
+    return get_projects_for_task(customer_id=customer_id)
+
+
+@router.get("/project-team", response_model=List[Dict[str, Any]])
+def task_project_team(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    customer_id: int = Query(...),
+):
+    """Returns project team members for a customer's active projects."""
+    return get_project_team_for_task(customer_id=customer_id)
 
 
 # ─── Activity endpoints ───────────────────────────────────────────────────────

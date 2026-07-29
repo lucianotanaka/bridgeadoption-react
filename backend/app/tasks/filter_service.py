@@ -226,10 +226,46 @@ def get_task_history(task_id: int, activity_id: Optional[int] = None) -> List[Di
 # ─────────────────────────────────────────
 
 def update_task(task_id: int, data: Dict[str, Any]) -> bool:
-    """Updates task fields in tbTask. Returns True on success."""
+    """Updates task fields in tbTask. Returns True on success.
+
+    Auto-calculates task_completed when task_status changes (mirrors Streamlit logic):
+    - No activities: status 2|3 → 25%, status 10 → 100%
+    - Has activities: status 10 → 100%, else → avg(activity_completed)
+    """
     if not _REPOS_OK or not data:
         return False
     try:
+        # Auto task_completed when status changes and user didn't explicitly set it
+        if "task_status" in data and "task_completed" not in data:
+            new_status = int(data["task_status"])
+            try:
+                from src.infrastructure.database.connection import get_db_connection
+                conn = get_db_connection()
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute(
+                    """SELECT COUNT(*) AS cnt, AVG(activity_completed) AS avg_comp
+                       FROM tbTaskActivity
+                       WHERE activity_task_id = %s AND activity_enabled = 1""",
+                    (int(task_id),)
+                )
+                row = cursor.fetchone()
+                cursor.close()
+                conn.close()
+                count_act = int(row["cnt"] or 0) if row else 0
+                avg_comp = float(row["avg_comp"] or 0.0) if row else 0.0
+                if count_act == 0:
+                    if new_status in (2, 3):
+                        data["task_completed"] = 0.25
+                    elif new_status == 10:
+                        data["task_completed"] = 1.0
+                else:
+                    if new_status == 10:
+                        data["task_completed"] = 1.0
+                    else:
+                        data["task_completed"] = round(avg_comp, 4)
+            except Exception as ce:
+                logger.warning(f"update_task auto_completed: {ce}")
+
         repo = TaskRepository()
         rows = repo.update(data=data, where={"task_id": task_id})
         return rows > 0
@@ -504,6 +540,58 @@ def remove_raci(raci_id: int, disabled_by: str) -> bool:
     except Exception as e:
         logger.error(f"remove_raci: {e}")
         return False
+
+
+# ─────────────────────────────────────────
+# STATUS JUSTIFICATIONS
+# ─────────────────────────────────────────
+
+def get_status_justifications(status_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Returns status justification options from tbStatusTypeJustification."""
+    if not _REPOS_OK:
+        return []
+    try:
+        from src.infrastructure.database.repositories.status_type_repository import StatusTypeRepository
+        repo = StatusTypeRepository()
+        rows = repo.get_status_type_justification(status_id=status_id, as_df=False) or []
+        return [_serialize(dict(r)) for r in rows]
+    except Exception as e:
+        logger.error(f"get_status_justifications: {e}")
+        return []
+
+
+# ─────────────────────────────────────────
+# PROJECTS FOR TASK
+# ─────────────────────────────────────────
+
+def get_projects_for_task(customer_id: int) -> List[Dict[str, Any]]:
+    """Returns active projects for a customer."""
+    if not _REPOS_OK or not customer_id:
+        return []
+    try:
+        from src.infrastructure.database.repositories.project_repository import ProjectRepository
+        repo = ProjectRepository()
+        statuses = ["Business Model", "In progress", "Not started", "Unidentified"]
+        rows = repo.get_project(customer_id=int(customer_id), project_status=statuses, as_df=False) or []
+        return [_serialize(dict(r)) for r in rows]
+    except Exception as e:
+        logger.error(f"get_projects_for_task: {e}")
+        return []
+
+
+def get_project_team_for_task(customer_id: int) -> List[Dict[str, Any]]:
+    """Returns project team members for a customer's active projects."""
+    if not _REPOS_OK or not customer_id:
+        return []
+    try:
+        from src.infrastructure.database.repositories.project_repository import ProjectRepository
+        repo = ProjectRepository()
+        statuses = ["Business Model", "In progress", "Not started", "Unidentified"]
+        rows = repo.get_project_team(customer_id=int(customer_id), project_status=statuses, as_df=False) or []
+        return [_serialize(dict(r)) for r in rows]
+    except Exception as e:
+        logger.error(f"get_project_team_for_task: {e}")
+        return []
 
 
 def update_raci_responsibility(raci_id: int, responsibility: str) -> bool:

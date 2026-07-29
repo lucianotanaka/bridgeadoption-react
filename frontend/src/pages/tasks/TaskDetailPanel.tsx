@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight, Save, History, X, Edit2, Users, Info } from "lucide-react";
 import { tasksApi } from "@/api/tasks";
-import type { TaskItem, ActivityItem, HistoryItem, CSMItem, StatusType, RACIItem, PersonItem, CompanyItem } from "@/api/tasks";
+import type { TaskItem, ActivityItem, HistoryItem, CSMItem, StatusType, RACIItem, PersonItem, CompanyItem, StatusJustificationItem, ProjectItem, ProjectTeamItem } from "@/api/tasks";
 
 interface Props {
   tasks: TaskItem[];
@@ -17,10 +17,39 @@ const PROGRESS_MAP: Record<string, number> = { "0%": 0, "25%": 0.25, "50%": 0.5,
 const REVERSE_PROGRESS: Record<string, string> = { "0": "0%", "0.25": "25%", "0.5": "50%", "0.75": "75%", "1": "100%" };
 const PRIORITY_OPTIONS = ["HIGH", "MEDIUM", "LOW"];
 const CURRENCY_OPTIONS = ["BRL", "USD", "EUR"];
-const DEADLINE_ICON: Record<string, string> = { delayed: "🚨", today: "⚠️", this_week: "⏳", next_week: "📅", future: "🕒" };
+const DEADLINE_ICON: Record<string, string> = { today: "⚠️", this_week: "⏳", next_week: "📅", future: "🕒" };
 
 function fmtDate(iso?: string | null): string {
   return iso ? iso.slice(0, 10) : "";
+}
+
+function fmtDateDisplay(iso?: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso.slice(0, 10) + "T00:00:00");
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${String(d.getDate()).padStart(2,"0")}/${months[d.getMonth()]}/${d.getFullYear()}`;
+}
+
+function computeFY(iso?: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso.slice(0, 10) + "T00:00:00");
+  const month = d.getMonth() + 1;
+  const year = d.getFullYear();
+  return `FY${month >= 4 ? year : year - 1}`;
+}
+
+function computeFYYear(iso?: string | null): number | null {
+  if (!iso) return null;
+  const d = new Date(iso.slice(0, 10) + "T00:00:00");
+  const month = d.getMonth() + 1;
+  const year = d.getFullYear();
+  return month >= 4 ? year : year - 1;
+}
+
+function completedToLabel(v?: number | null): string {
+  if (v == null) return "0%";
+  const pct = Math.round((v * 100) / 25) * 25;
+  return `${Math.min(100, Math.max(0, pct))}%`;
 }
 
 function pctLabel(v?: number | null): string {
@@ -155,9 +184,9 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isS
   const [saved, setSaved] = useState(false);
 
   const pct = Math.min(100, Math.max(0, ((act.activity_completed ?? 0) <= 1 ? (act.activity_completed ?? 0) * 100 : act.activity_completed ?? 0)));
-  const bucket = deadlineBucket(fmtDate(act.activity_end_performed ?? act.activity_end) || null);
   const statusId = act.activity_status ?? 0;
   const isClosed = CLOSED_STATUS.has(statusId);
+  const bucket = isClosed ? "future" : deadlineBucket(fmtDate(act.activity_end_performed ?? act.activity_end) || null);
 
   const g = (k: string, fallback: string = ""): string => k in edits ? edits[k] : String((act as Record<string, unknown>)[k] ?? fallback);
   const s = (k: string, v: string) => { setEdits((p) => ({ ...p, [k]: v })); setSaved(false); };
@@ -184,9 +213,21 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isS
         const ef = parseFloat(edits.activity_effort_performed);
         if (!isNaN(ef) && ef !== act.activity_effort_performed) { data.activity_effort_performed = ef; changes.push(`Effort → ${ef}h`); }
       }
-      ["activity_objective", "activity_scope", "activity_expected_results", "activity_track", "activity_sub_track", "activity_deal_id", "activity_ws", "activity_value", "activity_currency"].forEach((k) => {
+      ["activity_objective", "activity_scope", "activity_expected_results", "activity_track", "activity_sub_track", "activity_deal_id", "activity_ws", "activity_value", "activity_currency", "activity_approved_value", "activity_approved_currency", "activity_approval_request_date", "activity_approval_date"].forEach((k) => {
         if (k in edits && edits[k] !== String((act as Record<string, unknown>)[k] ?? "")) data[k] = edits[k];
       });
+      if ("activity_approved" in edits) data.activity_approved = edits.activity_approved === "1" ? 1 : 0;
+      // Computed: activity_approval_fy
+      const approvalDate = "activity_approval_date" in edits ? edits.activity_approval_date : fmtDate(act.activity_approval_date);
+      if (approvalDate) { const fy = computeFYYear(approvalDate); if (fy) data.activity_approval_fy = fy; }
+      // Computed: activity_end_fy (only if status = 10 and end_performed set)
+      const endPerf = "activity_end_performed" in edits ? edits.activity_end_performed : fmtDate(act.activity_end_performed);
+      const newStatusId = "activity_status_name" in edits ? (statusTypes.find((sx) => sx.statustype_name === edits.activity_status_name)?.statustype_id ?? act.activity_status) : act.activity_status;
+      if (endPerf && Number(newStatusId) === 10) { const fy = computeFYYear(endPerf); if (fy) data.activity_end_fy = fy; }
+      // Computed: activity_backlog_value
+      const actValue = "activity_value" in edits ? parseFloat(edits.activity_value) : (act.activity_value ?? 0);
+      const approvedValue = "activity_approved_value" in edits ? parseFloat(edits.activity_approved_value) : (act.activity_approved_value ?? 0);
+      if (actValue > 0) data.activity_backlog_value = Math.abs(actValue - approvedValue);
       const remark = changes.join("; ");
       const history = remark ? { taskrecord_task_id: taskId, taskrecord_activity_id: act.activity_id, taskrecord_remark: remark } : undefined;
       return Promise.all([
@@ -206,18 +247,20 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isS
 
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden mb-2">
-      <button onClick={() => { const next = !expanded; setExpanded(next); onSelectHistory?.(next ? act.activity_id : null); }} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left">
+      <button onClick={() => { const next = !expanded; setExpanded(next); onSelectHistory?.(next ? act.activity_id : null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left ${bucket === "delayed" ? "border-l-2 border-l-red-500" : ""}`}>
         <span className="text-xs font-mono text-gray-400 dark:text-gray-500 w-4">{act.activity_seq}</span>
         <div className="flex-1 min-w-0">
           <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">{act.activity_name ?? "—"}</p>
           <div className="flex items-center gap-2 mt-0.5">
             <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
-              <div className="bg-blue-500 h-1.5 rounded-full transition-all" style={{ width: `${pct}%` }} />
+              <div className={`h-1.5 rounded-full transition-all ${bucket === "delayed" ? "bg-red-500" : "bg-blue-500"}`} style={{ width: `${pct}%` }} />
             </div>
             <span className="text-[10px] text-gray-400">{Math.round(pct)}%</span>
           </div>
         </div>
-        <span className="text-sm">{DEADLINE_ICON[bucket]}</span>
+        {bucket === "delayed"
+          ? <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500/15 text-red-500 dark:text-red-400 border border-red-500/40 animate-pulse shrink-0">ATRASADO</span>
+          : <span className="text-sm shrink-0">{DEADLINE_ICON[bucket] ?? ""}</span>}
         <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${isClosed ? "bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-300" : "bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300"}`}>{act.activity_status_name ?? "—"}</span>
         <span className="text-[10px] text-gray-400 dark:text-gray-500 hidden sm:block">{fmtDate(act.activity_end_performed ?? act.activity_end) || "—"}</span>
         <Edit2 size={11} className="text-gray-400 shrink-0" />
@@ -226,11 +269,11 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isS
         <div className="border-t border-gray-100 dark:border-gray-800 p-4 bg-gray-50/30 dark:bg-gray-800/20 space-y-3">
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             <LabelInput label={t("task.formSeq")}><Inp value={g("activity_seq", String(act.activity_seq ?? "1"))} onChange={(v) => s("activity_seq", v)} disabled={isClosed} type="number" /></LabelInput>
-            <LabelInput label={`${t("task.formStart")}${bucket === "delayed" ? " 🚨" : ""}`}>
+            <LabelInput label={t("task.formStart")}>
               <Inp value={g("activity_start_performed", fmtDate(act.activity_start_performed))} onChange={(v) => s("activity_start_performed", v)} disabled={isClosed} type="date" />
               <p className="text-[10px] text-gray-400 mt-0.5">{t("task.formExpected")} {fmtDate(act.activity_start) || "—"}</p>
             </LabelInput>
-            <LabelInput label={`${t("task.formEnd")}${bucket === "delayed" ? " 🚨" : bucket === "today" ? " ⚠️" : ""}`}>
+            <LabelInput label={t("task.formEnd")}>
               <Inp value={g("activity_end_performed", fmtDate(act.activity_end_performed))} onChange={(v) => s("activity_end_performed", v)} disabled={isClosed} type="date" />
               <p className="text-[10px] text-gray-400 mt-0.5">{t("task.formExpected")} {fmtDate(act.activity_end) || "—"}</p>
             </LabelInput>
@@ -245,28 +288,31 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isS
             <LabelInput label={t("task.formDealId")}><Inp value={g("activity_deal_id", String(act.activity_deal_id ?? ""))} onChange={(v) => s("activity_deal_id", v)} disabled={isClosed} /></LabelInput>
             <LabelInput label="WS"><Inp value={g("activity_ws", String(act.activity_ws ?? ""))} onChange={(v) => s("activity_ws", v)} disabled={isClosed} /></LabelInput>
           </div>
+          {/* Value + Currency + Req. Aprovação + Aprovado */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <LabelInput label={t("task.formValueDollar")}><Inp value={g("activity_value", String(act.activity_value ?? "0"))} onChange={(v) => s("activity_value", v)} disabled={isClosed} type="number" /></LabelInput>
             <LabelInput label={t("task.formCurrency")}><Sel value={g("activity_currency", String(act.activity_currency ?? "USD"))} onChange={(v) => s("activity_currency", v)} options={CURRENCY_OPTIONS} disabled={isClosed} /></LabelInput>
+            <LabelInput label="Req. Aprovação"><Inp value={g("activity_approval_request_date", fmtDate(act.activity_approval_request_date))} onChange={(v) => s("activity_approval_request_date", v)} disabled={isClosed} type="date" /></LabelInput>
+            <LabelInput label="Aprovado">
+              <select value={g("activity_approved", String(act.activity_approved ?? "0"))} onChange={(e) => s("activity_approved", e.target.value)} disabled={isClosed}
+                className="w-full text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60">
+                <option value="0">Não</option>
+                <option value="1">Sim</option>
+              </select>
+            </LabelInput>
           </div>
-          <div>
-            <div className="flex gap-1 mb-2 border-b border-gray-200 dark:border-gray-700">
-              {(["objective", "scope", "results", "track"] as const).map((tabKey) => (
-                <button key={tabKey} onClick={() => setTab(tabKey)} className={`text-[10px] px-3 py-1.5 font-medium transition-colors capitalize ${tab === tabKey ? "border-b-2 border-blue-500 text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"}`}>
-                  {tabKey === "results" ? t("task.tabExpectedResults") : tabKey === "track" ? t("task.tabTrackSubtrack") : tabKey === "objective" ? t("task.tabObjective") : t("task.tabScope")}
-                </button>
-              ))}
-            </div>
-            {tab === "objective" && <Textarea value={g("activity_objective", String(act.activity_objective ?? ""))} onChange={(v) => s("activity_objective", v)} disabled={isClosed} placeholder="Activity objective..." rows={4} />}
-            {tab === "scope" && <Textarea value={g("activity_scope", String(act.activity_scope ?? ""))} onChange={(v) => s("activity_scope", v)} disabled={isClosed} placeholder="Activity scope..." rows={4} />}
-            {tab === "results" && <Textarea value={g("activity_expected_results", String(act.activity_expected_results ?? ""))} onChange={(v) => s("activity_expected_results", v)} disabled={isClosed} placeholder="Expected results..." rows={4} />}
-            {tab === "track" && (
-              <div className="grid grid-cols-2 gap-3">
-                <LabelInput label="Track"><Inp value={g("activity_track", String(act.activity_track ?? ""))} onChange={(v) => s("activity_track", v)} disabled={isClosed} /></LabelInput>
-                <LabelInput label="Subtrack"><Inp value={g("activity_sub_track", String(act.activity_sub_track ?? ""))} onChange={(v) => s("activity_sub_track", v)} disabled={isClosed} /></LabelInput>
-              </div>
-            )}
+          {/* Valor Aprovado + Moeda Aprov. + Data Aprovação */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <LabelInput label="Valor Aprovado"><Inp value={g("activity_approved_value", String(act.activity_approved_value ?? "0"))} onChange={(v) => s("activity_approved_value", v)} disabled={isClosed} type="number" /></LabelInput>
+            <LabelInput label="Moeda Aprov."><Sel value={g("activity_approved_currency", act.activity_approved_currency ?? "USD")} onChange={(v) => s("activity_approved_currency", v)} options={CURRENCY_OPTIONS} disabled={isClosed} /></LabelInput>
+            <LabelInput label="Data Aprovação"><Inp value={g("activity_approval_date", fmtDate(act.activity_approval_date))} onChange={(v) => s("activity_approval_date", v)} disabled={isClosed} type="date" /></LabelInput>
           </div>
+          {/* Track, Subtrack, Objective, Scope, Expected Results — each on own line */}
+          <LabelInput label="Track"><Inp value={g("activity_track", String(act.activity_track ?? ""))} onChange={(v) => s("activity_track", v)} disabled={isClosed} /></LabelInput>
+          <LabelInput label="Subtrack"><Inp value={g("activity_sub_track", String(act.activity_sub_track ?? ""))} onChange={(v) => s("activity_sub_track", v)} disabled={isClosed} /></LabelInput>
+          <LabelInput label={t("task.tabObjective")}><Textarea value={g("activity_objective", String(act.activity_objective ?? ""))} onChange={(v) => s("activity_objective", v)} disabled={isClosed} placeholder="Objetivo da atividade..." rows={2} /></LabelInput>
+          <LabelInput label={t("task.tabScope")}><Textarea value={g("activity_scope", String(act.activity_scope ?? ""))} onChange={(v) => s("activity_scope", v)} disabled={isClosed} placeholder="Escopo..." rows={2} /></LabelInput>
+          <LabelInput label={t("task.tabExpectedResults")}><Textarea value={g("activity_expected_results", String(act.activity_expected_results ?? ""))} onChange={(v) => s("activity_expected_results", v)} disabled={isClosed} placeholder="Resultados esperados..." rows={2} /></LabelInput>
           <div className="flex items-center justify-end pt-2 border-t border-gray-100 dark:border-gray-800">
             <div className="flex items-center gap-2">
               {saved && <p className="text-[10px] text-green-600 dark:text-green-400">{t("task.savedSuccess")}</p>}
@@ -284,18 +330,60 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isS
   );
 }
 
-function TaskEditForm({ task, csms, statusTypes, onSaved }: { task: TaskItem; csms: CSMItem[]; statusTypes: StatusType[]; onSaved: () => void }) {
+function TaskEditForm({ task, csms, statusTypes, onSaved, showCreationInfo }: { task: TaskItem; csms: CSMItem[]; statusTypes: StatusType[]; onSaved: () => void; showCreationInfo: boolean }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const isClosed = CLOSED_STATUS.has(task.task_status_id ?? 0);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
+  const [showProjectTeam, setShowProjectTeam] = useState(false);
 
   const g = (k: string, fallback: string = ""): string => k in edits ? edits[k] : String((task as Record<string, unknown>)[k] ?? fallback);
   const s = (k: string, v: string) => { setEdits((p) => ({ ...p, [k]: v })); setSaved(false); };
 
   const csmOptions = ["", ...csms.map((c) => c.csm_name)];
   const statusOptions = statusTypes.filter((st) => st.statustype_id !== 5).map((st) => st.statustype_name);
+  const TASK_CURRENCY_OPTIONS = ["BRL", "USD", "EUR"];
+  const PCT_OPTIONS = ["0%", "25%", "50%", "75%", "100%"];
+  const taskTypeId = Number(task.task_type_id ?? 0);
+  const isSpecialType = [21, 22].includes(taskTypeId);
+
+  // Derive selected status id for justification logic
+  const selectedStatusName = g("task_status_name", task.task_status_name ?? "");
+  const selectedStatus = statusTypes.find((st) => st.statustype_name === selectedStatusName);
+  const selectedStatusId = selectedStatus?.statustype_id ?? (task.task_status_id ?? 0);
+  const needsJustification = [3, 4].includes(Number(selectedStatusId));
+
+  // Status justifications — load ALL, filter client-side (mirrors Streamlit approach)
+  const justQ = useQuery({
+    queryKey: ["status-justifications-all"],
+    queryFn: () => tasksApi.getStatusJustifications().then((r) => r.data),
+    staleTime: 30 * 60 * 1000,
+  });
+
+  // Projects
+  const customerId = Number(task.task_customer_id ?? 0);
+  const projectsQ = useQuery({
+    queryKey: ["task-projects", customerId],
+    queryFn: () => tasksApi.getProjects(customerId).then((r) => r.data),
+    enabled: !!customerId,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const projects = projectsQ.data ?? [];
+  const projectTeamQ = useQuery({
+    queryKey: ["task-project-team", customerId],
+    queryFn: () => tasksApi.getProjectTeam(customerId).then((r) => r.data),
+    enabled: !!customerId && showProjectTeam,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const justifications = (justQ.data ?? [])
+    .filter((j) => Number(j.status_justification_status_id) === Number(selectedStatusId))
+    .map((j) => String(j.status_justification_pt ?? j.status_justification_en ?? ""))
+    .filter(Boolean);
+
+  const endForFY = g("task_end_performed", fmtDate(task.task_end_performed)) || fmtDate(task.task_end);
 
   const saveMut = useMutation<unknown, Error, void>({
     mutationFn: () => {
@@ -322,13 +410,19 @@ function TaskEditForm({ task, csms, statusTypes, onSaved }: { task: TaskItem; cs
         const st = statusTypes.find((x) => x.statustype_name === edits.task_status_name);
         if (st) { data.task_status = st.statustype_id; changes.push(`Status → ${edits.task_status_name}`); }
       }
+      if ("task_status_justification" in edits) data.task_status_justification = edits.task_status_justification || null;
+      if ("task_project_id" in edits) { const pid = parseInt(edits.task_project_id); data.task_project_id = pid || null; }
+      if ("task_completed_pct" in edits) { data.task_completed = parseInt(edits.task_completed_pct) / 100; }
       mapField("task_priority", "Priority");
       mapField("task_reference", "Reference");
       mapField("task_ws", "WS");
       mapField("task_deal_id", "Deal ID");
       mapField("task_value", "Value", (v) => parseFloat(v) || 0);
+      mapField("task_currency", "Currency");
       mapField("task_start_performed", "Start");
       mapField("task_end_performed", "End");
+      mapField("task_remark", "Remark");
+      mapField("task_description", "Description");
       const remark = changes.join("; ");
       const history = remark ? { taskrecord_remark: remark } : undefined;
       return tasksApi.updateTask(task.task_id, data, history).then((r) => r.data);
@@ -343,44 +437,125 @@ function TaskEditForm({ task, csms, statusTypes, onSaved }: { task: TaskItem; cs
 
   return (
     <div className="space-y-3">
-      {/* Row 1: Owner, Status */}
+      {showCreationInfo && (
+        <div className="grid grid-cols-2 gap-2 p-2 bg-gray-50 dark:bg-gray-800/30 rounded-lg text-[10px]">
+          <div><span className="text-gray-400 uppercase">Criado por: </span><span className="font-medium text-gray-700 dark:text-gray-300">{task.task_created_by_name ?? "—"}</span></div>
+          <div><span className="text-gray-400 uppercase">Criado em: </span><span className="font-medium text-gray-700 dark:text-gray-300">{task.task_created_in ? fmtDateDisplay(String(task.task_created_in)) : "—"}</span></div>
+        </div>
+      )}
+
+      {/* Owner + Status */}
       <div className="grid grid-cols-2 gap-3">
-        <LabelInput label={t("task.formOwner")}>
-          <Sel value={g("task_owner_name", task.task_owner_name ?? "")} onChange={(v) => s("task_owner_name", v)} options={csmOptions} disabled={isClosed} />
-        </LabelInput>
-        <LabelInput label={t("task.formStatus")}>
-          <Sel value={g("task_status_name", task.task_status_name ?? "")} onChange={(v) => s("task_status_name", v)} options={statusOptions} disabled={isClosed} />
-        </LabelInput>
+        <LabelInput label={t("task.formOwner")}><Sel value={g("task_owner_name", task.task_owner_name ?? "")} onChange={(v) => s("task_owner_name", v)} options={csmOptions} disabled={isClosed} /></LabelInput>
+        <LabelInput label={t("task.formStatus")}><Sel value={g("task_status_name", task.task_status_name ?? "")} onChange={(v) => s("task_status_name", v)} options={statusOptions} disabled={isClosed} /></LabelInput>
       </div>
-      {/* Row 2: Temp Owner, Priority */}
+
+      {/* Status Justification */}
+      {needsJustification && (
+        <LabelInput label="Justificativa ⚠️">
+          <select value={g("task_status_justification", task.task_status_justification ?? "")} onChange={(e) => s("task_status_justification", e.target.value)} disabled={isClosed}
+            className="w-full text-xs px-2 py-1.5 border border-orange-400 dark:border-orange-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-orange-500 disabled:opacity-60">
+            <option value="">Selecione uma justificativa...</option>
+            {justifications.map((j) => <option key={j} value={j}>{j}</option>)}
+          </select>
+        </LabelInput>
+      )}
+
+      {/* Temp Owner + Priority */}
       <div className="grid grid-cols-2 gap-3">
-        <LabelInput label={t("task.formTempOwner")}>
-          <Sel value={g("task_temp_owner_name", task.task_temp_owner_name ?? "")} onChange={(v) => s("task_temp_owner_name", v)} options={csmOptions} disabled={isClosed} />
-        </LabelInput>
-        <LabelInput label={t("task.formPriority")}>
-          <Sel value={g("task_priority", task.task_priority ?? "LOW")} onChange={(v) => s("task_priority", v)} options={PRIORITY_OPTIONS} disabled={isClosed} />
-        </LabelInput>
+        <LabelInput label={t("task.formTempOwner")}><Sel value={g("task_temp_owner_name", task.task_temp_owner_name ?? "")} onChange={(v) => s("task_temp_owner_name", v)} options={csmOptions} disabled={isClosed} /></LabelInput>
+        <LabelInput label={t("task.formPriority")}><Sel value={g("task_priority", task.task_priority ?? "LOW")} onChange={(v) => s("task_priority", v)} options={PRIORITY_OPTIONS} disabled={isClosed} /></LabelInput>
       </div>
-      {/* Row 3: Reference, WS, Deal ID */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <LabelInput label={t("task.formReference")}><Inp value={g("task_reference", task.task_reference ?? "")} onChange={(v) => s("task_reference", v)} disabled={isClosed} /></LabelInput>
-        <LabelInput label={t("task.formWsSub")}><Inp value={g("task_ws", task.task_ws ?? "")} onChange={(v) => s("task_ws", v)} disabled={isClosed} /></LabelInput>
-        <LabelInput label={t("task.formDealId")}><Inp value={g("task_deal_id", task.task_deal_id ?? "")} onChange={(v) => s("task_deal_id", v)} disabled={isClosed} /></LabelInput>
-      </div>
-      {/* Row 4: Track (read-only), Value, Start, End */}
+
+      {/* Reference (full width) */}
+      <LabelInput label={t("task.formReference")}><Inp value={g("task_reference", task.task_reference ?? "")} onChange={(v) => s("task_reference", v)} disabled={isClosed} /></LabelInput>
+
+      {/* WS/Subscr. + Deal ID + Value + Moeda */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <LabelInput label={t("task.formTrack")}><Inp value={String(task.task_track ?? "")} onChange={() => void 0} disabled /></LabelInput>
+        <LabelInput label="WS / Subscr."><Inp value={g("task_ws", task.task_ws ?? "")} onChange={(v) => s("task_ws", v)} disabled={isClosed} /></LabelInput>
+        <LabelInput label={t("task.formDealId")}><Inp value={g("task_deal_id", task.task_deal_id ?? "")} onChange={(v) => s("task_deal_id", v)} disabled={isClosed} /></LabelInput>
         <LabelInput label={t("task.formValue")}><Inp value={g("task_value", String(task.task_value ?? "0"))} onChange={(v) => s("task_value", v)} disabled={isClosed} type="number" /></LabelInput>
-        <LabelInput label={t("task.formStart")}><Inp value={g("task_start_performed", fmtDate(task.task_start_performed ?? task.task_start))} onChange={(v) => s("task_start_performed", v)} disabled={isClosed} type="date" /></LabelInput>
-        <LabelInput label={t("task.formEnd")}><Inp value={g("task_end_performed", fmtDate(task.task_end_performed ?? task.task_end))} onChange={(v) => s("task_end_performed", v)} disabled={isClosed} type="date" /></LabelInput>
+        <LabelInput label="Moeda"><Sel value={g("task_currency", task.task_currency ?? "USD")} onChange={(v) => s("task_currency", v)} options={CURRENCY_OPTIONS} disabled={isClosed} /></LabelInput>
       </div>
+
+      {/* Track + Subtrack (read-only, always shown) */}
+      <LabelInput label="Track"><Inp value={String(task.task_track ?? "")} onChange={() => void 0} disabled /></LabelInput>
+      <LabelInput label="Subtrack"><Inp value={String(task.task_subtrack ?? "")} onChange={() => void 0} disabled /></LabelInput>
+
+      {/* Start + End + Concluído % */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <LabelInput label={t("task.formStart")}>
+          <Inp value={g("task_start_performed", fmtDate(task.task_start_performed))} onChange={(v) => s("task_start_performed", v)} disabled={isClosed} type="date" />
+          <p className="text-[10px] text-gray-400 mt-0.5">{t("task.formExpected")} {fmtDateDisplay(task.task_start)}</p>
+        </LabelInput>
+        <LabelInput label={t("task.formEnd")}>
+          <Inp value={g("task_end_performed", fmtDate(task.task_end_performed))} onChange={(v) => s("task_end_performed", v)} disabled={isClosed} type="date" />
+          <p className="text-[10px] text-gray-400 mt-0.5">{t("task.formExpected")} {fmtDateDisplay(task.task_end)}</p>
+        </LabelInput>
+        <LabelInput label="Concluído %"><Sel value={g("task_completed_pct", completedToLabel(task.task_completed))} onChange={(v) => s("task_completed_pct", v)} options={PCT_OPTIONS} disabled={isClosed} /></LabelInput>
+      </div>
+
+      {/* Project */}
+      <div className="flex items-end gap-2">
+        <div className="flex-1">
+          <LabelInput label={t("task.fieldProject")}>
+            <select value={g("task_project_id", String(task.task_project_id ?? ""))} onChange={(e) => s("task_project_id", e.target.value)} disabled={isClosed || !projects.length}
+              className="w-full text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60">
+              <option value="">Nenhum projeto</option>
+              {projects.map((p) => <option key={p.project_id} value={String(p.project_id)}>{p.project_ov_name ?? p.project_name ?? `#${p.project_id}`}</option>)}
+            </select>
+          </LabelInput>
+        </div>
+        {projects.length > 0 && (
+          <button onClick={() => setShowProjectTeam(!showProjectTeam)}
+            className={`mb-0 px-2.5 py-1.5 text-[10px] font-medium rounded-lg border transition-colors ${showProjectTeam ? "bg-blue-600 text-white border-blue-600" : "border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100"}`}>
+            <Info size={11} />
+          </button>
+        )}
+      </div>
+
+      {/* Project team */}
+      {showProjectTeam && projectTeamQ.data && projectTeamQ.data.length > 0 && (
+        <div className="p-2 bg-gray-50 dark:bg-gray-800/30 rounded-lg border border-gray-200 dark:border-gray-700 text-[10px] text-gray-600 dark:text-gray-400 space-y-0.5">
+          <p className="font-bold uppercase text-[9px] mb-1">Equipe do Projeto</p>
+          {projectTeamQ.data.filter((pt) => pt.projteam_project_id === (parseInt(g("task_project_id", String(task.task_project_id ?? "0"))) || task.task_project_id)).map((pt, i) => (
+            <p key={i}>{pt.projteam_member_name} {pt.projteam_level_name ? `(${pt.projteam_level_name})` : ""}</p>
+          ))}
+        </div>
+      )}
+
+      {/* Description */}
+      <LabelInput label="Descrição">
+        <Textarea value={g("task_description", task.task_description ?? "")} onChange={(v) => s("task_description", v)} disabled={isClosed} placeholder="Descrição detalhada..." rows={2} />
+      </LabelInput>
+
+      {/* For type 21/22: LCI/EA fields (read-only) */}
+      {isSpecialType && (
+        <div className="p-2 bg-gray-50 dark:bg-gray-800/30 rounded-lg border border-gray-200 dark:border-gray-700 space-y-1">
+          <p className="text-[9px] font-bold uppercase text-gray-500 dark:text-gray-400 mb-2">Informações EA / LCI</p>
+          <div className="grid grid-cols-2 gap-2 text-[10px]">
+            {task.task_cr_party_id && <div><span className="text-gray-400">Party ID: </span><span className="text-gray-700 dark:text-gray-300">{task.task_cr_party_id}</span></div>}
+            {task.task_cr_party_name && <div><span className="text-gray-400">Party: </span><span className="text-gray-700 dark:text-gray-300">{task.task_cr_party_name}</span></div>}
+            <div><span className="text-gray-400">EA: </span><span>{task.task_ea_flag ? "✅" : "❌"}</span></div>
+            <div><span className="text-gray-400">Telemetry: </span><span>{task.task_telemetry_flag ? "✅" : "❌"}</span></div>
+            <div><span className="text-gray-400">Opt-in: </span><span>{task.task_opt_in_flag ? "✅" : "❌"}</span></div>
+            {task.task_eligible && <div><span className="text-gray-400">Eligible: </span><span className="text-gray-700 dark:text-gray-300">{task.task_eligible}</span></div>}
+            {task.task_booking_date && <div><span className="text-gray-400">Booking: </span><span className="text-gray-700 dark:text-gray-300">{fmtDateDisplay(task.task_booking_date)}</span></div>}
+            {task.task_booking_amount != null && <div><span className="text-gray-400">Booking Amt: </span><span className="text-gray-700 dark:text-gray-300">{task.task_booking_amount}</span></div>}
+            {task.task_architecture && <div><span className="text-gray-400">Architecture: </span><span className="text-gray-700 dark:text-gray-300">{task.task_architecture}</span></div>}
+            {task.task_solution_domain && <div><span className="text-gray-400">Solution: </span><span className="text-gray-700 dark:text-gray-300">{task.task_solution_domain}</span></div>}
+          </div>
+        </div>
+      )}
+
+      {/* Save */}
       <div className="flex items-center justify-end gap-3 pt-1">
-        {saved && <p className="text-xs text-green-600 dark:text-green-400">{t("task.savedSuccess")}</p>}
-        {saveMut.isError && <p className="text-xs text-red-600 dark:text-red-400">{t("task.saveFailed")}</p>}
+        {saved && <p className="text-xs text-green-600 dark:text-green-400">Salvo!</p>}
+        {saveMut.isError && <p className="text-xs text-red-600 dark:text-red-400">Erro ao salvar</p>}
         <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}
           className="flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white transition-colors">
           {saveMut.isPending ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Save size={12} />}
-          {saveMut.isPending ? t("task.savingChanges") : t("task.saveChanges")}
+          {saveMut.isPending ? "Salvando..." : "Salvar"}
         </button>
       </div>
     </div>
@@ -780,6 +955,7 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, onClose }: Pr
   const { t } = useTranslation();
   const [idx, setIdx] = useState(Math.min(initialIndex, tasks.length - 1));
   const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null);
+  const [showCreationInfo, setShowCreationInfo] = useState(false);
   const qc = useQueryClient();
 
   const task = tasks[idx];
@@ -859,20 +1035,25 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, onClose }: Pr
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           {/* Card header: title */}
           <div className="flex items-center mb-3 gap-2 min-w-0">
-            <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 truncate">
+            <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 truncate flex-1">
               #{task.task_id} — <span className="font-normal text-gray-500 dark:text-gray-400">{task.task_type_name ?? "—"}</span>
             </h3>
             {task.critical_level && task.critical_level !== "NONE" && (
               <span className={`text-xs font-bold shrink-0 ${critColor(task.critical_level)}`}>CRIT {task.critical_level}</span>
             )}
+            <button onClick={() => setShowCreationInfo(!showCreationInfo)}
+              className={`p-1 rounded transition-colors shrink-0 ${showCreationInfo ? "text-blue-500 dark:text-blue-400" : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"}`}
+              title="Informações de criação">
+              <Info size={13} />
+            </button>
           </div>
 
-          <TaskEditForm task={task} csms={csms} statusTypes={statusTypes} onSaved={() => { void qc.invalidateQueries({ queryKey: ["task-activities", taskId] }); }} />
+          <TaskEditForm task={task} csms={csms} statusTypes={statusTypes} showCreationInfo={showCreationInfo} onSaved={() => { void qc.invalidateQueries({ queryKey: ["task-activities", taskId] }); }} />
         </div>
 
         {/* RIGHT: activities */}
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <h3 className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-3">
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex flex-col">
+          <h3 className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-3 shrink-0">
             {t("task.activitiesHeader", { count: activities.length })}
           </h3>
           {activitiesQuery.isLoading ? (
@@ -880,7 +1061,7 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, onClose }: Pr
           ) : activities.length === 0 ? (
             <p className="text-xs text-gray-400 dark:text-gray-500">{t("task.noActivities")}</p>
           ) : (
-            <div className="space-y-0 max-h-[480px] overflow-y-auto">
+            <div className="flex-1 overflow-y-auto min-h-0">
               {activities.map((act) => (
                 <ActivityRow key={act.activity_id} act={act} statusTypes={statusTypes} taskId={taskId!} onUpdated={() => void activitiesQuery.refetch()} onSelectHistory={(id) => setSelectedActivityId(id)} isSelectedForHistory={selectedActivityId === act.activity_id} />
               ))}

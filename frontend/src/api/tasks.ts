@@ -67,6 +67,17 @@ export interface TaskItem {
   spi_last_checked_date?: string;
   spi_telemetry_type?: string;
   task_created_by_name?: string;
+  task_created_in?: string;
+  task_currency?: string;
+  task_status_justification?: string;
+  task_end_fy?: number | string;
+  task_booking_date?: string;
+  task_booking_amount?: number;
+  task_architecture?: string;
+  task_solution_domain?: string;
+  task_cr_party_id?: string;
+  task_cr_party_name?: string;
+  task_tasktype_id?: number;
   __score?: number;
   [key: string]: unknown;
 }
@@ -134,10 +145,14 @@ export interface ActivityItem {
   activity_expected_results?: string;
   activity_track?: string;
   activity_sub_track?: string;
+  activity_approved?: number;
   activity_approved_value?: number;
   activity_approved_currency?: string;
   activity_approval_date?: string;
   activity_approval_request_date?: string;
+  activity_approval_fy?: number | string;
+  activity_end_fy?: number | string;
+  activity_backlog_value?: number;
   [key: string]: unknown;
 }
 
@@ -204,6 +219,34 @@ export interface CompanyItem {
   [key: string]: unknown;
 }
 
+export interface StatusJustificationItem {
+  status_justification_id?: number;
+  status_justification_status_id?: number;
+  status_justification_en?: string;
+  status_justification_pt?: string;
+  status_justification_es?: string;
+  [key: string]: unknown;
+}
+
+export interface ProjectItem {
+  project_id: number;
+  project_ov_name?: string;
+  project_ov?: string;
+  project_name?: string;
+  project_status?: string;
+  project_customer_id?: number;
+  project_customer_name?: string;
+  [key: string]: unknown;
+}
+
+export interface ProjectTeamItem {
+  projteam_project_id?: number;
+  projteam_member_name?: string;
+  projteam_level_name?: string;
+  projteam_project_customer_id?: number;
+  [key: string]: unknown;
+}
+
 export const tasksApi = {
   // Overview & KPI
   getKPI: () => apiClient.get<TaskKPI>("/tasks/kpi"),
@@ -264,4 +307,16 @@ export const tasksApi = {
     return apiClient.get<PersonItem[]>(`/tasks/person-list${params}`);
   },
   getCompanyList: () => apiClient.get<CompanyItem[]>("/tasks/company-list"),
+
+  // Status justifications
+  getStatusJustifications: (statusId?: number) => {
+    const params = statusId != null ? `?status_id=${statusId}` : "";
+    return apiClient.get<StatusJustificationItem[]>(`/tasks/status-justifications${params}`);
+  },
+
+  // Projects
+  getProjects: (customerId: number) =>
+    apiClient.get<ProjectItem[]>(`/tasks/projects?customer_id=${customerId}`),
+  getProjectTeam: (customerId: number) =>
+    apiClient.get<ProjectTeamItem[]>(`/tasks/project-team?customer_id=${customerId}`),
 };
