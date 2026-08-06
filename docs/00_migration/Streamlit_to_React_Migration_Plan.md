@@ -830,18 +830,19 @@ export function ExportExcelButton({ sheets, filename, label }: Props) {
 
 | Página Streamlit | Componente React | API Endpoint | Status |
 |---|---|---|---|
-| `task/task.py` | `Task.tsx` (hub) | `/api/task/*` | Pendente |
-| `task/task_overview.py` | `TaskOverview.tsx` | `GET /api/task/overview` | Pendente |
-| `task/task_new.py` | `TaskNew.tsx` | `POST /api/task/` | Pendente |
-| `task/task_detail.py` | `TaskDetail.tsx` | `GET/PUT /api/task/{id}` | Pendente |
-| `task/task_activity.py` | `TaskActivity.tsx` | `GET /api/task/{id}/activities` | Pendente |
-| `task/task_activity_new.py` | `TaskActivityNew.tsx` | `POST /api/task/{id}/activities` | Pendente |
-| `task/task_filter_tasks.py` | `TaskFilterTasks.tsx` | `GET /api/task/list` | Pendente |
-| `task/task_filter_next_follow_up.py` | `TaskFilterNextFollowUp.tsx` | `GET /api/task/filter/next-follow-up` | Pendente |
-| `task/task_filter_report.py` | `TaskReports.tsx` | `GET /api/task/reports` | Pendente |
-| `task/task_lci_viability.py` | `TaskLciViability.tsx` | `GET /api/task/lci-viability` | Pendente |
-| `task/task_report_task_list.py` | `TaskReportList.tsx` | `GET /api/task/reports/list` | Pendente |
-| `task/task_report_task_detail.py` | `TaskReportDetail.tsx` | `GET /api/task/reports/detail` | Pendente |
+| `task/task.py` | `TaskPage.tsx` (hub) | `/api/tasks/*` | ✅ Concluído |
+| `task/task_overview.py` | `TaskOverview.tsx` | `GET /api/tasks/overview`, `/kpi`, `/action-queue` | ✅ Concluído |
+| `task/task_new.py` | `NewTaskForm.tsx` | `POST /api/tasks/new` | ✅ Concluído |
+| `task/task_detail.py` | `TaskDetailPanel.tsx` | `GET/PUT /api/tasks/detail/{id}` | ✅ Concluído |
+| `task/task_activity.py` + `task_activity_detail.py` | `TaskDetailPanel.tsx` (ActivityRow) | `GET/PUT /api/tasks/detail/{id}/activities`, `/activities/{activity_id}` | ✅ Concluído |
+| `task/task_activity_new.py` | `TaskDetailPanel.tsx` (AddActivityForm) | `POST /api/tasks/detail/{id}/activities` | ✅ Concluído |
+| `task/task_filter_tasks.py` | `TaskFilterTab.tsx` | `GET /api/tasks/filter-options`, `POST /api/tasks/filter` | ✅ Concluído |
+| `task/task_filter_next_follow_up.py` | `NextFollowUpPanel.tsx` | `GET /api/tasks/follow-up` | ✅ Concluído |
+| `task/task_filter_report.py` | `TaskReportsTab.tsx` | `GET /api/tasks/reports/owners`, `POST /api/tasks/reports/filter-options` | ✅ Concluído |
+| `task/task_lci_viability.py` | `LCIViabilityPage.tsx` | `/api/tasks/lci-viability/*` | ✅ Concluído (com `resource_key` de sub-permissão `task.task_lci_viability`) |
+| `task/task_report_task_list.py` | `TaskReportsTab.tsx` (TaskListReport) | `POST /api/tasks/reports/tasks` | ✅ Concluído |
+| `task/task_report_task_detail.py` | `TaskReportsTab.tsx` (TaskDetailReport) | `GET /api/tasks/reports/task-detail/{task_id}` | ✅ Concluído |
+
 
 ### Domínio: adoption
 

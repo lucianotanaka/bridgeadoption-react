@@ -103,13 +103,25 @@ def get_lci_eligible_status() -> List[Dict[str, Any]]:
 
 def get_lci_solution_vs_project() -> List[Dict[str, Any]]:
     """
-    Returns full dataset from load_lci_solution_vs_project for the React
-    LCI Solution vs Project report (charts + filters + KPIs).
+    Returns full dataset from load_lci_solution_vs_project_with_task_end for
+    the React LCI Solution vs Project report (charts + filters + KPIs).
+    Includes 'potential_task_end' and computed 'potential_task_end_fy'
+    (NTT Fiscal Year: April -> March) so the frontend can filter by FY.
     """
     if not _OK: return []
     try:
+        import pandas as pd
         repo = CiscoLCIRepository()
-        df = repo.load_lci_solution_vs_project(as_df=True)
+        df = repo.load_lci_solution_vs_project_with_task_end(as_df=True)
+        if df is None or df.empty:
+            return []
+        if "potential_task_end" in df.columns:
+            df["potential_task_end"] = pd.to_datetime(df["potential_task_end"], errors="coerce")
+            fy = df["potential_task_end"].dt.year.where(
+                df["potential_task_end"].dt.month >= 4,
+                df["potential_task_end"].dt.year - 1,
+            )
+            df["potential_task_end_fy"] = fy
         return _df_to_list(df)
     except Exception as e:
         logger.error(f"get_lci_solution_vs_project: {e}\n{traceback.format_exc()}"); return []

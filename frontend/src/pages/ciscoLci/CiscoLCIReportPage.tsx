@@ -1,7 +1,5 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
-import { RefreshCw } from "lucide-react";
 import Plot from "react-plotly.js";
 import { ciscoLciApi } from "@/api/ciscoLci";
 import type { LCIStageRow } from "@/api/ciscoLci";
@@ -79,14 +77,10 @@ function StageTable({ rows }: { rows: LCIStageRow[] }) {
 
 type StageFilter = "approved" | "awaiting" | "ongoing" | "lost";
 
-export default function CiscoLCIPage() {
-  const { t } = useTranslation();
+export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
   const isDark = document.documentElement.classList.contains("dark");
-  const currentYear = new Date().getFullYear();
-  const [selectedFY, setSelectedFY] = useState<number>(currentYear);
   const [activeTab, setActiveTab] = useState<StageFilter>("approved");
 
-  const fyQuery = useQuery({ queryKey: ["lci", "fy"], queryFn: () => ciscoLciApi.getFiscalYears().then((r) => r.data), staleTime: 10 * 60 * 1000 });
   const summaryQuery = useQuery({ queryKey: ["lci", "summary", selectedFY], queryFn: () => ciscoLciApi.getSummary(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
   const stageStatusQuery = useQuery({ queryKey: ["lci", "stage-status", selectedFY], queryFn: () => ciscoLciApi.getByStageStatus(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
   const termQuery = useQuery({ queryKey: ["lci", "term", selectedFY], queryFn: () => ciscoLciApi.getTerminationStatus(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
@@ -94,7 +88,6 @@ export default function CiscoLCIPage() {
   const yoyQuery = useQuery({ queryKey: ["lci", "yoy"], queryFn: () => ciscoLciApi.getYoY().then((r) => r.data), staleTime: 10 * 60 * 1000 });
   const stagesQuery = useQuery({ queryKey: ["lci", "stages", selectedFY, activeTab], queryFn: () => ciscoLciApi.getStages(selectedFY, activeTab).then((r) => r.data), staleTime: 5 * 60 * 1000 });
 
-  const fyList = fyQuery.data ?? [];
   const s = summaryQuery.data;
   const stageStatus = stageStatusQuery.data ?? [];
   const termStatus = termQuery.data ?? [];
@@ -111,13 +104,6 @@ export default function CiscoLCIPage() {
     { key: "lost", label: `Lost (${s?.total_lost_stages ?? 0})`, color: "text-red-600 dark:text-red-400" },
   ];
 
-  const refetch = () => {
-    void summaryQuery.refetch();
-    void stageStatusQuery.refetch();
-    void burnupQuery.refetch();
-    void stagesQuery.refetch();
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -125,22 +111,6 @@ export default function CiscoLCIPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Cisco LCI Report</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Life Cycle Incentive — Stage Performance</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">NTT Fiscal Year</label>
-            <div className="flex gap-1">
-              {fyList.map((fy) => (
-                <button key={fy} onClick={() => setSelectedFY(fy)}
-                  className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${selectedFY === fy ? "bg-blue-600 text-white" : "bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>
-                  {fy}
-                </button>
-              ))}
-            </div>
-          </div>
-          <button onClick={refetch} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            <RefreshCw size={13} /> {t("common.refresh")}
-          </button>
         </div>
       </div>
 

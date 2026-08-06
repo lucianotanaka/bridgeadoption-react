@@ -20,9 +20,10 @@ try:
     from src.infrastructure.database.repositories.task_repository import TaskRepository
     from src.infrastructure.database.repositories.task_history_repository import TaskHistoryRepository
     from src.infrastructure.database.repositories.status_type_repository import StatusTypeRepository
+    from src.infrastructure.database.repositories.project_repository import ProjectRepository
     _REPOS_OK = True
 except ImportError as e:
-    logger.warning(f"LCI Viability repos não disponíveis: {e}")
+    logger.warning(f"LCI Viability repos nao disponiveis: {e}")
     _REPOS_OK = False
 
 STATUS_IN_PROGRESS = 2
@@ -65,15 +66,8 @@ def _serialize(row: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-# ─────────────────────────────────────────
-# LCI TRACK PROJECT PM LIST
-# ─────────────────────────────────────────
-
 def get_lci_track_pm_list() -> List[Dict[str, Any]]:
-    """
-    Returns vwCustomerCiscoLCITrackProjectPM data.
-    Espelha: lci_repo.load_lci_track_project_pm()
-    """
+    """Returns vwCustomerCiscoLCITrackProjectPM data."""
     if not _REPOS_OK:
         return []
     try:
@@ -85,16 +79,8 @@ def get_lci_track_pm_list() -> List[Dict[str, Any]]:
         return []
 
 
-# ─────────────────────────────────────────
-# TASKS FOR LCI RECORD
-# ─────────────────────────────────────────
-
 def get_tasks_for_lci(customer_id: int, track: str) -> List[Dict[str, Any]]:
-    """
-    Returns tasks for a given customer + track combination (Open/On Hold only).
-    Groups tasks by track|party_id for the viability analysis.
-    Espelha: _build_task_dataframe_for_lci_row()
-    """
+    """Returns tasks for a given customer + track combination, grouped by track|party_id."""
     if not _REPOS_OK or not customer_id or not track:
         return []
     try:
@@ -133,7 +119,6 @@ def get_tasks_for_lci(customer_id: int, track: str) -> List[Dict[str, Any]]:
 
         rows = [_serialize(dict(r)) for r in task_df.to_dict("records")]
 
-        # Group by track|party_id
         groups: Dict[str, List[Dict]] = {}
         for r in rows:
             cid = _safe_str(r.get("task_customer_id"))
@@ -159,17 +144,13 @@ def get_tasks_for_lci(customer_id: int, track: str) -> List[Dict[str, Any]]:
         return []
 
 
-# ─────────────────────────────────────────
-# STATUS NORMALIZATION RULES
-# ─────────────────────────────────────────
-
 def normalize_group_statuses(status_map: Dict[int, str]) -> Dict[int, str]:
     """
-    Applies business rules for status normalization:
-    1) If any IN PROGRESS: first stays IN PROGRESS, others → CANCELLED
-    2) If any ON HOLD (no IN PROGRESS): all → ON HOLD
-    3) If any CANCELLED (no IN PROGRESS/ON HOLD): all → CANCELLED
-    4) Otherwise: keep as-is
+    Business rules:
+    1) If any IN PROGRESS: first stays IN PROGRESS, others -> CANCELLED
+    2) elif any ON HOLD: all -> ON HOLD
+    3) elif any CANCELLED: all -> CANCELLED
+    4) else: unchanged
     """
     normalized = dict(status_map)
     values = list(normalized.values())
@@ -192,10 +173,6 @@ def normalize_group_statuses(status_map: Dict[int, str]) -> Dict[int, str]:
     return normalized
 
 
-# ─────────────────────────────────────────
-# CANCELLATION JUSTIFICATIONS
-# ─────────────────────────────────────────
-
 def get_cancellation_justifications() -> List[str]:
     """Returns valid justifications for CANCELLED status."""
     if not _REPOS_OK:
@@ -211,27 +188,56 @@ def get_cancellation_justifications() -> List[str]:
         return []
 
 
-# ─────────────────────────────────────────
-# SAVE GROUP STATUS CHANGES
-# ─────────────────────────────────────────
+def get_projects_in_progress(customer_id: int) -> List[Dict[str, Any]]:
+    """Returns active (not closed/cancelled) projects for a customer."""
+    if not _REPOS_OK or not customer_id:
+        return []
+    try:
+        repo = ProjectRepository()
+        rows = repo.get_project_in_progress(customer_id=int(customer_id), as_df=False) or []
+        return [_serialize(dict(r)) for r in rows]
+    except Exception as e:
+        logger.error(f"get_projects_in_progress: {e}\n{traceback.format_exc()}")
+        return []
+
 
 class SaveGroupRequest:
     def __init__(
         self,
         group_tasks: List[Dict[str, Any]],
-        new_statuses: Dict[int, str],  # {task_id: "IN PROGRESS"|"ON HOLD"|"CANCELLED"}
+        new_statuses: Dict[int, str],
         cancellation_justification: Optional[str] = None,
         user_name: Optional[str] = None,
+        project_id: Optional[int] = None,
+        new_project_ov: Optional[str] = None,
+        new_project_name: Optional[str] = None,
+        customer_id: Optional[int] = None,
+        customer_name: Optional[str] = None,
     ):
         self.group_tasks = group_tasks
         self.new_statuses = new_statuses
         self.cancellation_justification = cancellation_justification
         self.user_name = user_name or "system"
+        self.project_id = project_id
+        self.new_project_ov = new_project_ov
+        self.new_project_name = new_project_name
+        self.customer_id = customer_id
+        self.customer_name = customer_name
 
 
 def save_group_status(req: SaveGroupRequest) -> Dict[str, Any]:
     """
     Saves status changes for a group of tasks.
+
+    Business rules (mirrors Streamlit task_lci_viability.py):
+      - If exactly 1 task IN PROGRESS: requires a project link (existing via
+        project_id OR new via new_project_ov/new_project_name). The project
+        is created if needed and linked to that task's task_project_id.
+        Other tasks in the group become CANCELLED with an automatic
+        justification.
+      - If all ON HOLD: status 3 with justification "IN REVIEW".
+      - If all CANCELLED: requires cancellation_justification.
+
     Returns {success, errors, updated_tasks}
     """
     if not _REPOS_OK:
@@ -239,20 +245,58 @@ def save_group_status(req: SaveGroupRequest) -> Dict[str, Any]:
 
     task_repo = TaskRepository()
     history_repo = TaskHistoryRepository()
+    project_repo = ProjectRepository()
     today = date.today().strftime("%Y-%m-%d")
 
-    errors = []
-    updated = []
+    errors: List[str] = []
+    updated: List[Dict[str, Any]] = []
 
-    # Build task lookup
+    # Build task lookup by task_id
     task_lookup = {_safe_int(t.get("task_id")): t for t in req.group_tasks}
 
-    # Apply normalization
-    status_map = {k: v for k, v in req.new_statuses.items()}
-    normalized = normalize_group_statuses({i: v for i, v in enumerate(status_map.values())})
-    # Map back to task_ids
+    # Normalize statuses (rules are index-based; map back to task_ids preserving order)
+    status_map = {int(k): v for k, v in req.new_statuses.items()}
     task_ids = list(status_map.keys())
-    normalized_by_task_id = {task_ids[i]: normalized[i] for i in range(len(task_ids))}
+    indexed_values = {i: v for i, v in enumerate(status_map.values())}
+    normalized_indexed = normalize_group_statuses(indexed_values)
+    normalized_by_task_id = {task_ids[i]: normalized_indexed[i] for i in range(len(task_ids))}
+
+    in_progress_task_ids = [tid for tid, s in normalized_by_task_id.items() if s == "IN PROGRESS"]
+
+    # If there's an IN PROGRESS task, resolve/create the project first
+    resolved_project_id: Optional[int] = None
+    if len(in_progress_task_ids) == 1:
+        if req.project_id:
+            resolved_project_id = int(req.project_id)
+        elif req.new_project_ov and req.new_project_name:
+            try:
+                customer_id = req.customer_id
+                if not customer_id:
+                    orig_task = task_lookup.get(in_progress_task_ids[0], {})
+                    customer_id = _safe_int(orig_task.get("task_customer_id"))
+
+                project_payload: Dict[str, Any] = {
+                    "project_ov": req.new_project_ov,
+                    "project_name": req.new_project_name,
+                    "project_customer_id": customer_id,
+                }
+                if req.customer_name:
+                    project_payload["project_customer_name"] = req.customer_name
+
+                resolved_project_id = project_repo.insert(project_payload)
+            except Exception as e:
+                errors.append(f"Error creating project: {str(e)}")
+                logger.error(f"save_group_status create project: {e}\n{traceback.format_exc()}")
+        else:
+            errors.append(
+                "A project (existing or new) must be provided to move a task to IN PROGRESS."
+            )
+
+        if not resolved_project_id and not errors:
+            errors.append("Could not resolve/create project for the IN PROGRESS task.")
+
+        if errors:
+            return {"success": False, "errors": errors, "updated_tasks": []}
 
     for task_id, new_status_name in normalized_by_task_id.items():
         orig_task = task_lookup.get(task_id, {})
@@ -266,6 +310,8 @@ def save_group_status(req: SaveGroupRequest) -> Dict[str, Any]:
             task_end = orig_task.get("task_end")
             if task_end:
                 task_data["task_end_performed"] = task_end if isinstance(task_end, str) else str(task_end)
+            if resolved_project_id:
+                task_data["task_project_id"] = resolved_project_id
 
         elif new_status_name == "ON HOLD":
             task_data["task_status"] = STATUS_ON_HOLD
@@ -273,14 +319,17 @@ def save_group_status(req: SaveGroupRequest) -> Dict[str, Any]:
 
         elif new_status_name == "CANCELLED":
             task_data["task_status"] = STATUS_CANCELLED
-            # Check if auto-cancelled (because another task in group is IN PROGRESS)
-            in_progress_tasks = [tid for tid, s in normalized_by_task_id.items() if s == "IN PROGRESS"]
-            if len(in_progress_tasks) == 1:
-                task_data["task_status_justification"] = "OPTED IN FOR ANOTHER TASK WITH SAME DEAL ID / TRACK / PARTY ID"
+            if len(in_progress_task_ids) == 1:
+                task_data["task_status_justification"] = (
+                    "OPTED IN FOR ANOTHER TASK WITH SAME DEAL ID / TRACK / PARTY ID"
+                )
             elif req.cancellation_justification:
                 task_data["task_status_justification"] = req.cancellation_justification
+            else:
+                errors.append(f"Cancellation justification is required for task {task_id}.")
+                continue
         else:
-            continue  # Skip unchanged
+            continue  # No recognized target status — skip
 
         if old_status_name.upper() == new_status_name.upper():
             continue  # No change needed
@@ -291,10 +340,9 @@ def save_group_status(req: SaveGroupRequest) -> Dict[str, Any]:
                 errors.append(f"Failed to update task {task_id}")
                 continue
 
-            # Insert history
             remark = f"Task status changed from {old_status_name} to {new_status_name}"
-            if req.cancellation_justification and new_status_name == "CANCELLED":
-                remark += f" — {req.cancellation_justification}"
+            if new_status_name == "CANCELLED" and task_data.get("task_status_justification"):
+                remark += f" — {task_data['task_status_justification']}"
 
             history_repo.insert(record={
                 "taskrecord_task_id": task_id,

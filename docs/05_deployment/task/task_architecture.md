@@ -1,6 +1,8 @@
-# TASK – Arquitetura Técnica (Developer Guide)
+# TASK – Arquitetura Técnica (Developer Guide) (Legado Streamlit)
 
-Este documento é direcionado a desenvolvedores que atuam na evolução do módulo TASK.
+> ⚠️ **Este documento descreve a implementação original em Streamlit.** Para a versão React, consulte `docs/02_application/module_tasks.md`.
+
+Este documento é direcionado a desenvolvedores que atuam na evolução do módulo TASK (versão Streamlit, legado).
 
 ---
 

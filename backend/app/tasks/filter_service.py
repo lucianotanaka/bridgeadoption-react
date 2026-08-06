@@ -329,6 +329,60 @@ def get_status_types() -> List[Dict[str, Any]]:
 
 
 # ─────────────────────────────────────────
+# TASK TYPES  (para New Task selectbox)
+# ─────────────────────────────────────────
+
+def get_task_types() -> List[Dict[str, Any]]:
+    """Returns all task types from tbTaskType. Espelha task_new.py: get_task_type_by_ids()."""
+    if not _REPOS_OK:
+        return []
+    try:
+        repo = TaskRepository()
+        df = repo.get_task_type_by_ids(type_ids=None, as_df=True)
+        if df is None or df.empty:
+            return []
+        df = df.sort_values("tasktype_name").reset_index(drop=True)
+        return _serialize_df(df)
+    except Exception as e:
+        logger.error(f"get_task_types: {e}")
+        return []
+
+
+# ─────────────────────────────────────────
+# NEW TASK  (create task)
+# ─────────────────────────────────────────
+
+def create_task(data: Dict[str, Any], created_by_name: str) -> Dict[str, Any]:
+    """
+    Creates a new task in tbTask + inserts a history record.
+    Espelha task_new.py: insert_task_submit()
+
+    Returns: {"success": bool, "task_id": int}
+    """
+    if not _REPOS_OK or not data:
+        return {"success": False, "task_id": 0}
+    try:
+        repo = TaskRepository()
+        new_task_id = repo.insert(data=data)
+
+        if new_task_id and int(new_task_id) > 0:
+            history_repo = TaskHistoryRepository()
+            dt = date.today().strftime("%Y-%b-%d")
+            history_repo.insert(record={
+                "taskrecord_task_id": int(new_task_id),
+                "taskrecord_activity_id": 0,
+                "taskrecord_remark": f"Task created at {dt}",
+                "taskrecord_updated_by": created_by_name,
+            })
+            return {"success": True, "task_id": int(new_task_id)}
+
+        return {"success": False, "task_id": 0}
+    except Exception as e:
+        logger.error(f"create_task: {e}\n{traceback.format_exc()}")
+        return {"success": False, "task_id": 0}
+
+
+# ─────────────────────────────────────────
 # NEXT FOLLOW-UP
 # ─────────────────────────────────────────
 
@@ -397,6 +451,42 @@ def update_activity(activity_id: int, data: Dict[str, Any]) -> bool:
         return False
 
 
+def add_activity(task_id: int, data: Dict[str, Any]) -> int:
+    """Creates a new activity for a task in tbTaskActivity.
+
+    Auto-fills activity_task_id, next activity_seq (max+1), and sensible
+    defaults (activity_status, activity_completed) when not provided.
+    Returns the new activity_id, or 0 on error.
+    """
+    if not _REPOS_OK or not data:
+        return 0
+    try:
+        repo = TaskActivityRepository()
+
+        payload = dict(data)
+        payload["activity_task_id"] = int(task_id)
+
+        if "activity_seq" not in payload or not payload.get("activity_seq"):
+            existing = repo.get_activity(task_id=task_id, activity_id=None, as_df=False) or []
+            max_seq = 0
+            for r in existing:
+                try:
+                    seq = int(r.get("activity_seq") or 0)
+                    if seq > max_seq:
+                        max_seq = seq
+                except (TypeError, ValueError):
+                    continue
+            payload["activity_seq"] = max_seq + 1
+
+        payload.setdefault("activity_status", 1)  # default OPEN
+        payload.setdefault("activity_completed", 0)
+
+        return repo.insert(payload)
+    except Exception as e:
+        logger.error(f"add_activity: {e}\n{traceback.format_exc()}")
+        return 0
+
+
 # ─────────────────────────────────────────
 # PERSON LIST  (para RACI selectbox)
 # ─────────────────────────────────────────
@@ -415,27 +505,69 @@ def get_company_list() -> List[Dict[str, Any]]:
         return []
 
 
-def get_person_list(company_id: Optional[int] = None) -> List[Dict[str, Any]]:
-    """Returns active persons from tbPerson, optionally filtered by company."""
+def get_person_list(company_id: Optional[int] = None, internal_only: bool = False) -> List[Dict[str, Any]]:
+    """Returns active persons from tbPerson.
+
+    - If internal_only=True: returns only persons with person_company_id IS NULL
+      (internal resources, no company association).
+    - Elif company_id is provided: filters by that company.
+    - Else: returns all active persons (no company filter).
+    """
     if not _REPOS_OK:
         return []
     try:
-        from src.infrastructure.database.repositories.person_repository import PersonRepository
-        repo = PersonRepository()
-        where: dict = {"person_enabled": 1}
-        if company_id is not None:
-            where["person_company_id"] = int(company_id)
-        rows = repo.list_by(where=where, as_df=False)
-        return [_serialize({
-            "person_id": r["person_id"],
-            "person_name": r["person_name"],
-            "person_type": r.get("person_type"),
-            "person_company_id": r.get("person_company_id"),
-            "person_job_title": r.get("person_job_title"),
-        }) for r in rows]
+        from src.infrastructure.database.connection import get_db_connection
+        conditions = ["person_enabled = 1"]
+        params: List[Any] = []
+        if internal_only:
+            conditions.append("person_company_id IS NULL")
+        elif company_id is not None:
+            conditions.append("person_company_id = %s")
+            params.append(int(company_id))
+        where_clause = " AND ".join(conditions)
+        query = f"""
+            SELECT person_id, person_name, person_type, person_company_id, person_job_title
+            FROM tbPerson
+            WHERE {where_clause}
+            ORDER BY person_name
+        """
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(query, tuple(params))
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return [_serialize(dict(r)) for r in rows]
     except Exception as e:
         logger.error(f"get_person_list: {e}")
         return []
+
+
+def create_person(data: Dict[str, Any]) -> int:
+    """Creates a new person in tbPerson. Returns new person_id, or 0 on error.
+
+    Required: person_name.
+    Optional: person_company_id, person_job_title, person_email,
+              person_telephone, person_cellphone, person_type.
+    Always sets person_enabled = 1.
+    """
+    if not _REPOS_OK or not data or not str(data.get("person_name") or "").strip():
+        return 0
+    try:
+        from src.infrastructure.database.repositories.person_repository import PersonRepository
+        repo = PersonRepository()
+        payload = {k: v for k, v in data.items() if v not in (None, "")}
+        payload["person_name"] = str(payload["person_name"]).strip()
+        payload.setdefault("person_enabled", 1)
+        if "person_company_id" in payload:
+            try:
+                payload["person_company_id"] = int(payload["person_company_id"])
+            except (TypeError, ValueError):
+                payload.pop("person_company_id", None)
+        return repo.insert(payload)
+    except Exception as e:
+        logger.error(f"create_person: {e}\n{traceback.format_exc()}")
+        return 0
 
 
 # ─────────────────────────────────────────

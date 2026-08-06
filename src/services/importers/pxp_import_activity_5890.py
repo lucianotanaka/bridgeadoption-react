@@ -656,54 +656,94 @@ def _resolve_existing_task(
     cr_party_id: Optional[str],
     task_type_priority: List[int],
 ) -> Optional[Dict[str, Any]]:
-    if not customer_id or not deal_id or not track or not subtrack or not cr_party_id:
+    if not deal_id or not track or not subtrack or not cr_party_id:
         return None
 
     cr_party_id_int = _safe_int(cr_party_id, default=0)
     if not cr_party_id_int:
         return None
 
-    matched_by_type: Dict[int, List[Dict[str, Any]]] = {TASK_TYPE_21: [], TASK_TYPE_22: []}
+    # -------------------------------------------------------
+    # Busca primária: inclui task_customer_id e task_tasktype_id
+    # -------------------------------------------------------
+    if customer_id:
+        matched_by_type: Dict[int, List[Dict[str, Any]]] = {TASK_TYPE_21: [], TASK_TYPE_22: []}
 
-    for task_type_id in task_type_priority:
-        where = {
-            "task_customer_id": customer_id,
-            "task_deal_id": deal_id,
-            "task_track": track,
-            "task_subtrack": subtrack,
-            "task_cr_party_id": cr_party_id_int,
-            "task_tasktype_id": task_type_id,
-        }
+        for task_type_id in task_type_priority:
+            where = {
+                "task_customer_id": customer_id,
+                "task_deal_id": deal_id,
+                "task_track": track,
+                "task_subtrack": subtrack,
+                "task_cr_party_id": cr_party_id_int,
+                "task_tasktype_id": task_type_id,
+            }
 
-        try:
-            task_ids = repo_task.find_ids_by(where)
-        except Exception:
-            task_ids = []
+            try:
+                task_ids = repo_task.find_ids_by(where)
+            except Exception:
+                task_ids = []
 
-        for found_id in task_ids or []:
-            task_id = _safe_int(found_id, default=0)
-            if not task_id:
-                continue
+            for found_id in task_ids or []:
+                task_id = _safe_int(found_id, default=0)
+                if not task_id:
+                    continue
 
-            task_row = _get_task_columns_for_match(task_id)
-            if not task_row:
-                continue
+                task_row = _get_task_columns_for_match(task_id)
+                if not task_row:
+                    continue
 
-            real_type = _safe_int(task_row.get("task_tasktype_id"), default=0)
-            if real_type != task_type_id:
-                continue
+                real_type = _safe_int(task_row.get("task_tasktype_id"), default=0)
+                if real_type != task_type_id:
+                    continue
 
-            matched_by_type.setdefault(task_type_id, []).append(task_row)
+                matched_by_type.setdefault(task_type_id, []).append(task_row)
 
-    for task_type_id in task_type_priority:
-        matches = matched_by_type.get(task_type_id, [])
-        if len(matches) > 1:
-            raise ValueError(
-                f"Mais de uma task tipo {task_type_id} encontrada para os critérios informados. "
-                f"task_ids={[t.get('task_id') for t in matches]}"
-            )
-        if len(matches) == 1:
-            return matches[0]
+        for task_type_id in task_type_priority:
+            matches = matched_by_type.get(task_type_id, [])
+            if len(matches) > 1:
+                raise ValueError(
+                    f"Mais de uma task tipo {task_type_id} encontrada para os critérios informados. "
+                    f"task_ids={[t.get('task_id') for t in matches]}"
+                )
+            if len(matches) == 1:
+                return matches[0]
+
+    # -------------------------------------------------------
+    # Fallback: busca sem task_customer_id e sem task_tasktype_id.
+    # Usado quando customer_id não foi resolvido ou quando a busca
+    # primária não encontrou resultado (ex: customer_id divergente).
+    # Aceita apenas se encontrar exatamente 1 task.
+    # -------------------------------------------------------
+    try:
+        fallback_ids = repo_task.find_ids_by(
+            {
+                "task_deal_id": deal_id,
+                "task_track": track,
+                "task_subtrack": subtrack,
+                "task_cr_party_id": cr_party_id_int,
+            }
+        )
+    except Exception:
+        fallback_ids = []
+
+    fallback_rows: List[Dict[str, Any]] = []
+    for found_id in fallback_ids or []:
+        task_id = _safe_int(found_id, default=0)
+        if not task_id:
+            continue
+        task_row = _get_task_columns_for_match(task_id)
+        if task_row:
+            fallback_rows.append(task_row)
+
+    if len(fallback_rows) == 1:
+        return fallback_rows[0]
+
+    if len(fallback_rows) > 1:
+        raise ValueError(
+            f"Mais de uma task encontrada no fallback para os critérios informados. "
+            f"task_ids={[t.get('task_id') for t in fallback_rows]}"
+        )
 
     return None
 
@@ -767,6 +807,7 @@ def _insert_history(
             "taskrecord_activity_id": activity_id,
             "taskrecord_remark": remark,
             "taskrecord_updated_by": updated_by,
+            "taskrecord_type": "LOG",
         }
     )
 

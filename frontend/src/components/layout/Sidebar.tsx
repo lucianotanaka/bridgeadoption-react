@@ -40,11 +40,9 @@ const NAV_ITEMS: NavItem[] = [
     key: "adoption", label: "Adoption", icon: <TrendingUp size={18} />,
     children: [
       { key: "today", label: "Today", icon: <LayoutDashboard size={16} />, path: "/" },
-      { key: "forecast", label: "Forecast", icon: <Target size={16} />, path: "/adoption/forecast", resourceKey: "adoption.report_forecast" },
       { key: "ciscoLCI", label: "Cisco LCI", icon: <Package size={16} />, path: "/adoption/cisco-lci", resourceKey: "adoption.report_cisco_lci" },
       { key: "csmAccount", label: "CSM Account", icon: <Users size={16} />, path: "/adoption/csm-account", resourceKey: "adoption.report_csm_account" },
       { key: "teamTarget", label: "Team Target", icon: <Target size={16} />, path: "/adoption/team-target", resourceKey: "adoption.report_team_target" },
-      { key: "lciStatus", label: "LCI Status", icon: <BarChart3 size={16} />, path: "/adoption/lci-status", resourceKey: "adoption.report_lci_eligible_status" },
       { key: "rebate", label: "Rebate", icon: <DollarSign size={16} />, path: "/adoption/rebate", resourceKey: "adoption.report_rebate_and_opportunities" },
       { key: "useCases", label: "Use Cases", icon: <Lightbulb size={16} />, path: "/adoption/use-cases", resourceKey: "adoption.use_case" },
     ],

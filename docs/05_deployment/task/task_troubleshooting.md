@@ -1,6 +1,8 @@
-# TASK – Troubleshooting Avançado
+# TASK – Troubleshooting Avançado (Legado Streamlit)
 
-Este documento auxilia o time de sustentação e desenvolvedores na investigação de problemas do módulo TASK.
+> ⚠️ **Este documento descreve a implementação original em Streamlit.** Para troubleshooting da versão React, consulte a seção 6 de `docs/02_application/module_tasks.md`.
+
+Este documento auxilia o time de sustentação e desenvolvedores na investigação de problemas do módulo TASK (versão Streamlit, legado).
 
 ---
 

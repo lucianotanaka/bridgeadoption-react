@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Search, X, Filter } from "lucide-react";
+import { Search, X, Filter, ChevronUp, ChevronDown } from "lucide-react";
 import { tasksApi } from "@/api/tasks";
 import type { TaskItem, FilterRequest } from "@/api/tasks";
 
@@ -105,6 +105,7 @@ export default function TaskFilterTab({ onTasksLoaded, onTaskSelect }: Props) {
   const [filters, setFilters] = useState<FilterRequest>({});
   const [results, setResults] = useState<TaskItem[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [panelOpen, setPanelOpen] = useState(true);
 
   const optionsQuery = useQuery({
     queryKey: ["tasks", "filter-options"],
@@ -177,15 +178,29 @@ export default function TaskFilterTab({ onTasksLoaded, onTaskSelect }: Props) {
       {/* Filter Form */}
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
         <div className="flex items-center justify-between mb-4">
-          <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">{t("task.title")} — {t("common.filter")}</p>
-          {hasFilters && (
-            <button onClick={clearAll} className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors">
-              <X size={12} /> {t("task.clearAll")}
+          <button
+            onClick={() => setPanelOpen((v) => !v)}
+            className="flex items-center gap-2 text-xs font-bold text-gray-600 dark:text-gray-400 uppercase hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+          >
+            {panelOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            {t("task.title")} — {t("common.filter")}
+          </button>
+          <div className="flex items-center gap-2">
+            {hasFilters && (
+              <button onClick={clearAll} className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors">
+                <X size={12} /> {t("task.clearAll")}
+              </button>
+            )}
+            <button
+              onClick={() => setPanelOpen((v) => !v)}
+              className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 dark:text-gray-500 transition-colors"
+            >
+              {panelOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </button>
-          )}
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        {panelOpen && <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           <MultiSelect {...msProps} label={t("task.filterOwner")} options={opts?.owners ?? []} selected={filters.owner_names ?? []} onChange={(v) => setFilter("owner_names", v)} placeholder={t("task.filterAllOwners")} />
           <MultiSelect {...msProps} label={t("task.filterTaskType")} options={opts?.task_types ?? []} selected={filters.task_type_names ?? []} onChange={(v) => setFilter("task_type_names", v)} placeholder={t("task.filterAllTypes")} />
           <MultiSelect {...msProps} label={t("task.filterClient")} options={opts?.clients ?? []} selected={filters.client_names ?? []} onChange={(v) => setFilter("client_names", v)} placeholder={t("task.filterAllClients")} />
@@ -193,9 +208,9 @@ export default function TaskFilterTab({ onTasksLoaded, onTaskSelect }: Props) {
           <MultiSelect {...msProps} label={t("task.filterTrack")} options={opts?.tracks ?? []} selected={filters.tracks ?? []} onChange={(v) => setFilter("tracks", v)} placeholder={t("task.filterAllTracks")} />
           <MultiSelect {...msProps} label={t("task.filterDealId")} options={opts?.deal_ids ?? []} selected={filters.deal_ids ?? []} onChange={(v) => setFilter("deal_ids", v)} placeholder={t("task.filterAllDeals")} />
           <MultiSelect {...msProps} label={t("task.filterStatus")} options={opts?.statuses ?? []} selected={filters.status_names ?? []} onChange={(v) => setFilter("status_names", v)} placeholder={t("task.filterAllStatuses")} />
-        </div>
+        </div>}
 
-        <div className="flex justify-end">
+        {panelOpen && <div className="flex justify-end">
           <button
             onClick={handleApply}
             disabled={!hasFilters || filterMutation.isPending}
@@ -208,65 +223,8 @@ export default function TaskFilterTab({ onTasksLoaded, onTaskSelect }: Props) {
             )}
             {filterMutation.isPending ? t("task.filtering") : t("common.filter")}
           </button>
-        </div>
+        </div>}
       </div>
-
-      {/* Results Table */}
-      {results.length > 0 && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-3">
-            {t("task.tasksFound", { count: results.length })}
-          </p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-                  {[
-                    t("task.colId"),
-                    t("task.colClient"),
-                    t("task.colType"),
-                    t("task.colOwner"),
-                    t("common.status"),
-                    t("task.priority"),
-                    t("task.colEndDate"),
-                    "WS",
-                    t("task.filterDealId"),
-                  ].map((h) => (
-                    <th key={h} className="text-left py-2 px-2 text-gray-600 dark:text-gray-400 font-semibold whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {results.map((task) => (
-                  <tr
-                    key={task.task_id}
-                    onClick={() => handleRowClick(task)}
-                    className={`border-b border-gray-100 dark:border-gray-800 cursor-pointer transition-colors ${
-                      selectedTaskId === task.task_id
-                        ? "bg-blue-50 dark:bg-blue-900/20"
-                        : "hover:bg-gray-50 dark:hover:bg-gray-800"
-                    }`}
-                  >
-                    <td className="py-1.5 px-2 text-gray-500 dark:text-gray-500 font-mono">{task.task_id}</td>
-                    <td className="py-1.5 px-2 text-gray-700 dark:text-gray-300 font-medium max-w-[140px] truncate">{task.task_customer_name ?? "—"}</td>
-                    <td className="py-1.5 px-2 text-gray-600 dark:text-gray-400 max-w-[120px] truncate">{task.task_type_name ?? "—"}</td>
-                    <td className="py-1.5 px-2 text-gray-600 dark:text-gray-400 max-w-[100px] truncate">{task.task_owner_name ?? "—"}</td>
-                    <td className="py-1.5 px-2">
-                      <span className={`font-medium ${statusColor(task.task_status_reclassified ?? task.task_status_name)}`}>
-                        {task.task_status_reclassified ?? task.task_status_name ?? "—"}
-                      </span>
-                    </td>
-                    <td className={`py-1.5 px-2 font-medium ${priorityColor(task.task_priority)}`}>{task.task_priority ?? "—"}</td>
-                    <td className="py-1.5 px-2 text-gray-500 dark:text-gray-500">{task.task_end_performed ? task.task_end_performed.slice(0, 10) : task.task_end ? task.task_end.slice(0, 10) : "—"}</td>
-                    <td className="py-1.5 px-2 text-gray-500 dark:text-gray-500">{task.task_ws ?? "—"}</td>
-                    <td className="py-1.5 px-2 text-gray-500 dark:text-gray-500">{task.task_deal_id ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
 
       {filterMutation.isSuccess && results.length === 0 && (
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center">

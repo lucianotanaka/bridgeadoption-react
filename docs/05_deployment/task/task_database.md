@@ -1,5 +1,7 @@
 # TASK – Banco de Dados Envolvido
 
+> ℹ️ **Nota:** As tabelas e repositórios Python descritos aqui continuam válidos na versão **React** do Bridge Adoption — eles são reutilizados por `backend/app/tasks/*_service.py` (ex.: `service.py`, `filter_service.py`, `lci_viability_service.py`, `report_service.py`). Referências a `st.session_state`/`st.rerun()` neste documento são específicas do Streamlit legado. Ver `docs/02_application/module_tasks.md` para os endpoints REST correspondentes.
+
 Este documento mapeia as principais tabelas e repositórios utilizados pelo módulo TASK.
 
 ---

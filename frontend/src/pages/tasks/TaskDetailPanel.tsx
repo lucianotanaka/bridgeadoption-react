@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { ChevronLeft, ChevronRight, Save, History, X, Edit2, Users, Info } from "lucide-react";
+import { ChevronLeft, ChevronRight, Save, History, X, Edit2, Users, Info, Plus } from "lucide-react";
 import { tasksApi } from "@/api/tasks";
 import type { TaskItem, ActivityItem, HistoryItem, CSMItem, StatusType, RACIItem, PersonItem, CompanyItem, StatusJustificationItem, ProjectItem, ProjectTeamItem } from "@/api/tasks";
 
@@ -160,8 +160,8 @@ function HistoryPanel({ items }: { items: HistoryItem[] }) {
                     })() : "—"}
                   </span>
                   {h.taskrecord_type && <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${h.taskrecord_type === "BLOCKER" ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300" : h.taskrecord_type === "ISSUE" ? "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"}`}>{h.taskrecord_type}</span>}
-                  {h.taskrecord_status && <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{h.taskrecord_status}</span>}
-                  {(h as Record<string, unknown>).taskrecord_next_followup && (
+                  {h.taskrecord_status && String(h.taskrecord_status) !== "0" && <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{h.taskrecord_status}</span>}
+                  {Boolean((h as Record<string, unknown>).taskrecord_next_followup) && (
                     <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
                       ⏰ {String((h as Record<string, unknown>).taskrecord_next_followup).slice(0, 10)}
                     </span>
@@ -475,7 +475,7 @@ function TaskEditForm({ task, csms, statusTypes, onSaved, showCreationInfo }: { 
         <LabelInput label="WS / Subscr."><Inp value={g("task_ws", task.task_ws ?? "")} onChange={(v) => s("task_ws", v)} disabled={isClosed} /></LabelInput>
         <LabelInput label={t("task.formDealId")}><Inp value={g("task_deal_id", task.task_deal_id ?? "")} onChange={(v) => s("task_deal_id", v)} disabled={isClosed} /></LabelInput>
         <LabelInput label={t("task.formValue")}><Inp value={g("task_value", String(task.task_value ?? "0"))} onChange={(v) => s("task_value", v)} disabled={isClosed} type="number" /></LabelInput>
-        <LabelInput label="Moeda"><Sel value={g("task_currency", task.task_currency ?? "USD")} onChange={(v) => s("task_currency", v)} options={CURRENCY_OPTIONS} disabled={isClosed} /></LabelInput>
+        <LabelInput label={t("task.formCurrency")}><Sel value={g("task_currency", task.task_currency ?? "USD")} onChange={(v) => s("task_currency", v)} options={CURRENCY_OPTIONS} disabled={isClosed} /></LabelInput>
       </div>
 
       {/* Track + Subtrack (read-only, always shown) */}
@@ -492,7 +492,7 @@ function TaskEditForm({ task, csms, statusTypes, onSaved, showCreationInfo }: { 
           <Inp value={g("task_end_performed", fmtDate(task.task_end_performed))} onChange={(v) => s("task_end_performed", v)} disabled={isClosed} type="date" />
           <p className="text-[10px] text-gray-400 mt-0.5">{t("task.formExpected")} {fmtDateDisplay(task.task_end)}</p>
         </LabelInput>
-        <LabelInput label="Concluído %"><Sel value={g("task_completed_pct", completedToLabel(task.task_completed))} onChange={(v) => s("task_completed_pct", v)} options={PCT_OPTIONS} disabled={isClosed} /></LabelInput>
+        <LabelInput label={t("task.completedPct")}><Sel value={g("task_completed_pct", completedToLabel(task.task_completed))} onChange={(v) => s("task_completed_pct", v)} options={PCT_OPTIONS} disabled={isClosed} /></LabelInput>
       </div>
 
       {/* Project */}
@@ -501,7 +501,7 @@ function TaskEditForm({ task, csms, statusTypes, onSaved, showCreationInfo }: { 
           <LabelInput label={t("task.fieldProject")}>
             <select value={g("task_project_id", String(task.task_project_id ?? ""))} onChange={(e) => s("task_project_id", e.target.value)} disabled={isClosed || !projects.length}
               className="w-full text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60">
-              <option value="">Nenhum projeto</option>
+              <option value="">{t("task.noProject")}</option>
               {projects.map((p) => <option key={p.project_id} value={String(p.project_id)}>{p.project_ov_name ?? p.project_name ?? `#${p.project_id}`}</option>)}
             </select>
           </LabelInput>
@@ -517,7 +517,7 @@ function TaskEditForm({ task, csms, statusTypes, onSaved, showCreationInfo }: { 
       {/* Project team */}
       {showProjectTeam && projectTeamQ.data && projectTeamQ.data.length > 0 && (
         <div className="p-2 bg-gray-50 dark:bg-gray-800/30 rounded-lg border border-gray-200 dark:border-gray-700 text-[10px] text-gray-600 dark:text-gray-400 space-y-0.5">
-          <p className="font-bold uppercase text-[9px] mb-1">Equipe do Projeto</p>
+          <p className="font-bold uppercase text-[9px] mb-1">{t("task.projectTeam")}</p>
           {projectTeamQ.data.filter((pt) => pt.projteam_project_id === (parseInt(g("task_project_id", String(task.task_project_id ?? "0"))) || task.task_project_id)).map((pt, i) => (
             <p key={i}>{pt.projteam_member_name} {pt.projteam_level_name ? `(${pt.projteam_level_name})` : ""}</p>
           ))}
@@ -525,8 +525,8 @@ function TaskEditForm({ task, csms, statusTypes, onSaved, showCreationInfo }: { 
       )}
 
       {/* Description */}
-      <LabelInput label="Descrição">
-        <Textarea value={g("task_description", task.task_description ?? "")} onChange={(v) => s("task_description", v)} disabled={isClosed} placeholder="Descrição detalhada..." rows={2} />
+      <LabelInput label={t("common.description")}>
+        <Textarea value={g("task_description", task.task_description ?? "")} onChange={(v) => s("task_description", v)} disabled={isClosed} placeholder={t("task.descriptionPlaceholder")} rows={2} />
       </LabelInput>
 
       {/* For type 21/22: LCI/EA fields (read-only) */}
@@ -580,6 +580,10 @@ function RACIMatrix({ task, taskId, selectedActivityId, selectedActivityName }: 
   const [showAddForm, setShowAddForm] = useState(false);
   const [newPersonId, setNewPersonId] = useState("");
   const [newResponsibility, setNewResponsibility] = useState("R");
+  const [showNewPersonForm, setShowNewPersonForm] = useState(false);
+  const [newPersonName, setNewPersonName] = useState("");
+  const [newPersonJobTitle, setNewPersonJobTitle] = useState("");
+  const [newPersonEmail, setNewPersonEmail] = useState("");
 
   const isTask = selectedActivityId === null;
 
@@ -599,7 +603,10 @@ function RACIMatrix({ task, taskId, selectedActivityId, selectedActivityName }: 
 
   const personQ = useQuery({
     queryKey: ["person-list", selectedCompanyId],
-    queryFn: () => tasksApi.getPersonList(selectedCompanyId ? parseInt(selectedCompanyId) : undefined).then((r) => r.data),
+    queryFn: () => tasksApi.getPersonList(
+      selectedCompanyId ? parseInt(selectedCompanyId) : undefined,
+      !selectedCompanyId
+    ).then((r) => r.data),
     staleTime: 5 * 60 * 1000,
     enabled: true,
   });
@@ -617,6 +624,27 @@ function RACIMatrix({ task, taskId, selectedActivityId, selectedActivityName }: 
     onSuccess: () => {
       setNewPersonId(""); setShowAddForm(false);
       void qc.invalidateQueries({ queryKey: ["task-raci", taskId] });
+    },
+  });
+
+  const createPersonMut = useMutation<unknown, Error, void>({
+    mutationFn: () => {
+      if (!newPersonName.trim()) return Promise.resolve(null);
+      return tasksApi.createPerson({
+        person_name: newPersonName.trim(),
+        person_company_id: selectedCompanyId ? parseInt(selectedCompanyId) : undefined,
+        person_job_title: newPersonJobTitle.trim() || undefined,
+        person_email: newPersonEmail.trim() || undefined,
+      }).then((r) => r.data);
+    },
+    onSuccess: (data) => {
+      const result = data as { success: boolean; person_id: number } | null;
+      setNewPersonName(""); setNewPersonJobTitle(""); setNewPersonEmail("");
+      setShowNewPersonForm(false);
+      void qc.invalidateQueries({ queryKey: ["person-list"] });
+      if (result?.person_id) {
+        setNewPersonId(String(result.person_id));
+      }
     },
   });
 
@@ -667,7 +695,7 @@ function RACIMatrix({ task, taskId, selectedActivityId, selectedActivityName }: 
               <label className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase mb-1 block">Company</label>
               <select value={selectedCompanyId} onChange={(e) => { setSelectedCompanyId(e.target.value); setNewPersonId(""); }}
                 className="w-full text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500">
-                <option value="">All companies</option>
+                <option value="">Internal</option>
                 {(companyQ.data ?? []).map((c) => <option key={c.company_id} value={String(c.company_id)}>{c.company_name}</option>)}
               </select>
             </div>
@@ -687,6 +715,11 @@ function RACIMatrix({ task, taskId, selectedActivityId, selectedActivityName }: 
               </select>
             </div>
             <div className="flex gap-2">
+              <button onClick={() => setShowNewPersonForm(!showNewPersonForm)}
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium rounded-lg border transition-colors ${showNewPersonForm ? "bg-green-600 text-white border-green-600" : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100"}`}>
+                <Plus size={10} />
+                Create Person
+              </button>
               <button onClick={() => { setShowAddForm(false); setNewPersonId(""); }}
                 className="px-2.5 py-1.5 text-[10px] font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 transition-colors">
                 Cancel
@@ -698,6 +731,43 @@ function RACIMatrix({ task, taskId, selectedActivityId, selectedActivityName }: 
               </button>
             </div>
           </div>
+
+          {/* Person not found — inline create */}
+          {showNewPersonForm && (
+            <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+              <div className="mt-2 p-2 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 space-y-2">
+                <p className="text-[9px] font-bold uppercase text-gray-500 dark:text-gray-400">
+                  New person {selectedCompanyId ? `(${(companyQ.data ?? []).find((c) => String(c.company_id) === selectedCompanyId)?.company_name ?? ""})` : "(Internal)"}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase mb-1 block">Name *</label>
+                    <Inp value={newPersonName} onChange={setNewPersonName} type="text" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase mb-1 block">Job Title</label>
+                    <Inp value={newPersonJobTitle} onChange={setNewPersonJobTitle} type="text" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase mb-1 block">Email</label>
+                    <Inp value={newPersonEmail} onChange={setNewPersonEmail} type="text" />
+                  </div>
+                </div>
+                {createPersonMut.isError && <p className="text-[10px] text-red-600 dark:text-red-400">Failed to create person.</p>}
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => { setShowNewPersonForm(false); setNewPersonName(""); setNewPersonJobTitle(""); setNewPersonEmail(""); }}
+                    className="px-2.5 py-1.5 text-[10px] font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 transition-colors">
+                    Cancel
+                  </button>
+                  <button onClick={() => createPersonMut.mutate()} disabled={!newPersonName.trim() || createPersonMut.isPending}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium rounded-lg bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white transition-colors">
+                    {createPersonMut.isPending ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Plus size={10} />}
+                    Create Person
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -749,8 +819,15 @@ function RACIMatrix({ task, taskId, selectedActivityId, selectedActivityName }: 
                         ) : (
                           <div>
                             <div className="flex items-center gap-1">
-                              <span className="text-[10px] text-gray-700 dark:text-gray-300 leading-tight truncate flex-1">
-                                {m.person_name ?? `#${m.taskraci_person_id}`}
+                              <span className="flex items-baseline gap-1 min-w-0 flex-1 text-[10px] leading-tight">
+                                <span className="text-gray-700 dark:text-gray-300 shrink-0 whitespace-nowrap">
+                                  {m.person_name ?? `#${m.taskraci_person_id}`}
+                                </span>
+                                {m.person_company_name && (
+                                  <span className="text-gray-400 dark:text-gray-500 truncate" title={m.person_company_name}>
+                                    ({m.person_company_name})
+                                  </span>
+                                )}
                               </span>
                               <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all shrink-0">
                                 <button
@@ -795,6 +872,162 @@ function RACIMatrix({ task, taskId, selectedActivityId, selectedActivityName }: 
   );
 }
 
+function AddActivityForm({ taskId, statusTypes, taskStart, taskEnd, onCreated, onCancel }: {
+  taskId: number;
+  statusTypes: StatusType[];
+  taskStart?: string;
+  taskEnd?: string;
+  onCreated: () => void;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation();
+  const [name, setName] = useState("");
+  const [seq, setSeq] = useState("1");
+  const [start, setStart] = useState(taskStart ?? "");
+  const [end, setEnd] = useState(taskEnd ?? "");
+  const [effort, setEffort] = useState("0");
+  const [completedPct, setCompletedPct] = useState("0%");
+  const [statusName, setStatusName] = useState("");
+  const [dealId, setDealId] = useState("");
+  const [ws, setWs] = useState("");
+  const [value, setValue] = useState("0");
+  const [currency, setCurrency] = useState("USD");
+  const [approvalReqDate, setApprovalReqDate] = useState("");
+  const [approved, setApproved] = useState("0");
+  const [approvedValue, setApprovedValue] = useState("0");
+  const [approvedCurrency, setApprovedCurrency] = useState("USD");
+  const [approvalDate, setApprovalDate] = useState("");
+  const [track, setTrack] = useState("");
+  const [subTrack, setSubTrack] = useState("");
+  const [objective, setObjective] = useState("");
+  const [scope, setScope] = useState("");
+  const [expectedResults, setExpectedResults] = useState("");
+  const [error, setError] = useState("");
+
+  const statusOptions = statusTypes.filter((sx) => sx.statustype_id !== 5).map((sx) => sx.statustype_name);
+
+  const createMut = useMutation<unknown, Error, void>({
+    mutationFn: () => {
+      const data: Record<string, unknown> = {
+        activity_name: name.trim(),
+        activity_seq: parseInt(seq) || 1,
+        activity_start: start || null,
+        activity_end: end || null,
+        activity_start_performed: start || null,
+        activity_end_performed: end || null,
+        activity_effort: parseFloat(effort) || 0,
+        activity_completed: PROGRESS_MAP[completedPct] ?? 0,
+        activity_deal_id: dealId.trim() || null,
+        activity_ws: ws.trim() || null,
+        activity_value: parseFloat(value) || 0,
+        activity_currency: currency,
+        activity_approval_request_date: approvalReqDate || null,
+        activity_approved: approved === "1" ? 1 : 0,
+        activity_approved_value: parseFloat(approvedValue) || 0,
+        activity_approved_currency: approvedCurrency,
+        activity_approval_date: approvalDate || null,
+        activity_track: track.trim() || null,
+        activity_sub_track: subTrack.trim() || null,
+        activity_objective: objective.trim() || null,
+        activity_scope: scope.trim() || null,
+        activity_expected_results: expectedResults.trim() || null,
+      };
+      if (statusName) {
+        const found = statusTypes.find((sx) => sx.statustype_name === statusName);
+        if (found) data.activity_status = found.statustype_id;
+      }
+      return tasksApi.createActivity(taskId, data).then((r) => r.data);
+    },
+    onSuccess: () => {
+      onCreated();
+    },
+  });
+
+  const handleSubmit = () => {
+    if (!name.trim()) {
+      setError(t("task.activityNameRequired"));
+      return;
+    }
+    setError("");
+    createMut.mutate();
+  };
+
+  return (
+    <div className="mb-3 p-3 bg-gray-50 dark:bg-gray-800/40 rounded-lg border border-gray-200 dark:border-gray-700 space-y-3">
+      <LabelInput label={t("common.name")}>
+        <Inp value={name} onChange={setName} type="text" />
+      </LabelInput>
+      {error && <p className="text-[10px] text-red-600 dark:text-red-400">{error}</p>}
+
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <LabelInput label={t("task.formSeq")}><Inp value={seq} onChange={setSeq} type="number" /></LabelInput>
+        <LabelInput label={t("task.formStart")}><Inp value={start} onChange={setStart} type="date" /></LabelInput>
+        <LabelInput label={t("task.formEnd")}><Inp value={end} onChange={setEnd} type="date" /></LabelInput>
+        <LabelInput label={t("task.formEffortH")}><Inp value={effort} onChange={setEffort} type="number" /></LabelInput>
+        <LabelInput label={t("task.formCompleted")}><Sel value={completedPct} onChange={setCompletedPct} options={PROGRESS_OPTIONS} /></LabelInput>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <LabelInput label={t("task.formStatus")}>
+          <select value={statusName} onChange={(e) => setStatusName(e.target.value)}
+            className="w-full text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500">
+            <option value="">—</option>
+            {statusOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </LabelInput>
+        <LabelInput label={t("task.formDealId")}><Inp value={dealId} onChange={setDealId} type="text" /></LabelInput>
+        <LabelInput label="WS"><Inp value={ws} onChange={setWs} type="text" /></LabelInput>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <LabelInput label={t("task.formValueDollar")}><Inp value={value} onChange={setValue} type="number" /></LabelInput>
+        <LabelInput label={t("task.formCurrency")}><Sel value={currency} onChange={setCurrency} options={CURRENCY_OPTIONS} /></LabelInput>
+        <LabelInput label={t("task.formApprovalReqDate")}><Inp value={approvalReqDate} onChange={setApprovalReqDate} type="date" /></LabelInput>
+        <LabelInput label={t("task.formApproved")}>
+          <select value={approved} onChange={(e) => setApproved(e.target.value)}
+            className="w-full text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500">
+            <option value="0">{t("common.no")}</option>
+            <option value="1">{t("common.yes")}</option>
+          </select>
+        </LabelInput>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <LabelInput label={t("task.formApprovedValue")}><Inp value={approvedValue} onChange={setApprovedValue} type="number" /></LabelInput>
+        <LabelInput label={t("task.formApprovedCurrency")}><Sel value={approvedCurrency} onChange={setApprovedCurrency} options={CURRENCY_OPTIONS} /></LabelInput>
+        <LabelInput label={t("task.formApprovalDate")}><Inp value={approvalDate} onChange={setApprovalDate} type="date" /></LabelInput>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <LabelInput label="Track"><Inp value={track} onChange={setTrack} type="text" /></LabelInput>
+        <LabelInput label="Subtrack"><Inp value={subTrack} onChange={setSubTrack} type="text" /></LabelInput>
+      </div>
+
+      <LabelInput label={t("task.tabObjective")}>
+        <Textarea value={objective} onChange={setObjective} placeholder={t("task.objectivePlaceholder")} rows={2} />
+      </LabelInput>
+      <LabelInput label={t("task.tabScope")}>
+        <Textarea value={scope} onChange={setScope} placeholder={t("task.scopePlaceholder")} rows={2} />
+      </LabelInput>
+      <LabelInput label={t("task.tabExpectedResults")}>
+        <Textarea value={expectedResults} onChange={setExpectedResults} placeholder={t("task.expectedResultsPlaceholder")} rows={2} />
+      </LabelInput>
+
+      <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+        {createMut.isError && <p className="text-[10px] text-red-600 dark:text-red-400">{t("task.activityCreateFailed")}</p>}
+        <button onClick={onCancel} className="px-2.5 py-1.5 text-[10px] font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 transition-colors">
+          {t("task.cancelBtn", { defaultValue: "Cancel" })}
+        </button>
+        <button onClick={handleSubmit} disabled={createMut.isPending}
+          className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white transition-colors">
+          {createMut.isPending ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Save size={10} />}
+          {t("task.saveBtn")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function HistorySection({ task, activities, taskId, selectedActivityId }: {
   task: TaskItem; activities: ActivityItem[]; taskId: number;
   selectedActivityId: number | null;
@@ -808,6 +1041,7 @@ function HistorySection({ task, activities, taskId, selectedActivityId }: {
   const [noteType, setNoteType] = useState("INFO");
   const [nextFU, setNextFU] = useState("");
   const [noteSaved, setNoteSaved] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
 
   const isTask = selectedActivityId === null;
   const selectedAct = activities.find((a) => a.activity_id === selectedActivityId);
@@ -846,10 +1080,18 @@ function HistorySection({ task, activities, taskId, selectedActivityId }: {
     },
   });
 
-  const allItems = isTask ? (taskHistQ.data ?? []) : (actHistQ.data ?? []);
+  const rawItems = isTask ? (taskHistQ.data ?? []) : (actHistQ.data ?? []);
   const isLoading = isTask ? taskHistQ.isLoading : actHistQ.isLoading;
+  const allItems = typeFilter ? rawItems.filter((h) => (h.taskrecord_type ?? "INFO") === typeFilter) : rawItems;
   const visibleItems = allItems.slice(0, visibleCount);
   const hasMore = visibleCount < allItems.length;
+
+  const NOTE_TYPE_FILTERS: { key: string; activeClass: string; inactiveClass: string }[] = [
+    { key: "INFO", activeClass: "bg-gray-600 text-white border-gray-600", inactiveClass: "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" },
+    { key: "ISSUE", activeClass: "bg-orange-500 text-white border-orange-500", inactiveClass: "border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20" },
+    { key: "BLOCKER", activeClass: "bg-red-600 text-white border-red-600", inactiveClass: "border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20" },
+    { key: "LOG", activeClass: "bg-blue-600 text-white border-blue-600", inactiveClass: "border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20" },
+  ];
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
@@ -867,6 +1109,22 @@ function HistorySection({ task, activities, taskId, selectedActivityId }: {
         </button>
       </div>
 
+      {/* Type filter buttons */}
+      <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+        {NOTE_TYPE_FILTERS.map((f) => (
+          <button key={f.key} onClick={() => setTypeFilter((cur) => (cur === f.key ? null : f.key))}
+            className={`px-2.5 py-1 text-[10px] font-bold rounded-md border transition-colors ${typeFilter === f.key ? f.activeClass : f.inactiveClass}`}>
+            {f.key}
+          </button>
+        ))}
+        {typeFilter && (
+          <button onClick={() => setTypeFilter(null)}
+            className="px-2 py-1 text-[10px] font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+            {t("task.clearFilter", { defaultValue: "Clear" })}
+          </button>
+        )}
+      </div>
+
       {/* Add Note form */}
       {showAddNote && (
         <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800/40 rounded-lg border border-gray-200 dark:border-gray-700 space-y-3">
@@ -881,7 +1139,7 @@ function HistorySection({ task, activities, taskId, selectedActivityId }: {
             </div>
             <div className="space-y-2">
               <LabelInput label={t("task.formNoteType")}>
-                <Sel value={noteType} onChange={setNoteType} options={["INFO", "ISSUE", "BLOCKER"]} />
+                <Sel value={noteType} onChange={setNoteType} options={["INFO", "ISSUE", "BLOCKER", "LOG"]} />
               </LabelInput>
               <LabelInput label={t("task.formNextFollowUp")}>
                 <Inp value={nextFU} onChange={setNextFU} type="date" />
@@ -926,8 +1184,8 @@ function HistorySection({ task, activities, taskId, selectedActivityId }: {
                     })() : "—"}
                   </span>
                   {h.taskrecord_type && <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${h.taskrecord_type === "BLOCKER" ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300" : h.taskrecord_type === "ISSUE" ? "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"}`}>{h.taskrecord_type}</span>}
-                  {h.taskrecord_status && <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{h.taskrecord_status}</span>}
-                  {(h as Record<string, unknown>).taskrecord_next_followup && (
+                  {h.taskrecord_status && String(h.taskrecord_status) !== "0" && <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{h.taskrecord_status}</span>}
+                  {Boolean((h as Record<string, unknown>).taskrecord_next_followup) && (
                     <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
                       ⏰ {String((h as Record<string, unknown>).taskrecord_next_followup).slice(0, 10)}
                     </span>
@@ -951,11 +1209,32 @@ function HistorySection({ task, activities, taskId, selectedActivityId }: {
   );
 }
 
+const TABLE_PAGE_SIZE = 10;
+
+function taskStatusColor(status?: string): string {
+  const s = (status ?? "").toUpperCase();
+  if (s.includes("OPEN")) return "text-blue-600 dark:text-blue-400";
+  if (s.includes("PROGRESS") || s.includes("IN ")) return "text-yellow-600 dark:text-yellow-400";
+  if (s.includes("HOLD")) return "text-orange-600 dark:text-orange-400";
+  if (s.includes("DELAYED") || s.includes("ATRASAD")) return "text-red-600 dark:text-red-400";
+  if (s.includes("DONE") || s.includes("CLOSED") || s.includes("COMPLETED") || s.includes("CANCEL")) return "text-green-600 dark:text-green-400";
+  return "text-gray-500 dark:text-gray-400";
+}
+
+function taskPriorityColor(priority?: string): string {
+  const p = (priority ?? "").toUpperCase();
+  if (p === "HIGH") return "text-red-600 dark:text-red-400";
+  if (p === "MEDIUM") return "text-yellow-600 dark:text-yellow-400";
+  return "text-blue-600 dark:text-blue-400";
+}
+
 export default function TaskDetailPanel({ tasks, initialIndex = 0, onClose }: Props) {
   const { t } = useTranslation();
   const [idx, setIdx] = useState(Math.min(initialIndex, tasks.length - 1));
   const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null);
   const [showCreationInfo, setShowCreationInfo] = useState(false);
+  const [tablePage, setTablePage] = useState(Math.floor(Math.min(initialIndex, tasks.length - 1) / TABLE_PAGE_SIZE));
+  const [showAddActivity, setShowAddActivity] = useState(false);
   const qc = useQueryClient();
 
   const task = tasks[idx];
@@ -986,46 +1265,72 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, onClose }: Pr
   const csms = csmQuery.data ?? [];
   const statusTypes = statusQuery.data ?? [];
 
-  const navigate = (dir: -1 | 1) => {
-    const next = idx + dir;
-    if (next >= 0 && next < tasks.length) { setIdx(next); setSelectedActivityId(null); }
-  };
-
   const critColor = (lvl?: string) => lvl === "N1" ? "text-red-600 dark:text-red-400" : lvl === "N2" ? "text-orange-600 dark:text-orange-400" : "";
+
+  const totalPages = Math.ceil(tasks.length / TABLE_PAGE_SIZE);
+  const pagedTasks = tasks.slice(tablePage * TABLE_PAGE_SIZE, (tablePage + 1) * TABLE_PAGE_SIZE);
 
   return (
     <div className="space-y-3">
-      {/* ── Navigation bar ── */}
-      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 px-3 py-2 flex items-center justify-between">
-        {/* Prev / counter / Next */}
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => navigate(-1)}
-            disabled={idx === 0}
-            className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 transition-colors text-gray-500 dark:text-gray-400"
-          >
-            <ChevronLeft size={15} />
-          </button>
-          <span className="text-xs font-medium text-gray-500 dark:text-gray-400 select-none px-1">
-            {t("task.taskOf", { current: idx + 1, total: tasks.length })}
+      {/* ── Task table (replaces navigation bar) ── */}
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        {/* Table header */}
+        <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+          <span className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">
+            {t("task.tasksFound", { count: tasks.length, defaultValue: `${tasks.length} Tasks Found` })}
           </span>
-          <button
-            onClick={() => navigate(1)}
-            disabled={idx === tasks.length - 1}
-            className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 transition-colors text-gray-500 dark:text-gray-400"
-          >
-            <ChevronRight size={15} />
-          </button>
+          {onClose && (
+            <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+              <X size={14} />
+            </button>
+          )}
         </div>
-
-        {/* Close */}
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-          >
-            <X size={15} />
-          </button>
+        {/* Table body */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                {["ID", t("task.colClient"), t("task.colType"), t("task.colOwner"), t("common.status"), t("task.priority"), t("task.colEndDate"), "WS", t("task.filterDealId")].map((h) => (
+                  <th key={h} className="text-left py-2 px-2 text-gray-600 dark:text-gray-400 font-semibold whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {pagedTasks.map((taskRow, pageIdx) => {
+                const realIdx = tablePage * TABLE_PAGE_SIZE + pageIdx;
+                return (
+                  <tr key={taskRow.task_id} onClick={() => { setIdx(realIdx); setSelectedActivityId(null); }}
+                    className={`border-b border-gray-100 dark:border-gray-800 cursor-pointer transition-colors ${realIdx === idx ? "bg-blue-50 dark:bg-blue-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-800"}`}>
+                    <td className="py-1.5 px-2 text-gray-500 dark:text-gray-500 font-mono">{taskRow.task_id}</td>
+                    <td className="py-1.5 px-2 text-gray-700 dark:text-gray-300 max-w-[120px] truncate">{taskRow.task_customer_name ?? "—"}</td>
+                    <td className="py-1.5 px-2 text-gray-600 dark:text-gray-400 max-w-[100px] truncate">{taskRow.task_type_name ?? "—"}</td>
+                    <td className="py-1.5 px-2 text-gray-600 dark:text-gray-400 max-w-[100px] truncate">{taskRow.task_owner_name ?? "—"}</td>
+                    <td className="py-1.5 px-2"><span className={`font-medium ${taskStatusColor(taskRow.task_status_reclassified ?? taskRow.task_status_name)}`}>{taskRow.task_status_reclassified ?? taskRow.task_status_name ?? "—"}</span></td>
+                    <td className={`py-1.5 px-2 font-medium ${taskPriorityColor(taskRow.task_priority)}`}>{taskRow.task_priority ?? "—"}</td>
+                    <td className="py-1.5 px-2 text-gray-500 dark:text-gray-500 whitespace-nowrap">{taskRow.task_end_performed ? taskRow.task_end_performed.slice(0, 10) : taskRow.task_end ? taskRow.task_end.slice(0, 10) : "—"}</td>
+                    <td className="py-1.5 px-2 text-gray-500 dark:text-gray-500">{taskRow.task_ws ?? "—"}</td>
+                    <td className="py-1.5 px-2 text-gray-500 dark:text-gray-500">{taskRow.task_deal_id ?? "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <button onClick={() => setTablePage((p) => Math.max(0, p - 1))} disabled={tablePage === 0}
+              className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 transition-colors text-gray-500 dark:text-gray-400">
+              <ChevronLeft size={14} />
+            </button>
+            <span className="text-[10px] text-gray-500 dark:text-gray-400">
+              {t("task.taskOf", { current: idx + 1, total: tasks.length })} · Página {tablePage + 1}/{totalPages}
+            </span>
+            <button onClick={() => setTablePage((p) => Math.min(totalPages - 1, p + 1))} disabled={tablePage === totalPages - 1}
+              className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 transition-colors text-gray-500 dark:text-gray-400">
+              <ChevronRight size={14} />
+            </button>
+          </div>
         )}
       </div>
 
@@ -1053,9 +1358,30 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, onClose }: Pr
 
         {/* RIGHT: activities */}
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex flex-col">
-          <h3 className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-3 shrink-0">
-            {t("task.activitiesHeader", { count: activities.length })}
-          </h3>
+          <div className="flex items-center justify-between mb-3 shrink-0">
+            <h3 className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">
+              {t("task.activitiesHeader", { count: activities.length })}
+            </h3>
+            <button onClick={() => setShowAddActivity((v) => !v)}
+              className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors shrink-0 ${showAddActivity ? "bg-blue-600 text-white border-blue-600" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>
+              <Plus size={12} />
+              {t("task.addActivityBtn")}
+            </button>
+          </div>
+          {showAddActivity && (
+            <AddActivityForm
+              taskId={taskId!}
+              statusTypes={statusTypes}
+              taskStart={fmtDate(task.task_start)}
+              taskEnd={fmtDate(task.task_end)}
+              onCancel={() => setShowAddActivity(false)}
+              onCreated={() => {
+                setShowAddActivity(false);
+                void activitiesQuery.refetch();
+                void qc.invalidateQueries({ queryKey: ["task-history", taskId] });
+              }}
+            />
+          )}
           {activitiesQuery.isLoading ? (
             <div className="flex justify-center py-6"><div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
           ) : activities.length === 0 ? (

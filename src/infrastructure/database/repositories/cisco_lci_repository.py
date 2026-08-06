@@ -361,6 +361,236 @@ class CiscoLCIRepository:
                 cursor.close()
                 conn.close()
 
+    # =====================================================================
+    # LCI - SOLUÇÃO vs PROJETOS + task_end (para filtro de Fiscal Year NTT)
+    # =====================================================================
+    def load_lci_solution_vs_project_with_task_end(
+        self,
+        as_df: bool = False
+    ) -> Union[List[Dict[str, Any]], pd.DataFrame]:
+        """
+        Reproduz a lógica de vwCustomerCiscoLCIDealTrackProjectStatus,
+        porém expõe adicionalmente 'potential_task_end' (MIN(task_end)
+        dentre as tarefas selecionadas por cliente + deal + track),
+        permitindo filtrar por Fiscal Year NTT (abril -> março) no
+        frontend React.
+
+        Ordenação:
+            - customer_name ASC
+
+        Parâmetros:
+            as_df (bool):
+                True  → retorna pandas.DataFrame
+                False → retorna List[Dict]
+
+        Retorno:
+            Lista de dicionários ou DataFrame.
+            Em caso de erro, retorna lista vazia ou DataFrame vazio.
+        """
+
+        query = """
+            WITH task_base AS (
+                SELECT
+                    t.task_id,
+                    t.task_customer_id,
+                    c.company_name AS customer_name,
+                    t.task_track,
+                    t.task_subtrack,
+                    COALESCE(t.task_value, 0) AS task_value,
+                    t.task_ws,
+                    t.task_deal_id,
+                    t.task_status,
+                    t.task_end,
+                    s.statustype_name AS task_status_name,
+                    COALESCE(t.task_project_id, 0) AS task_project_id
+                FROM tbTask t
+                INNER JOIN tbCompany c
+                    ON c.company_id = t.task_customer_id
+                INNER JOIN tbStatusType s
+                    ON s.statustype_id = t.task_status
+                WHERE t.task_tasktype_id IN (21, 22)
+                  AND t.task_customer_id <> 0
+                  AND t.task_status NOT IN (4, 5, 6, 10)
+            ),
+            customer_track_deal_base AS (
+                SELECT DISTINCT
+                    tb.task_customer_id,
+                    tb.customer_name,
+                    tb.task_track,
+                    tb.task_deal_id
+                FROM task_base tb
+            ),
+            has_project_calc AS (
+                SELECT
+                    tb.task_customer_id,
+                    tb.task_track,
+                    tb.task_deal_id,
+                    CASE
+                        WHEN SUM(
+                            CASE
+                                WHEN tb.task_project_id > 0
+                                 AND tb.task_status <> 1
+                                THEN 1
+                                ELSE 0
+                            END
+                        ) > 0 THEN 'YES'
+                        WHEN COUNT(*) = SUM(
+                            CASE
+                                WHEN tb.task_status = 3 THEN 1
+                                ELSE 0
+                            END
+                        ) THEN 'IN REVIEW'
+                        WHEN COUNT(*) = SUM(
+                            CASE
+                                WHEN tb.task_status = 1 THEN 1
+                                ELSE 0
+                            END
+                        ) THEN 'PENDING REVIEW'
+                        ELSE 'NO'
+                    END AS has_project
+                FROM task_base tb
+                GROUP BY
+                    tb.task_customer_id,
+                    tb.task_track,
+                    tb.task_deal_id
+            ),
+            task_priority AS (
+                SELECT
+                    tb.*,
+                    CASE
+                        WHEN tb.task_status NOT IN (1, 3) THEN 1
+                        WHEN tb.task_status = 3 THEN 2
+                        WHEN tb.task_status = 1 THEN 3
+                        ELSE 9
+                    END AS priority_group
+                FROM task_base tb
+            ),
+            best_priority AS (
+                SELECT
+                    tp.task_customer_id,
+                    tp.task_track,
+                    tp.task_deal_id,
+                    MIN(tp.priority_group) AS best_priority_group
+                FROM task_priority tp
+                GROUP BY
+                    tp.task_customer_id,
+                    tp.task_track,
+                    tp.task_deal_id
+            ),
+            min_value_by_priority AS (
+                SELECT
+                    tp.task_customer_id,
+                    tp.task_track,
+                    tp.task_deal_id,
+                    bp.best_priority_group,
+                    MIN(tp.task_value) AS min_task_value
+                FROM task_priority tp
+                INNER JOIN best_priority bp
+                    ON bp.task_customer_id = tp.task_customer_id
+                   AND bp.task_track = tp.task_track
+                   AND bp.task_deal_id = tp.task_deal_id
+                   AND bp.best_priority_group = tp.priority_group
+                GROUP BY
+                    tp.task_customer_id,
+                    tp.task_track,
+                    tp.task_deal_id,
+                    bp.best_priority_group
+            ),
+            selected_tasks AS (
+                SELECT DISTINCT
+                    tp.task_id,
+                    tp.task_customer_id,
+                    tp.customer_name,
+                    tp.task_track,
+                    tp.task_subtrack,
+                    tp.task_value,
+                    tp.task_ws,
+                    tp.task_deal_id,
+                    tp.task_status,
+                    tp.task_status_name,
+                    tp.task_end
+                FROM task_priority tp
+                INNER JOIN min_value_by_priority mv
+                    ON mv.task_customer_id = tp.task_customer_id
+                   AND mv.task_track = tp.task_track
+                   AND mv.task_deal_id = tp.task_deal_id
+                   AND mv.best_priority_group = tp.priority_group
+                   AND mv.min_task_value = tp.task_value
+            ),
+            selected_tasks_agg AS (
+                SELECT
+                    st.task_customer_id,
+                    st.task_track,
+                    st.task_deal_id,
+                    GROUP_CONCAT(
+                        st.task_subtrack
+                        ORDER BY st.task_id
+                        SEPARATOR ', '
+                    ) AS potential_use_case,
+                    MIN(st.task_value) AS potential_value_usd,
+                    GROUP_CONCAT(
+                        st.task_ws
+                        ORDER BY st.task_id
+                        SEPARATOR ', '
+                    ) AS potential_task_ws,
+                    GROUP_CONCAT(
+                        st.task_status_name
+                        ORDER BY st.task_id
+                        SEPARATOR ', '
+                    ) AS potential_task_status,
+                    MIN(st.task_end) AS potential_task_end
+                FROM selected_tasks st
+                GROUP BY
+                    st.task_customer_id,
+                    st.task_track,
+                    st.task_deal_id
+            )
+            SELECT
+                ctdb.customer_name,
+                sta.task_deal_id,
+                ctdb.task_track AS solution_track,
+                hpc.has_project,
+                sta.potential_use_case,
+                sta.potential_value_usd,
+                sta.potential_task_ws,
+                sta.potential_task_status,
+                sta.potential_task_end
+            FROM customer_track_deal_base ctdb
+            INNER JOIN has_project_calc hpc
+                ON hpc.task_customer_id = ctdb.task_customer_id
+               AND hpc.task_track = ctdb.task_track
+               AND hpc.task_deal_id = ctdb.task_deal_id
+            INNER JOIN selected_tasks_agg sta
+                ON sta.task_customer_id = ctdb.task_customer_id
+               AND sta.task_track = ctdb.task_track
+               AND sta.task_deal_id = ctdb.task_deal_id
+            ORDER BY ctdb.customer_name
+        """
+
+        try:
+            if as_df:
+                engine = get_sqlalchemy_engine()
+                return pd.read_sql(query, engine)
+
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(query)
+            return cursor.fetchall()
+
+        except Exception as e:
+            self.error_repo.log_error(
+                error_function="CiscoLCIRepository.load_lci_solution_vs_project_with_task_end",
+                error_command=query,
+                error_description=str(e),
+                error_traceback=traceback.format_exc()
+            )
+            return [] if not as_df else pd.DataFrame()
+
+        finally:
+            if not as_df and "conn" in locals():
+                cursor.close()
+                conn.close()
+
     # =============================================================
     # RELAÇÃO DE TRACK E SE CLIENTE TEM ALGUM PROJETO EM ANDAMENTO
     # =============================================================

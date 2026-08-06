@@ -11,6 +11,9 @@ export default defineConfig({
     minify: "esbuild",
     sourcemap: false,
     chunkSizeWarningLimit: 5000,
+    // Evita cálculo do tamanho comprimido (gzip) de cada chunk, que consome
+    // bastante memória/CPU quando há bibliotecas pesadas como plotly.js.
+    reportCompressedSize: false,
     rollupOptions: {
       output: {
         manualChunks: {

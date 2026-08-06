@@ -41,9 +41,17 @@ function normalizeLanguage(lang: string): string {
 }
 
 /**
- * Extracts resource_keys (with show_in_menu=1) from the nested permissions structure.
+ * Extracts resource_keys from the nested permissions structure. Includes ALL
+ * granted resources (the backend query already excludes denied permissions,
+ * i.e. action_id > 1), regardless of show_in_menu — mirrors Streamlit's
+ * can(resource_key) which checks only the action, not menu visibility.
+ *
+ * show_in_menu is only relevant for building the sidebar navigation, not for
+ * feature-level permission checks (e.g. "task.task_lci_viability" is a
+ * sub-permission with no menu entry of its own).
+ *
  * Input: { ROLE: { "Resource Name": { resource_key, show_in_menu, ... } } }
- * Output: ["adoption.report_forecast", "task.task", ...]
+ * Output: ["adoption.report_forecast", "task.task", "task.task_lci_viability", ...]
  */
 function extractResourceKeys(permissions: Record<string, unknown>): string[] {
   const keys: string[] = [];
@@ -51,8 +59,8 @@ function extractResourceKeys(permissions: Record<string, unknown>): string[] {
     if (typeof rolePerms !== "object" || rolePerms === null) continue;
     for (const perm of Object.values(rolePerms as Record<string, unknown>)) {
       if (typeof perm !== "object" || perm === null) continue;
-      const p = perm as { resource_key?: string; show_in_menu?: number };
-      if (p.resource_key && p.show_in_menu === 1) {
+      const p = perm as { resource_key?: string; action?: string };
+      if (p.resource_key && p.action && p.action !== "deny") {
         keys.push(p.resource_key);
       }
     }

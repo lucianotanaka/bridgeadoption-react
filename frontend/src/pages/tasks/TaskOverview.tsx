@@ -139,9 +139,17 @@ export function ActionQueueCard({ task }: { task: TaskItem }) {
 
 // ─── Risk Row ──────────────────────────────────────────────
 
-export function RiskRow({ task, badge, badgeColor }: { task: TaskItem; badge: string; badgeColor: string }) {
+export function RiskRow({ task, badge, badgeColor, variant = "expense", onTaskSelect }: {
+  task: TaskItem;
+  badge: string;
+  badgeColor: string;
+  variant?: "expense" | "service";
+  onTaskSelect?: (task: TaskItem) => void;
+}) {
+  const followUpDate = task.next_followup_any_effective ? fmtDate(task.next_followup_any_effective) : null;
+
   return (
-    <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer">
+    <div onClick={() => onTaskSelect?.(task)} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${badgeColor}`}>{badge}</span>
@@ -149,9 +157,26 @@ export function RiskRow({ task, badge, badgeColor }: { task: TaskItem; badge: st
         </div>
         <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{task.task_customer_name}</p>
       </div>
-      <div className="text-right shrink-0">
-        <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">{task.task_value_usd ? `USD ${fmtCurrency(task.task_value_usd)}` : task.task_value_brl ? `BRL ${fmtCurrency(task.task_value_brl)}` : "—"}</p>
-        <p className="text-xs text-gray-400 dark:text-gray-500">{fmtDate(task.next_followup_any_effective)}</p>
+      <div className="text-right shrink-0 min-w-[110px]">
+        {variant === "expense" ? (
+          <>
+            <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+              {task.task_value_usd ? `USD ${fmtCurrency(task.task_value_usd)}` : task.task_value_brl ? `BRL ${fmtCurrency(task.task_value_brl)}` : "—"}
+            </p>
+            {followUpDate && (
+              <p className="text-[10px] text-gray-400 dark:text-gray-500">Follow-up: {followUpDate}</p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className={`text-xs font-semibold ${task.task_status_name ? "text-yellow-600 dark:text-yellow-400" : "text-gray-400 dark:text-gray-500"}`}>
+              {task.task_status_reclassified ?? task.task_status_name ?? "—"}
+            </p>
+            {followUpDate && (
+              <p className="text-[10px] text-gray-400 dark:text-gray-500">Follow-up: {followUpDate}</p>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -159,7 +184,7 @@ export function RiskRow({ task, badge, badgeColor }: { task: TaskItem; badge: st
 
 // ─── Finance Panel ─────────────────────────────────────────
 
-export function FinancePanel({ kpi, expenseTasks }: { kpi: TaskKPI; expenseTasks: TaskItem[] }) {
+export function FinancePanel({ kpi, expenseTasks, onTaskSelect }: { kpi: TaskKPI; expenseTasks: TaskItem[]; onTaskSelect?: (task: TaskItem) => void }) {
   const { t } = useTranslation();
   return (
     <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
@@ -187,6 +212,8 @@ export function FinancePanel({ kpi, expenseTasks }: { kpi: TaskKPI; expenseTasks
               task={item}
               badge="EXPENSE"
               badgeColor="bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700"
+              variant="expense"
+              onTaskSelect={onTaskSelect}
             />
           ))}
         </div>
@@ -198,7 +225,7 @@ export function FinancePanel({ kpi, expenseTasks }: { kpi: TaskKPI; expenseTasks
 
 // ─── Service Panel ─────────────────────────────────────────
 
-export function ServicePanel({ kpi, serviceTasks }: { kpi: TaskKPI; serviceTasks: TaskItem[] }) {
+export function ServicePanel({ kpi, serviceTasks, onTaskSelect }: { kpi: TaskKPI; serviceTasks: TaskItem[]; onTaskSelect?: (task: TaskItem) => void }) {
   const { t } = useTranslation();
   return (
     <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
@@ -225,6 +252,8 @@ export function ServicePanel({ kpi, serviceTasks }: { kpi: TaskKPI; serviceTasks
               task={item}
               badge="SERVICE"
               badgeColor="bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-700"
+              variant="service"
+              onTaskSelect={onTaskSelect}
             />
           ))}
         </div>

@@ -1,7 +1,6 @@
 # Autorização e RBAC (Role-Based Access Control)
 
-> **Versão:** 3.0 — Bridge Adoption React  
-> **Última atualização:** 2026-07
+> **Versão:** 3.1 — Bridge Adoption React  
 
 Este documento descreve como funciona a **autorização** no Bridge Adoption (versão React), com foco em:
 
@@ -150,15 +149,15 @@ Arquivo: `backend/app/auth/service.py` → `load_user_permissions()`
 
 Arquivo: `frontend/src/hooks/useAuth.ts`
 
-Ao receber o login response, apenas os `resource_key` com `show_in_menu = 1` são extraídos:
+> ⚠️ **Correção importante (2026-08):** a implementação original filtrava por `show_in_menu === 1`, o que **excluía indevidamente sub-permissões que não são itens de menu** (ex.: `task.task_lci_viability`, usada para controlar a exibição da aba "LCI Viability" dentro do módulo Tasks, e não uma entrada própria no menu lateral). Isso fazia com que `hasPermission("task.task_lci_viability")` retornasse `false` mesmo para usuários com a permissão concedida no banco. A extração correta segue o mesmo critério do `can()` do Streamlit: considera **qualquer** resource_key cuja `action` não seja `"deny"`, **independente de `show_in_menu`** (que serve apenas para controlar a visibilidade no menu lateral, não o acesso à funcionalidade).
 
 ```typescript
 function extractResourceKeys(permissions: Record<string, unknown>): string[] {
   const keys: string[] = [];
   for (const rolePerms of Object.values(permissions)) {
     for (const perm of Object.values(rolePerms as Record<string, unknown>)) {
-      const p = perm as { resource_key?: string; show_in_menu?: number };
-      if (p.resource_key && p.show_in_menu === 1) {
+      const p = perm as { resource_key?: string; action?: string };
+      if (p.resource_key && p.action && p.action !== "deny") {
         keys.push(p.resource_key);
       }
     }
@@ -347,6 +346,15 @@ def admin_users(current_user: Annotated[dict, Depends(get_current_user)]):
 | Admin → Tasks | `admin.admin_task` |
 
 > Itens sem `resourceKey` (ex: "Today" no Dashboard) são sempre visíveis para qualquer usuário autenticado.
+
+### 7.1. Sub-permissões (sem entrada própria no menu)
+
+Além dos `resource_key` de página/módulo (que aparecem no menu com `show_in_menu = 1`), existem `resource_key` que controlam **funcionalidades internas** de uma página já acessível, e por isso têm `show_in_menu = 0` no banco — eles nunca aparecem no `Sidebar`, mas ainda são verificados via `hasPermission()` dentro do componente.
+
+| Sub-permissão | Controla |
+|---|---|
+| `task.task_lci_viability` | Exibição da aba "LCI Viability" dentro do módulo Tasks (`/tasks`) |
+
 
 ---
 

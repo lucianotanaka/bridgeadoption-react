@@ -1,4 +1,6 @@
-# TASK – Visão Geral Funcional
+# TASK – Visão Geral Funcional (Legado Streamlit)
+
+> ⚠️ **Este documento descreve a implementação original em Streamlit** (`webapp/pages/task/*.py`), mantida como referência histórica.
 
 ## 1. Objetivo do Módulo
 

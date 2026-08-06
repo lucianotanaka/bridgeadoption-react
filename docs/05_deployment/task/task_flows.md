@@ -1,6 +1,8 @@
-# TASK – Fluxos Técnicos (Diagramas Lógicos)
+# TASK – Fluxos Técnicos (Diagramas Lógicos) (Legado Streamlit)
 
-Este documento descreve os principais fluxos internos do módulo TASK.
+> ⚠️ **Este documento descreve a implementação original em Streamlit.** Para a versão React, consulte `docs/02_application/module_tasks.md`.
+
+Este documento descreve os principais fluxos internos do módulo TASK (versão Streamlit, legado).
 
 ---
 

@@ -111,20 +111,47 @@ def get_task_overview(
     """
     Retorna tasks + values para o overview.
     Espelha task_overview.py: show_task_overview()
+    Enriquece cada task com task_value_brl / task_value_usd do rollup de valores.
     """
     if not _REPOS_AVAILABLE:
         return {"tasks": [], "values": []}
 
     try:
         task_repo = TaskRepository()
-        value_repo = TaskRepository()
 
         owner_id = None if is_manager else user_id
 
         task_rows = task_repo.get_task_dashboard(owner_id=owner_id, as_df=False)
-        value_rows = value_repo.get_task_value_rollup(owner_id=owner_id, as_df=False)
+        value_rows = task_repo.get_task_value_rollup(owner_id=owner_id, as_df=False)
 
-        tasks = [_serialize_row(dict(r)) for r in (task_rows or [])]
+        # Build value map — same logic as action queue
+        value_map: Dict[int, Dict] = {}
+        for v in (value_rows or []):
+            tid = _safe_int(v.get("task_id"))
+            if tid:
+                value_map[tid] = {
+                    "brl": max(
+                        _safe_float(v.get("task_value_effective_brl")),
+                        _safe_float(v.get("task_value_sum_brl")),
+                    ),
+                    "usd": max(
+                        _safe_float(v.get("task_value_effective_usd")),
+                        _safe_float(v.get("task_value_sum_usd")),
+                    ),
+                }
+
+        tasks = []
+        for r in (task_rows or []):
+            row = _serialize_row(dict(r))
+            tid = _safe_int(r.get("task_id"))
+            if tid in value_map:
+                row["task_value_brl"] = value_map[tid]["brl"]
+                row["task_value_usd"] = value_map[tid]["usd"]
+            else:
+                row["task_value_brl"] = row.get("task_value_brl") or 0.0
+                row["task_value_usd"] = row.get("task_value_usd") or 0.0
+            tasks.append(row)
+
         values = [_serialize_row(dict(r)) for r in (value_rows or [])]
 
         return {"tasks": tasks, "values": values}

@@ -11,12 +11,9 @@ import DashboardPage from "@/pages/dashboard/DashboardPage";
 import TaskPage from "@/pages/tasks/TaskPage";
 
 // Adoption
-import ForecastPage from "@/pages/adoption/ForecastPage";
-import CiscoLCIPage from "@/pages/adoption/CiscoLCIPage";
+import CiscoLCIPage from "@/pages/ciscoLci/CiscoLCIPage";
 import CsmAccountPage from "@/pages/adoption/CsmAccountPage";
 import TeamTargetPage from "@/pages/adoption/TeamTargetPage";
-import LCIStatusPage from "@/pages/adoption/LCIStatusPage";
-import LCISolutionVsProjectPage from "@/pages/adoption/LCISolutionVsProjectPage";
 import RebatePage from "@/pages/adoption/RebatePage";
 import UseCasesPage from "@/pages/adoption/UseCasesPage";
 
@@ -84,9 +81,6 @@ export default function App() {
                 </Route>
 
                 {/* Adoption */}
-                <Route element={<PermissionRoute resourceKey="adoption.report_forecast" />}>
-                  <Route path="/adoption/forecast" element={<ForecastPage />} />
-                </Route>
                 <Route element={<PermissionRoute resourceKey="adoption.report_cisco_lci" />}>
                   <Route path="/adoption/cisco-lci" element={<CiscoLCIPage />} />
                 </Route>
@@ -95,10 +89,6 @@ export default function App() {
                 </Route>
                 <Route element={<PermissionRoute resourceKey="adoption.report_team_target" />}>
                   <Route path="/adoption/team-target" element={<TeamTargetPage />} />
-                </Route>
-                <Route element={<PermissionRoute resourceKey="adoption.report_lci_eligible_status" />}>
-                  <Route path="/adoption/lci-status" element={<LCIStatusPage />} />
-                  <Route path="/adoption/lci-solution-vs-project" element={<LCISolutionVsProjectPage />} />
                 </Route>
                 <Route element={<PermissionRoute resourceKey="adoption.report_rebate_and_opportunities" />}>
                   <Route path="/adoption/rebate" element={<RebatePage />} />

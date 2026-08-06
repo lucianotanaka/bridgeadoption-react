@@ -39,11 +39,15 @@ from app.tasks.filter_service import (
     add_task_history,
     get_csm_list,
     get_status_types,
+    get_task_types,
+    create_task,
     get_next_follow_up,
     get_activity_detail,
     update_activity,
+    add_activity,
     get_company_list,
     get_person_list,
+    create_person,
     get_task_raci,
     add_raci,
     remove_raci,
@@ -56,9 +60,16 @@ from app.tasks.lci_viability_service import (
     get_lci_track_pm_list,
     get_tasks_for_lci,
     get_cancellation_justifications,
+    get_projects_in_progress,
     save_group_status,
     SaveGroupRequest,
     normalize_group_statuses,
+)
+from app.tasks.report_service import (
+    get_report_owners,
+    get_report_filter_options,
+    get_report_tasks,
+    get_report_task_detail,
 )
 from app.core.security import decode_access_token
 
@@ -110,12 +121,26 @@ class UpdateActivityRequest(BaseModel):
     data: Dict[str, Any]
 
 
+class AddActivityRequest(BaseModel):
+    data: Dict[str, Any]
+
+
 class AddRACIRequest(BaseModel):
     person_id: int
     responsibility: str  # R, A, C, I
     activity_id: Optional[int] = None
     person_type: Optional[str] = "user"
     subtask_id: Optional[int] = 0
+
+
+class CreatePersonRequest(BaseModel):
+    person_name: str
+    person_company_id: Optional[int] = None
+    person_job_title: Optional[str] = None
+    person_email: Optional[str] = None
+    person_telephone: Optional[str] = None
+    person_cellphone: Optional[str] = None
+    person_type: Optional[str] = None
 
 
 class UpdateRACIRequest(BaseModel):
@@ -198,6 +223,74 @@ def task_status_types(current_user: Annotated[dict, Depends(get_current_user)]):
     return get_status_types()
 
 
+@router.get("/task-types", response_model=List[Dict[str, Any]])
+def task_types_list(current_user: Annotated[dict, Depends(get_current_user)]):
+    """Returns all task types for the New Task form."""
+    return get_task_types()
+
+
+# ─── New Task ─────────────────────────────────────────────────────────────────
+
+class CreateTaskRequest(BaseModel):
+    task_tasktype_id: int
+    task_customer_id: int
+    task_owner_id: int
+    task_start: str
+    task_end: str
+    task_priority: str  # canonical: HIGH | MEDIUM | LOW
+    task_currency: Optional[str] = "USD"
+    task_reference: Optional[str] = None
+    task_track: Optional[str] = None
+    task_subtrack: Optional[str] = None
+    task_ws: Optional[str] = None
+    task_deal_id: Optional[str] = None
+    task_value: Optional[float] = None
+
+
+@router.post("/new", response_model=Dict[str, Any])
+def task_create(
+    body: CreateTaskRequest,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Creates a new task in tbTask (mirrors Streamlit task_new.py)."""
+    from datetime import datetime
+
+    user_id = int(current_user.get("sub", 0))
+    user_name = current_user.get("user_name", "")
+
+    now_dt = datetime.now()
+    data: Dict[str, Any] = {
+        "task_tasktype_id": body.task_tasktype_id,
+        "task_customer_id": body.task_customer_id,
+        "task_owner_id": body.task_owner_id,
+        "task_start": body.task_start,
+        "task_start_performed": body.task_start,
+        "task_end": body.task_end,
+        "task_end_performed": body.task_end,
+        "task_priority": body.task_priority,
+        "task_created_by": user_id,
+        "task_created_in": now_dt.strftime("%Y-%m-%d %H:%M:%S"),
+        "task_currency": body.task_currency or "USD",
+    }
+
+    optional_fields = {
+        "task_reference": body.task_reference,
+        "task_track": body.task_track,
+        "task_subtrack": body.task_subtrack,
+        "task_ws": body.task_ws,
+        "task_deal_id": body.task_deal_id,
+    }
+    for k, v in optional_fields.items():
+        if v and str(v).strip():
+            data[k] = v
+
+    if body.task_value and float(body.task_value) != 0.0:
+        data["task_value"] = float(body.task_value)
+
+    result = create_task(data=data, created_by_name=user_name)
+    return result
+
+
 # ─── Task Detail ─────────────────────────────────────────────────────────────
 
 @router.get("/follow-up", response_model=Dict[str, List[Dict[str, Any]]])
@@ -249,6 +342,25 @@ def task_activities(
     return get_task_activities(task_id)
 
 
+@router.post("/detail/{task_id}/activities", response_model=Dict[str, Any])
+def task_activity_create(
+    task_id: int,
+    body: AddActivityRequest,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Creates a new activity for a task."""
+    new_id = add_activity(task_id=task_id, data=body.data)
+    if new_id > 0:
+        add_task_history({
+            "taskrecord_task_id": task_id,
+            "taskrecord_activity_id": new_id,
+            "taskrecord_remark": f"Activity created: {body.data.get('activity_name', '')}",
+            "taskrecord_type": "INFO",
+            "taskrecord_updated_by": current_user.get("user_name", ""),
+        })
+    return {"success": new_id > 0, "activity_id": new_id}
+
+
 # ─── Task History ─────────────────────────────────────────────────────────────
 
 @router.get("/detail/{task_id}/history", response_model=List[Dict[str, Any]])
@@ -290,6 +402,11 @@ class SaveGroupStatusRequest(BaseModel):
     group_tasks: List[Dict[str, Any]]
     new_statuses: Dict[int, str]
     cancellation_justification: Optional[str] = None
+    project_id: Optional[int] = None
+    new_project_ov: Optional[str] = None
+    new_project_name: Optional[str] = None
+    customer_id: Optional[int] = None
+    customer_name: Optional[str] = None
 
 
 @router.get("/lci-viability/list", response_model=List[Dict[str, Any]])
@@ -314,6 +431,15 @@ def lci_viability_justifications(current_user: Annotated[dict, Depends(get_curre
     return get_cancellation_justifications()
 
 
+@router.get("/lci-viability/projects-in-progress", response_model=List[Dict[str, Any]])
+def lci_viability_projects_in_progress(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    customer_id: int = Query(...),
+):
+    """Returns active (in-progress) projects for a customer, to link an IN PROGRESS task."""
+    return get_projects_in_progress(customer_id=customer_id)
+
+
 @router.post("/lci-viability/normalize", response_model=Dict[str, Any])
 def lci_viability_normalize(
     current_user: Annotated[dict, Depends(get_current_user)],
@@ -335,6 +461,11 @@ def lci_viability_save_group(
         new_statuses=body.new_statuses,
         cancellation_justification=body.cancellation_justification,
         user_name=user_name,
+        project_id=body.project_id,
+        new_project_ov=body.new_project_ov,
+        new_project_name=body.new_project_name,
+        customer_id=body.customer_id,
+        customer_name=body.customer_name,
     )
     return save_group_status(req)
 
@@ -351,9 +482,21 @@ def task_company_list(current_user: Annotated[dict, Depends(get_current_user)]):
 def task_person_list(
     current_user: Annotated[dict, Depends(get_current_user)],
     company_id: Optional[int] = Query(None),
+    internal_only: bool = Query(False),
 ):
-    """Returns active persons from tbPerson, optionally filtered by company_id."""
-    return get_person_list(company_id=company_id)
+    """Returns active persons from tbPerson, optionally filtered by company_id
+    or restricted to internal resources (person_company_id IS NULL) via internal_only."""
+    return get_person_list(company_id=company_id, internal_only=internal_only)
+
+
+@router.post("/person-list", response_model=Dict[str, Any])
+def task_person_create(
+    body: CreatePersonRequest,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Creates a new person in tbPerson (used when the desired person is not found in RACI Add)."""
+    new_id = create_person(body.model_dump(exclude_none=True))
+    return {"success": new_id > 0, "person_id": new_id}
 
 
 @router.get("/detail/{task_id}/raci", response_model=List[Dict[str, Any]])
@@ -462,3 +605,67 @@ def activity_update(
     """Updates activity fields in tbTaskActivity."""
     success = update_activity(activity_id=activity_id, data=body.data)
     return {"success": success}
+
+
+# ─── Reports ──────────────────────────────────────────────────────────────────
+
+class ReportFilterOptionsRequest(BaseModel):
+    owner_ids: List[int]
+    task_type_names: Optional[List[str]] = None
+    client_names: Optional[List[str]] = None
+    status_names: Optional[List[str]] = None
+
+
+class ReportTasksRequest(BaseModel):
+    owner_ids: List[int]
+    task_type_names: Optional[List[str]] = None
+    client_names: Optional[List[str]] = None
+    status_names: Optional[List[str]] = None
+
+
+@router.get("/reports/owners", response_model=List[Dict[str, Any]])
+def reports_owners(current_user: Annotated[dict, Depends(get_current_user)]):
+    """Returns owners available for the Reports filter (vwFilterTaskOwner)."""
+    return get_report_owners()
+
+
+@router.post("/reports/filter-options", response_model=Dict[str, List[str]])
+def reports_filter_options(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    body: ReportFilterOptionsRequest,
+):
+    """Returns cascading task_type/client/status options based on selected owners."""
+    return get_report_filter_options(
+        owner_ids=body.owner_ids,
+        task_type_names=body.task_type_names,
+        client_names=body.client_names,
+        status_names=body.status_names,
+    )
+
+
+@router.post("/reports/tasks", response_model=List[Dict[str, Any]])
+def reports_tasks(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    body: ReportTasksRequest,
+):
+    """Returns full task rows (vwTask) matching the report filters. Used by the
+    'Task List' report and to feed the Task ID selector of 'Task Details'."""
+    return get_report_tasks(
+        owner_ids=body.owner_ids,
+        task_type_names=body.task_type_names,
+        client_names=body.client_names,
+        status_names=body.status_names,
+    )
+
+
+@router.get("/reports/task-detail/{task_id}", response_model=Dict[str, Any])
+def reports_task_detail(
+    task_id: int,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Returns task + activities + schedule + activity status summary for the
+    'Task Details' report."""
+    result = get_report_task_detail(task_id)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    return result

@@ -1,7 +1,5 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
-import { RefreshCw } from "lucide-react";
 import Plot from "react-plotly.js";
 import { forecastApi } from "@/api/forecast";
 import type { ForecastSummaryItem, ForecastByTaskType, IncentiveByFY, EffortItem } from "@/api/forecast";
@@ -142,13 +140,9 @@ function Top5Chart({ data, isDark }: { data: { client: string; value: number; va
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
-export default function ForecastPage() {
-  const { t } = useTranslation();
+export default function CiscoLCIForecastPage({ fy: selectedFY }: { fy: number }) {
   const isDark = document.documentElement.classList.contains("dark");
-  const currentYear = new Date().getFullYear();
-  const [selectedFY, setSelectedFY] = useState<number>(currentYear);
 
-  const fyQuery = useQuery({ queryKey: ["forecast", "fy"], queryFn: () => forecastApi.getFiscalYears().then((r) => r.data), staleTime: 10 * 60 * 1000 });
   const summaryQuery = useQuery({ queryKey: ["forecast", "summary", selectedFY], queryFn: () => forecastApi.getSummary(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
   const taskTypeQuery = useQuery({ queryKey: ["forecast", "tasktype", selectedFY], queryFn: () => forecastApi.getByTaskType(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
   const clientQuery = useQuery({ queryKey: ["forecast", "client", selectedFY], queryFn: () => forecastApi.getByClient(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
@@ -156,7 +150,6 @@ export default function ForecastPage() {
   const effortClientQuery = useQuery({ queryKey: ["forecast", "effort-client"], queryFn: () => forecastApi.getEffortClient().then((r) => r.data), staleTime: 10 * 60 * 1000 });
   const effortUCQuery = useQuery({ queryKey: ["forecast", "effort-uc"], queryFn: () => forecastApi.getEffortUseCase().then((r) => r.data), staleTime: 10 * 60 * 1000 });
 
-  const fyList = fyQuery.data ?? [];
   const summary = summaryQuery.data ?? [];
   const taskTypeData = taskTypeQuery.data ?? [];
   const clientData = clientQuery.data;
@@ -169,12 +162,6 @@ export default function ForecastPage() {
   const total = backlogVal + achievedVal;
   const achievedPct = total > 0 ? ((achievedVal / total) * 100).toFixed(1) : "0";
 
-  const refetch = () => {
-    void summaryQuery.refetch();
-    void taskTypeQuery.refetch();
-    void clientQuery.refetch();
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -182,23 +169,6 @@ export default function ForecastPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Adoption Forecast</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Backlog vs Achieved — Incentive Tasks</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {/* FY Selector */}
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">Fiscal Year</label>
-            <select
-              value={selectedFY}
-              onChange={(e) => setSelectedFY(Number(e.target.value))}
-              className="text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {fyList.map((fy) => <option key={fy} value={fy}>{fy}</option>)}
-            </select>
-          </div>
-          <button onClick={refetch} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            <RefreshCw size={13} />
-            {t("common.refresh")}
-          </button>
         </div>
       </div>
 

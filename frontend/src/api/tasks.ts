@@ -114,6 +114,28 @@ export interface CSMItem {
   [key: string]: unknown;
 }
 
+export interface TaskTypeItem {
+  tasktype_id: number;
+  tasktype_name: string;
+  [key: string]: unknown;
+}
+
+export interface CreateTaskRequest {
+  task_tasktype_id: number;
+  task_customer_id: number;
+  task_owner_id: number;
+  task_start: string;
+  task_end: string;
+  task_priority: string;
+  task_currency?: string;
+  task_reference?: string;
+  task_track?: string;
+  task_subtrack?: string;
+  task_ws?: string;
+  task_deal_id?: string;
+  task_value?: number;
+}
+
 export interface StatusType {
   statustype_id: number;
   statustype_name: string;
@@ -247,6 +269,54 @@ export interface ProjectTeamItem {
   [key: string]: unknown;
 }
 
+export interface ReportOwnerItem {
+  task_owner_id: number;
+  task_owner_name: string;
+  [key: string]: unknown;
+}
+
+export interface ReportFilterRequest {
+  owner_ids: number[];
+  task_type_names?: string[];
+  client_names?: string[];
+  status_names?: string[];
+}
+
+export interface ReportFilterOptions {
+  task_types: string[];
+  clients: string[];
+  statuses: string[];
+}
+
+export interface ReportScheduleRow {
+  seq: number;
+  name?: string;
+  start_expected?: string;
+  end_expected?: string;
+  start_performed?: string;
+  end_performed?: string;
+  effort_expected?: number;
+  effort_performed?: number;
+  completed_pct?: number;
+  status_name?: string;
+  is_task_row?: boolean;
+  [key: string]: unknown;
+}
+
+export interface ReportActivitySummary {
+  activity_status_name: string;
+  activity_count: number;
+  percentage: number;
+  [key: string]: unknown;
+}
+
+export interface ReportTaskDetail {
+  task: TaskItem;
+  activities: ActivityItem[];
+  schedule: ReportScheduleRow[];
+  activity_status_summary: ReportActivitySummary[];
+}
+
 export const tasksApi = {
   // Overview & KPI
   getKPI: () => apiClient.get<TaskKPI>("/tasks/kpi"),
@@ -272,6 +342,8 @@ export const tasksApi = {
     apiClient.get<ActivityItem>(`/tasks/activities/${activityId}`),
   updateActivity: (activityId: number, data: Record<string, unknown>) =>
     apiClient.put<{ success: boolean }>(`/tasks/activities/${activityId}`, { data }),
+  createActivity: (taskId: number, data: Record<string, unknown>) =>
+    apiClient.post<{ success: boolean; activity_id: number }>(`/tasks/detail/${taskId}/activities`, { data }),
 
   // History
   getHistory: (taskId: number, activityId?: number) => {
@@ -287,6 +359,11 @@ export const tasksApi = {
   // Support lists
   getCsmList: () => apiClient.get<CSMItem[]>("/tasks/csm-list"),
   getStatusTypes: () => apiClient.get<StatusType[]>("/tasks/status-types"),
+  getTaskTypes: () => apiClient.get<TaskTypeItem[]>("/tasks/task-types"),
+
+  // New Task
+  createTask: (data: CreateTaskRequest) =>
+    apiClient.post<{ success: boolean; task_id: number }>("/tasks/new", data),
 
   // Follow-up
   getFollowUp: () => apiClient.get<FollowUpGroup>("/tasks/follow-up"),
@@ -302,10 +379,22 @@ export const tasksApi = {
     apiClient.patch<{ success: boolean }>(`/tasks/detail/${taskId}/raci/${raciId}`, { responsibility }),
   removeRaci: (taskId: number, raciId: number) =>
     apiClient.delete<{ success: boolean }>(`/tasks/detail/${taskId}/raci/${raciId}`),
-  getPersonList: (companyId?: number) => {
-    const params = companyId != null ? `?company_id=${companyId}` : "";
+  getPersonList: (companyId?: number, internalOnly?: boolean) => {
+    const parts: string[] = [];
+    if (companyId != null) parts.push(`company_id=${companyId}`);
+    if (internalOnly) parts.push(`internal_only=true`);
+    const params = parts.length ? `?${parts.join("&")}` : "";
     return apiClient.get<PersonItem[]>(`/tasks/person-list${params}`);
   },
+  createPerson: (data: {
+    person_name: string;
+    person_company_id?: number;
+    person_job_title?: string;
+    person_email?: string;
+    person_telephone?: string;
+    person_cellphone?: string;
+    person_type?: string;
+  }) => apiClient.post<{ success: boolean; person_id: number }>("/tasks/person-list", data),
   getCompanyList: () => apiClient.get<CompanyItem[]>("/tasks/company-list"),
 
   // Status justifications
@@ -319,4 +408,13 @@ export const tasksApi = {
     apiClient.get<ProjectItem[]>(`/tasks/projects?customer_id=${customerId}`),
   getProjectTeam: (customerId: number) =>
     apiClient.get<ProjectTeamItem[]>(`/tasks/project-team?customer_id=${customerId}`),
+
+  // Reports
+  getReportOwners: () => apiClient.get<ReportOwnerItem[]>("/tasks/reports/owners"),
+  getReportFilterOptions: (body: ReportFilterRequest) =>
+    apiClient.post<ReportFilterOptions>("/tasks/reports/filter-options", body),
+  getReportTasks: (body: ReportFilterRequest) =>
+    apiClient.post<TaskItem[]>("/tasks/reports/tasks", body),
+  getReportTaskDetail: (taskId: number) =>
+    apiClient.get<ReportTaskDetail>(`/tasks/reports/task-detail/${taskId}`),
 };

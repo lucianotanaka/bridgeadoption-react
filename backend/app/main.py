@@ -15,6 +15,7 @@ from app.adoption.cisco_lci_router import router as cisco_lci_router
 from app.adoption.extras_router import (
     csm_router, target_router, lci_status_router, rebate_router, usecase_router,
 )
+from app.adoption.lci_eligible_status_router import router as lci_eligible_status_router
 from app.modules.sections_router import (
     portfolio_router, projects_router, renewals_router, admin_router,
 )
@@ -64,6 +65,7 @@ app.include_router(cisco_lci_router)
 app.include_router(csm_router)
 app.include_router(target_router)
 app.include_router(lci_status_router)
+app.include_router(lci_eligible_status_router)
 app.include_router(rebate_router)
 app.include_router(usecase_router)
 app.include_router(portfolio_router)

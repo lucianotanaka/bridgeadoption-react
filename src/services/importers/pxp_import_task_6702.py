@@ -1094,6 +1094,7 @@ def _insert_task_history(
         "taskrecord_activity_id": activity_id,
         "taskrecord_remark": remark,
         "taskrecord_updated_by": updated_by,
+        "taskrecord_type": "LOG",
     }
 
     if next_followup is not None:
@@ -1654,6 +1655,49 @@ def _process_single_row(
             raise ValueError("task_id inválido na task existente")
 
         current_status = _safe_int(existing_task.get("task_status"), default=0)
+
+        # Regra especial: Opted In + task encerrada com status 4 (CANCELLED) → reabrir como In Progress
+        if (
+            opt_in_flag == 1
+            and current_status == TASK_STATUS_CANCELLED
+            and source_status == SOURCE_STATUS_ELIGIBLE
+        ):
+            reopen_start = lifecycle_start_date or data.get("booking_date")
+            reopen_date_str = (
+                reopen_start.strftime("%d/%b/%Y") if reopen_start else None
+            )
+            reopen_remark = (
+                f"Task reopened as In Progress because Opted In was performed on {reopen_date_str}"
+                if reopen_date_str
+                else "Task reopened as In Progress because Opted In was performed"
+            )
+
+            reopen_updates: Dict[str, Any] = {
+                "task_status": TASK_STATUS_IN_PROGRESS,
+                "task_opt_in_flag": 1,
+            }
+            if reopen_start:
+                reopen_updates["task_start_performed"] = reopen_start
+
+            repo_task.update(data=reopen_updates, where={"task_id": task_id})
+
+            _insert_task_history(
+                task_id=task_id,
+                activity_id=0,
+                remark=reopen_remark,
+            )
+
+            if execution_log_path:
+                _append_execution_log(
+                    execution_log_path,
+                    f"INFO row={row_number} task reopened as in_progress (opted_in) task_id={task_id} ws={data.get('ws')} start_performed={reopen_start}",
+                )
+
+            return RowProcessResult(
+                success=True,
+                updated=True,
+            )
+
         if current_status in CLOSED_TASK_STATUSES:
             if execution_log_path:
                 _append_execution_log(
