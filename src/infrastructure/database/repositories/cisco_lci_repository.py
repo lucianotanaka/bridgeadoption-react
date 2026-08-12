@@ -643,3 +643,136 @@ class CiscoLCIRepository:
             if not as_df and "conn" in locals():
                 cursor.close()
                 conn.close()
+
+
+    # ==========================================================
+    # LIST TASK LCI
+    # ==========================================================
+    def load_cisco_lci_all(
+        self,
+        fy: Optional[Union[int, List[int]]] = None,
+        as_df: bool = False
+    ) -> Union[List[Dict[str, Any]], pd.DataFrame]:
+        """
+        Retorna registros de tarefas do tipo Cisco LCI (task_tasktype_id IN (21, 22)).
+
+        Filtro de Fiscal Year (NTT FY: abril → março, calculado sobre task_end):
+            - fy=None       → retorna todos os registros sem filtro de FY
+            - fy=2026       → retorna registros com task_end_data_fy = 2026
+            - fy=[2025,2026] → retorna registros com task_end_data_fy IN (2025, 2026)
+
+        Parâmetros:
+            fy (int | List[int] | None): Fiscal Year(s) para filtro. Default=None.
+            as_df (bool): Se True retorna DataFrame, senão List[Dict].
+
+        Retorno:
+            Lista de dicionários ou DataFrame.
+            Em caso de erro, retorna lista vazia ou DataFrame vazio.
+        """
+
+        base_query = """
+            SELECT
+                t.task_id,
+                t.task_tasktype_id AS task_type_id,
+                t.task_owner_id,
+                u.user_name AS task_owner_name,
+                t.task_customer_id,
+                c.company_name AS task_customer_name,
+                t.task_cr_party_id,
+                t.task_cr_party_name,
+                t.task_priority,
+                t.task_project_id,
+                t.task_status AS task_status_id,
+                s.statustype_name AS task_status_name,
+                t.task_status_justification,
+                t.task_start,
+                t.task_start_performed,
+                COALESCE(t.task_start, t.task_start_performed) AS task_start_date,
+                t.task_end,
+                t.task_end_performed,
+                COALESCE(t.task_end, t.task_end_performed) AS task_end_date,
+                CASE
+                    WHEN COALESCE(t.task_end, t.task_end_performed) IS NULL
+                        THEN NULL
+                    WHEN MONTH(COALESCE(t.task_end, t.task_end_performed)) >= 4
+                        THEN YEAR(COALESCE(t.task_end, t.task_end_performed))
+                    ELSE
+                        YEAR(COALESCE(t.task_end, t.task_end_performed)) - 1
+                END AS task_end_data_fy,
+                t.task_ws,
+                t.task_deal_id,
+                t.task_track,
+                t.task_subtrack,
+                t.task_opt_in_flag,
+                t.task_completed,
+                t.task_eligible,
+                t.task_booking_date,
+                t.task_booking_amount,
+                t.task_value,
+                COALESCE(a.approved_value_sum, 0) AS task_approved_value,
+                t.task_currency
+            FROM tbTask t
+            INNER JOIN tbCompany c
+                ON c.company_id = t.task_customer_id
+            INNER JOIN tbStatusType s
+                ON s.statustype_id = t.task_status
+            INNER JOIN tbUser u
+                ON u.user_id = t.task_owner_id
+            LEFT JOIN (
+                SELECT
+                    activity_task_id,
+                    SUM(activity_value) AS activity_value_sum,
+                    SUM(activity_approved_value) AS approved_value_sum
+                FROM tbTaskActivity
+                GROUP BY activity_task_id
+            ) a
+                ON a.activity_task_id = t.task_id
+            WHERE t.task_tasktype_id IN (21, 22)
+              AND t.task_customer_id > 0
+        """
+
+        params: List[Any] = []
+
+        # Normalise fy to a list (or empty list meaning "no filter")
+        if fy is not None:
+            fy_list = [fy] if isinstance(fy, int) else list(fy)
+            fy_list = [int(f) for f in fy_list if f is not None]
+            if fy_list:
+                placeholders = ", ".join(["%s"] * len(fy_list))
+                base_query += f"""
+            AND CASE
+                    WHEN COALESCE(t.task_end, t.task_end_performed) IS NULL THEN NULL
+                    WHEN MONTH(COALESCE(t.task_end, t.task_end_performed)) >= 4
+                        THEN YEAR(COALESCE(t.task_end, t.task_end_performed))
+                    ELSE YEAR(COALESCE(t.task_end, t.task_end_performed)) - 1
+                END IN ({placeholders})"""
+                params.extend(fy_list)
+
+        base_query += "\n            ORDER BY COALESCE(t.task_start, t.task_start_performed)"
+
+        try:
+            if as_df:
+                engine = get_sqlalchemy_engine()
+                return pd.read_sql(base_query, engine, params=tuple(params) if params else None)
+
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(base_query, tuple(params) if params else ())
+            return cursor.fetchall() or []
+
+        except Exception as e:
+            self.error_repo.log_error(
+                error_function="CiscoLCIRepository.load_cisco_lci_all",
+                error_command=base_query,
+                error_description=str(e),
+                error_traceback=traceback.format_exc()
+            )
+            return [] if not as_df else pd.DataFrame()
+
+        finally:
+            if not as_df and "conn" in locals():
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+                conn.close()

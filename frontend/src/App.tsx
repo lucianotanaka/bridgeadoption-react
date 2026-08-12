@@ -81,7 +81,20 @@ export default function App() {
                 </Route>
 
                 {/* Adoption */}
-                <Route element={<PermissionRoute resourceKey="adoption.report_cisco_lci" />}>
+                {/* Cisco LCI page bundles 4 sub-reports (Report, Forecast, Eligible Status, Solution vs Project),
+                    each with its own resource_key — access is granted if the user has permission for ANY of them. */}
+                <Route
+                  element={
+                    <PermissionRoute
+                      resourceKeys={[
+                        "adoption.report_cisco_lci",
+                        "adoption.report_forecast",
+                        "adoption.report_lci_eligible_status",
+                        "adoption.report_lci_solution_vs_project",
+                      ]}
+                    />
+                  }
+                >
                   <Route path="/adoption/cisco-lci" element={<CiscoLCIPage />} />
                 </Route>
                 <Route element={<PermissionRoute resourceKey="adoption.report_csm_account" />}>

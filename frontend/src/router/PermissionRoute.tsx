@@ -3,7 +3,9 @@ import { useAuthStore } from "@/store/authStore";
 
 interface PermissionRouteProps {
   /** resource_key that the user must have permission for (e.g. "task.task") */
-  resourceKey: string;
+  resourceKey?: string;
+  /** Use when access should be granted if the user has ANY of these resource_keys (e.g. a module bundling several sub-reports). */
+  resourceKeys?: string[];
   /** Where to redirect if permission is denied. Defaults to "/" */
   redirectTo?: string;
 }
@@ -17,18 +19,31 @@ interface PermissionRouteProps {
  *     <Route path="/tasks" element={<TaskPage />} />
  *   </Route>
  *
+ * For modules that bundle multiple sub-reports (each with its own resource_key),
+ * pass resourceKeys instead — access is granted if the user has ANY of them:
+ *   <Route element={<PermissionRoute resourceKeys={["adoption.report_cisco_lci", "adoption.report_forecast"]} />}>
+ *     <Route path="/adoption/cisco-lci" element={<CiscoLCIPage />} />
+ *   </Route>
+ *
  * Behavior:
  * - ADMIN users: always allowed (bypasses permission check)
- * - Users with the resourceKey in their permissions: allowed
+ * - Users with the resourceKey (or at least one of resourceKeys) in their permissions: allowed
  * - Others: redirected to redirectTo (default: "/")
  */
 export default function PermissionRoute({
   resourceKey,
+  resourceKeys,
   redirectTo = "/",
 }: PermissionRouteProps) {
-  const hasPermission = useAuthStore((s) => s.hasPermission(resourceKey));
+  const hasPermissionFn = useAuthStore((s) => s.hasPermission);
 
-  if (!hasPermission) {
+  const allowed = resourceKeys && resourceKeys.length > 0
+    ? resourceKeys.some((rk) => hasPermissionFn(rk))
+    : resourceKey
+      ? hasPermissionFn(resourceKey)
+      : false;
+
+  if (!allowed) {
     return <Navigate to={redirectTo} replace />;
   }
 

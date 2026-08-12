@@ -22,6 +22,8 @@ from app.adoption.cisco_lci_service import (
     get_lci_burnup,
     get_lci_yoy,
     get_lci_stage_rows,
+    get_lci_total_eligibles,
+    get_lci_lost_justification,
 )
 from app.core.security import decode_access_token
 
@@ -85,6 +87,22 @@ def lci_burnup(
 @router.get("/yoy", response_model=List[Dict[str, Any]])
 def lci_yoy(current_user: Annotated[dict, Depends(get_current_user)]):
     return get_lci_yoy()
+
+
+@router.get("/lost-justification", response_model=List[Dict[str, Any]])
+def lci_lost_justification(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    fy: Optional[int] = Query(None),
+):
+    return get_lci_lost_justification(fy)
+
+
+@router.get("/total-eligibles", response_model=Dict[str, Any])
+def lci_total_eligibles(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    fy: Optional[int] = Query(None),
+):
+    return get_lci_total_eligibles(fy)
 
 
 @router.get("/stages", response_model=List[Dict[str, Any]])

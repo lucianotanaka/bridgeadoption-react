@@ -1,7 +1,7 @@
 import apiClient from "./client";
 
 export interface ForecastSummaryItem {
-  category: "BACKLOG" | "ACHIEVED";
+  category: "BACKLOG" | "ACHIEVED" | "POTENTIAL";
   value: number;
   value_fmt: string;
   percentage: number;

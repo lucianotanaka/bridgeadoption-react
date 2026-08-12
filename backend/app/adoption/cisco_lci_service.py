@@ -187,13 +187,31 @@ def get_lci_summary(fy: Optional[int]) -> Dict[str, Any]:
     fin_approved = sum(_safe_float(r.get("stage_amount_usd")) for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_APPROVED)
     fin_lost = sum(_safe_float(r.get("stage_amount_usd")) for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_LOST)
 
-    # Total Potential: active tasks, sum stage_value grouped by task
-    active_rows = [r for r in stage_dedup if _safe_int(r.get("lci_task_status")) not in TASK_STATUS_CANCELLED]
-    task_potential: Dict[int, float] = {}
-    for r in active_rows:
-        tid = _safe_int(r.get("lci_task_id"))
-        task_potential[tid] = task_potential.get(tid, 0.0) + _safe_float(r.get("lci_stage_value"))
-    fin_potential = sum(task_potential.values())
+    # Total Opt In: active tasks that have opted in, sum task_value (not stage_value)
+    # Use load_cisco_lci_all to get task_value per task
+    fin_potential = 0.0
+    try:
+        if _REPO_OK:
+            repo = CiscoLCIRepository()
+            task_rows = repo.load_cisco_lci_all(fy=fy, as_df=False) or []
+            CANCELLED = {4, 5}
+            opted_in_task_ids = {_safe_int(r.get("lci_task_id")) for r in filtered if not _safe_int(r.get("lci_task_status")) in CANCELLED}
+            seen_tasks: set = set()
+            for r in task_rows:
+                tid = _safe_int(r.get("task_id"))
+                if tid in opted_in_task_ids and tid not in seen_tasks:
+                    if _safe_int(r.get("task_status_id")) not in CANCELLED:
+                        fin_potential += _safe_float(r.get("task_value"))
+                        seen_tasks.add(tid)
+    except Exception as e:
+        logger.warning(f"get_lci_summary fin_potential fallback: {e}")
+        # Fallback to stage_value sum
+        active_rows = [r for r in stage_dedup if _safe_int(r.get("lci_task_status")) not in TASK_STATUS_CANCELLED]
+        task_potential: Dict[int, float] = {}
+        for r in active_rows:
+            tid = _safe_int(r.get("lci_task_id"))
+            task_potential[tid] = task_potential.get(tid, 0.0) + _safe_float(r.get("lci_stage_value"))
+        fin_potential = sum(task_potential.values())
 
     fin_conversion = fin_approved / fin_potential if fin_potential > 0 else 0.0
 
@@ -296,7 +314,6 @@ def get_lci_burnup(fy: int) -> Dict[str, Any]:
 
         stage_status = _safe_int(r.get("lci_stage_status_id"))
         end_date = r.get("stage_end_date")
-        val = _safe_float(r.get("lci_stage_value"))
 
         month_key = None
         if end_date:
@@ -310,12 +327,14 @@ def get_lci_burnup(fy: int) -> Dict[str, Any]:
         if month_key not in monthly:
             month_key = fiscal_months[-1]  # fallback to last month
 
+        # Use stage_amount_usd (same as cards: approval_value for status 10, stage_value otherwise)
+        amount = _safe_float(r.get("stage_amount_usd"))
         if stage_status in STATUS_APPROVED:
-            monthly[month_key]["approved"] += val
+            monthly[month_key]["approved"] += amount
         elif stage_status in STATUS_LOST:
-            monthly[month_key]["lost"] += val
+            monthly[month_key]["lost"] += amount
         else:
-            monthly[month_key]["pipeline"] += val
+            monthly[month_key]["pipeline"] += amount
 
     # Build cumulative series
     result_months = []
@@ -364,13 +383,14 @@ def get_lci_yoy() -> List[Dict[str, Any]]:
         if fy not in by_fy:
             by_fy[fy] = {"approved": 0.0, "lost": 0.0, "potential": 0.0}
         sid_status = _safe_int(r.get("lci_stage_status_id"))
-        val = _safe_float(r.get("stage_amount_usd"))
+        # Use stage_amount_usd (same as cards)
+        amount = _safe_float(r.get("stage_amount_usd"))
         if sid_status in STATUS_APPROVED:
-            by_fy[fy]["approved"] += val
+            by_fy[fy]["approved"] += amount
         elif sid_status in STATUS_LOST:
-            by_fy[fy]["lost"] += val
+            by_fy[fy]["lost"] += amount
 
-    # Potential per FY
+    # Potential per FY: sum stage_amount_usd of all active stages (not cancelled/closed)
     all_dedup: Dict[int, Dict] = {}
     for r in rows:
         sid = _safe_int(r.get("lci_stage_id"))
@@ -383,8 +403,7 @@ def get_lci_yoy() -> List[Dict[str, Any]]:
             continue
         if _safe_int(r.get("lci_task_status")) in TASK_STATUS_CANCELLED:
             continue
-        task_val = _safe_float(r.get("lci_stage_value"))
-        by_fy[fy]["potential"] += task_val
+        by_fy[fy]["potential"] += _safe_float(r.get("stage_amount_usd"))
 
     result = []
     for fy, d in sorted(by_fy.items()):
@@ -406,6 +425,150 @@ def get_lci_yoy() -> List[Dict[str, Any]]:
 # ─────────────────────────────────────────
 # DATA TABLES
 # ─────────────────────────────────────────
+
+def _build_potential_rows(all_rows: List[Dict]) -> List[Dict]:
+    """
+    Applies the 'Total Potential' grouping rule:
+    - Excludes cancelled (4) and closed (5) tasks.
+    - Groups by (task_cr_party_id, task_deal_id, task_track).
+    - Groups where all statuses are OPEN(1)/ON_HOLD(3) → keep only the lowest-value task.
+    - Groups with any other active status → keep all active tasks.
+    Returns the selected rows.
+    """
+    CANCELLED = {4, 5}
+    STATUS_PENDING = {1, 3}
+    active = [r for r in all_rows if _safe_int(r.get("task_status_id")) not in CANCELLED]
+    groups: Dict[tuple, List[Dict]] = {}
+    for r in active:
+        key = (
+            _safe_str(r.get("task_cr_party_id")),
+            _safe_str(r.get("task_deal_id")),
+            _safe_str(r.get("task_track")),
+        )
+        groups.setdefault(key, []).append(r)
+    selected: List[Dict] = []
+    for group_rows in groups.values():
+        statuses = {_safe_int(r.get("task_status_id")) for r in group_rows}
+        if statuses <= STATUS_PENDING:
+            best = min(group_rows, key=lambda r: (_safe_float(r.get("task_value")), _safe_int(r.get("task_id"))))
+            selected.append(best)
+        else:
+            selected.extend(group_rows)
+    return selected
+
+
+def get_lci_lost_justification(fy: Optional[int]) -> List[Dict[str, Any]]:
+    """Returns count & value breakdown by task_status_justification for cancelled/closed tasks (status 4 or 5)."""
+    if not _REPO_OK:
+        return []
+    try:
+        repo = CiscoLCIRepository()
+        rows = repo.load_cisco_lci_all(fy=fy, as_df=False) or []
+        CANCELLED = {4, 5}
+        cancelled_rows = [r for r in rows if _safe_int(r.get("task_status_id")) in CANCELLED]
+        agg: Dict[str, Dict] = {}
+        for r in cancelled_rows:
+            justification = _safe_str(r.get("task_status_justification")).strip() or "Not Specified"
+            if justification not in agg:
+                agg[justification] = {"count": 0, "value": 0.0}
+            agg[justification]["count"] += 1
+            agg[justification]["value"] += _safe_float(r.get("task_value"))
+        result = [
+            {"justification": k, "count": v["count"], "value": round(v["value"], 2)}
+            for k, v in sorted(agg.items(), key=lambda x: x[1]["count"], reverse=True)
+        ]
+        return result
+    except Exception as e:
+        logger.error(f"get_lci_lost_justification: {e}\n{traceback.format_exc()}")
+        return []
+
+
+def get_lci_total_eligibles(fy: Optional[int]) -> Dict[str, Any]:
+    """Returns totals + executive overview data for the given FY."""
+    if not _REPO_OK:
+        return {"fy": fy, "total_eligibles": 0.0, "total_potential": 0.0}
+    try:
+        repo = CiscoLCIRepository()
+        rows = repo.load_cisco_lci_all(fy=fy, as_df=False) or []
+
+        # ── Stage (Opt In) data — from find_all (eligible=Y) scoped to same FY ──
+        opt_in_all = _load_all_enriched()
+        if fy:
+            opt_in_all = [r for r in opt_in_all if r.get("lci_effective_fy") == fy]
+        # Dedup by stage
+        seen_stage: Dict[int, Dict] = {}
+        for r in opt_in_all:
+            sid = _safe_int(r.get("lci_stage_id"))
+            if sid and sid not in seen_stage:
+                seen_stage[sid] = r
+        # Build per-task opt-in: tasks with any stage (= opted in)
+        opted_in_task_ids = {_safe_int(r.get("lci_task_id")) for r in seen_stage.values()}
+
+        # ── TOTAL ELIGIBLES ─────────────────────────────────────────────────
+        total_eligibles = sum(_safe_float(r.get("task_value")) for r in rows)
+        n_eligibles = len(rows)
+
+        # ── TOTAL POTENTIAL ──────────────────────────────────────────────────
+        potential_rows = _build_potential_rows(rows)
+        total_potential = sum(_safe_float(r.get("task_value")) for r in potential_rows)
+        n_potential = len(potential_rows)
+
+        # ── TOTAL OPT IN (task level) ────────────────────────────────────────
+        # Sum of task_value for active eligible tasks that have at least one stage (opted in)
+        CANCELLED = {4, 5}
+        opt_in_rows = [r for r in rows if _safe_int(r.get("task_id")) in opted_in_task_ids and _safe_int(r.get("task_status_id")) not in CANCELLED]
+        total_opt_in = sum(_safe_float(r.get("task_value")) for r in opt_in_rows)
+        n_opt_in = len(opt_in_rows)
+
+        # ── BY SOLUTION — Eligible vs Potential ─────────────────────────────
+        elig_by_track: Dict[str, Dict] = {}
+        for r in rows:
+            t = _safe_str(r.get("task_track")) or "Unknown"
+            elig_by_track.setdefault(t, {"count": 0, "value": 0.0})
+            elig_by_track[t]["count"] += 1
+            elig_by_track[t]["value"] += _safe_float(r.get("task_value"))
+
+        pot_by_track: Dict[str, Dict] = {}
+        for r in potential_rows:
+            t = _safe_str(r.get("task_track")) or "Unknown"
+            pot_by_track.setdefault(t, {"count": 0, "value": 0.0})
+            pot_by_track[t]["count"] += 1
+            pot_by_track[t]["value"] += _safe_float(r.get("task_value"))
+
+        opt_in_by_track: Dict[str, Dict] = {}
+        for r in opt_in_rows:
+            t = _safe_str(r.get("task_track")) or "Unknown"
+            opt_in_by_track.setdefault(t, {"count": 0, "value": 0.0})
+            opt_in_by_track[t]["count"] += 1
+            opt_in_by_track[t]["value"] += _safe_float(r.get("task_value"))
+
+        all_tracks = sorted(set(list(elig_by_track.keys()) + list(pot_by_track.keys()) + list(opt_in_by_track.keys())))
+        by_solution = []
+        for t in all_tracks:
+            by_solution.append({
+                "solution": t,
+                "eligible_count": elig_by_track.get(t, {}).get("count", 0),
+                "eligible_value": round(elig_by_track.get(t, {}).get("value", 0.0), 2),
+                "potential_count": pot_by_track.get(t, {}).get("count", 0),
+                "potential_value": round(pot_by_track.get(t, {}).get("value", 0.0), 2),
+                "opt_in_count": opt_in_by_track.get(t, {}).get("count", 0),
+                "opt_in_value": round(opt_in_by_track.get(t, {}).get("value", 0.0), 2),
+            })
+
+        return {
+            "fy": fy,
+            "total_eligibles": round(total_eligibles, 2),
+            "n_eligibles": n_eligibles,
+            "total_potential": round(total_potential, 2),
+            "n_potential": n_potential,
+            "total_opt_in": round(total_opt_in, 2),
+            "n_opt_in": n_opt_in,
+            "by_solution": by_solution,
+        }
+    except Exception as e:
+        logger.error(f"get_lci_total_eligibles: {e}\n{traceback.format_exc()}")
+        return {"fy": fy, "total_eligibles": 0.0, "total_potential": 0.0, "total_opt_in": 0.0, "n_eligibles": 0, "n_potential": 0, "n_opt_in": 0, "by_solution": []}
+
 
 def get_lci_stage_rows(fy: Optional[int], stage_status_filter: str) -> List[Dict[str, Any]]:
     """Returns stage rows filtered by status category."""

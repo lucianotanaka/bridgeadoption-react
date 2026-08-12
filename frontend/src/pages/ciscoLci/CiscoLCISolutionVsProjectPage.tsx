@@ -21,13 +21,6 @@ interface LCIRow {
   [key: string]: unknown;
 }
 
-const STATUS_PRIORITY: Record<string, number> = {
-  YES: 4,
-  "IN REVIEW": 3,
-  "PENDING REVIEW": 2,
-  NO: 1,
-};
-
 const STATUS_ORDER = ["NO", "YES", "PENDING REVIEW", "IN REVIEW"];
 
 const STATUS_COLOR_MAP: Record<string, string> = {
@@ -130,20 +123,17 @@ export default function CiscoLCISolutionVsProjectPage({ fy }: { fy: number }) {
   });
   const trackEntries = Object.entries(trackAgg).sort((a, b) => b[1] - a[1]);
 
-  // ─── Chart 2: Project Status Distribution (deduped by solution_track, highest priority status wins) ──
+  // ─── Chart 2: Project Status Distribution ────────────────────────────────
+  // Each row already represents a unique (customer, solution_track, deal_id)
+  // combination with a single has_project value, so we count statuses
+  // directly — no further deduplication/consolidation should be applied,
+  // otherwise low-priority statuses (e.g. PENDING REVIEW) get masked
+  // whenever any other unrelated deal for the same track has a higher
+  // priority status (e.g. YES), causing them to appear as 0%.
   const projectStatusAgg = useMemo(() => {
-    const consolidated = new Map<string, { status: string; priority: number }>();
-    rows.forEach((r) => {
-      const track = (r.solution_track ?? "UNKNOWN").trim() || "UNKNOWN";
-      const status = (r.has_project ?? "NO").trim().toUpperCase() || "NO";
-      const priority = STATUS_PRIORITY[status] ?? 1;
-      const existing = consolidated.get(track);
-      if (!existing || priority > existing.priority) {
-        consolidated.set(track, { status, priority });
-      }
-    });
     const counts: Record<string, number> = { NO: 0, YES: 0, "PENDING REVIEW": 0, "IN REVIEW": 0 };
-    consolidated.forEach(({ status }) => {
+    rows.forEach((r) => {
+      const status = (r.has_project ?? "NO").trim().toUpperCase() || "NO";
       counts[status] = (counts[status] ?? 0) + 1;
     });
     return counts;

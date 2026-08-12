@@ -32,6 +32,8 @@ interface NavItem {
   path?: string;
   children?: NavItem[];
   resourceKey?: string;
+  /** Use when a single menu item should be visible if the user has ANY of these permissions (e.g. Cisco LCI module bundles 4 sub-reports). */
+  resourceKeys?: string[];
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -40,7 +42,15 @@ const NAV_ITEMS: NavItem[] = [
     key: "adoption", label: "Adoption", icon: <TrendingUp size={18} />,
     children: [
       { key: "today", label: "Today", icon: <LayoutDashboard size={16} />, path: "/" },
-      { key: "ciscoLCI", label: "Cisco LCI", icon: <Package size={16} />, path: "/adoption/cisco-lci", resourceKey: "adoption.report_cisco_lci" },
+      {
+        key: "ciscoLCI", label: "Cisco LCI", icon: <Package size={16} />, path: "/adoption/cisco-lci",
+        resourceKeys: [
+          "adoption.report_cisco_lci",
+          "adoption.report_forecast",
+          "adoption.report_lci_eligible_status",
+          "adoption.report_lci_solution_vs_project",
+        ],
+      },
       { key: "csmAccount", label: "CSM Account", icon: <Users size={16} />, path: "/adoption/csm-account", resourceKey: "adoption.report_csm_account" },
       { key: "teamTarget", label: "Team Target", icon: <Target size={16} />, path: "/adoption/team-target", resourceKey: "adoption.report_team_target" },
       { key: "rebate", label: "Rebate", icon: <DollarSign size={16} />, path: "/adoption/rebate", resourceKey: "adoption.report_rebate_and_opportunities" },
@@ -100,6 +110,9 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
   const canSee = (item: NavItem): boolean => {
     if (isAdmin) return true;
+    if (item.resourceKeys && item.resourceKeys.length > 0) {
+      return item.resourceKeys.some((rk) => hasPermission(rk));
+    }
     if (!item.resourceKey) return true;
     return hasPermission(item.resourceKey);
   };

@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Plot from "react-plotly.js";
 import { forecastApi } from "@/api/forecast";
@@ -39,9 +38,11 @@ const plotLayout = (isDark: boolean) => ({
 
 // ─── Chart 1: Donut ───────────────────────────────────────────────────────────
 function DonutChart({ data, fy, isDark }: { data: ForecastSummaryItem[]; fy: number; isDark: boolean }) {
-  const labels = data.map((d) => d.category);
-  const values = data.map((d) => d.value);
-  const colors = data.map((d) => COLORS[d.category] ?? "#94a3b8");
+  // Exclude POTENTIAL from the donut chart — it's shown only as a KPI card
+  const chartData = data.filter((d) => d.category !== "POTENTIAL");
+  const labels = chartData.map((d) => d.category);
+  const values = chartData.map((d) => d.value);
+  const colors = chartData.map((d) => COLORS[d.category as keyof typeof COLORS] ?? "#94a3b8");
 
   return (
     <Plot
@@ -157,6 +158,7 @@ export default function CiscoLCIForecastPage({ fy: selectedFY }: { fy: number })
   const effortClient = effortClientQuery.data ?? [];
   const effortUC = effortUCQuery.data ?? [];
 
+  const potentialVal = summary.find((s) => s.category === "POTENTIAL")?.value ?? 0;
   const backlogVal = summary.find((s) => s.category === "BACKLOG")?.value ?? 0;
   const achievedVal = summary.find((s) => s.category === "ACHIEVED")?.value ?? 0;
   const total = backlogVal + achievedVal;
@@ -178,7 +180,11 @@ export default function CiscoLCIForecastPage({ fy: selectedFY }: { fy: number })
       </div>
 
       {/* Summary KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+          <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-2">Total Potential</p>
+          <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{fmtK(potentialVal)}</p>
+        </div>
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-2">Total Backlog</p>
           <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{fmtK(backlogVal)}</p>

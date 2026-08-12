@@ -140,9 +140,10 @@ def get_raw_forecast(fy: int) -> List[Dict[str, Any]]:
 # ─────────────────────────────────────────
 
 def get_forecast_summary(fy: int) -> List[Dict[str, Any]]:
-    """Donut chart data: BACKLOG vs ACHIEVED totals."""
+    """Donut chart data: BACKLOG vs ACHIEVED totals plus TOTAL POTENTIAL (sum of activity_value)."""
     rows = get_raw_forecast(fy)
     totals: Dict[str, float] = {"BACKLOG": 0.0, "ACHIEVED": 0.0}
+    total_potential: float = 0.0
 
     for r in rows:
         cat = r.get("Category", "OTHER")
@@ -153,8 +154,20 @@ def get_forecast_summary(fy: int) -> List[Dict[str, Any]]:
         elif cat == "ACHIEVED" and fy_chart == fy:
             totals["ACHIEVED"] += val
 
+        # Total Potential = sum of activity_value for all BACKLOG & ACHIEVED rows in scope
+        if cat in ("BACKLOG", "ACHIEVED"):
+            if (cat == "BACKLOG" and fy_chart >= fy) or (cat == "ACHIEVED" and fy_chart == fy):
+                total_potential += _safe_float(r.get("activity_value") or r.get("Value_for_Chart"))
+
     total = sum(totals.values())
-    result = []
+    result = [
+        {
+            "category": "POTENTIAL",
+            "value": round(total_potential, 2),
+            "value_fmt": _fmt_k(total_potential),
+            "percentage": 1.0,
+        }
+    ]
     for cat, val in totals.items():
         result.append({
             "category": cat,

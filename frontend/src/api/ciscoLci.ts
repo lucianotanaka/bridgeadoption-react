@@ -91,4 +91,27 @@ export const ciscoLciApi = {
     if (fy) params.append("fy", String(fy));
     return apiClient.get<LCIStageRow[]>(`/adoption/cisco-lci/stages?${params.toString()}`);
   },
+  getLostJustification: (fy?: number) =>
+    apiClient.get<{ justification: string; count: number; value: number }[]>(
+      `/adoption/cisco-lci/lost-justification${fy ? `?fy=${fy}` : ""}`
+    ),
+  getTotalEligibles: (fy?: number) =>
+    apiClient.get<{
+      fy: number | null;
+      total_eligibles: number;
+      n_eligibles: number;
+      total_potential: number;
+      n_potential: number;
+      total_opt_in: number;
+      n_opt_in: number;
+      by_solution: {
+        solution: string;
+        eligible_count: number;
+        eligible_value: number;
+        potential_count: number;
+        potential_value: number;
+        opt_in_count: number;
+        opt_in_value: number;
+      }[];
+    }>(`/adoption/cisco-lci/total-eligibles${fy ? `?fy=${fy}` : ""}`),
 };
