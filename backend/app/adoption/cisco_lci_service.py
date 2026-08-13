@@ -571,30 +571,57 @@ def get_lci_wallet_burndown(date_from: Optional[str], date_to: Optional[str]) ->
     Accumulated month-by-month timeline of Opt In, Converted (Approved) and Pipeline.
 
     - date_from / date_to: "YYYY-MM" inclusive range filter on the timeline
-    - Opt In: sum of lci_stage_value grouped by month of lci_stage_estimated_start
-      (tasks with active stages = opted in, task_status NOT IN cancelled)
-    - Converted: sum of lci_stage_approval_value grouped by month of lci_stage_approval_date
-      (stages with status approved = 9 or 10)
-    - Pipeline: Opt In cumulative − Converted cumulative (what still can be approved)
+    - Opt In: sum of task_value per task (same as Financial Overview card) grouped by month
+      of stage_start_date of the FIRST stage of each task that opted in
+    - Converted: sum of stage_amount_usd (approval_value for status 10) grouped by month
+      of lci_stage_approval_date (same as Financial Overview card)
+    - Pipeline: Opt In cumulative − Converted cumulative
     """
     rows = _load_all_enriched()
 
     # Filter out cancelled tasks
     active = [r for r in rows if _safe_int(r.get("lci_task_status")) not in TASK_STATUS_CANCELLED]
 
-    # Build all months in range
     import pandas as pd
 
-    # Determine range from data if not provided
-    all_dates = []
+    # Build task_value lookup: we need task_value per task
+    # Use load_cisco_lci_all to get task_value (same source as Financial Overview)
+    task_value_map: Dict[int, float] = {}
+    task_start_month_map: Dict[int, str] = {}  # earliest stage_start_date per task
+
+    if _REPO_OK:
+        try:
+            repo = CiscoLCIRepository()
+            task_rows = repo.load_cisco_lci_all(as_df=False) or []
+            for r in task_rows:
+                tid = _safe_int(r.get("task_id"))
+                if tid:
+                    task_value_map[tid] = _safe_float(r.get("task_value"))
+        except Exception as e:
+            logger.warning(f"get_lci_wallet_burndown: load_cisco_lci_all fallback: {e}")
+
+    # For each task, find earliest stage_start_date (= when they opted in)
+    # and also track approved stages for Converted
+    task_first_start: Dict[int, str] = {}  # task_id -> earliest stage_start_date month
+    seen_task_ids: set = set()
+
     for r in active:
-        start = r.get("stage_start_date") or r.get("lci_stage_estimated_start") or r.get("stage_end_date")
-        if start:
+        tid = _safe_int(r.get("lci_task_id"))
+        if not tid:
+            continue
+        start_date = r.get("stage_start_date")
+        if start_date:
             try:
-                ts = pd.to_datetime(start)
-                all_dates.append(f"{ts.year}-{ts.month:02d}")
+                ts = pd.to_datetime(start_date)
+                mk = f"{ts.year}-{ts.month:02d}"
+                if tid not in task_first_start or mk < task_first_start[tid]:
+                    task_first_start[tid] = mk
             except Exception:
                 pass
+
+    # Determine date range from data
+    all_dates = list(task_first_start.values())
+    for r in active:
         approval = r.get("lci_stage_approval_date")
         if approval:
             try:
@@ -623,34 +650,22 @@ def get_lci_wallet_burndown(date_from: Optional[str], date_to: Optional[str]) ->
     if not months:
         return {"months": [], "date_from": date_from, "date_to": date_to}
 
-    # Aggregate Opt In by month of stage start
+    # Aggregate Opt In by month (task_value per task, by earliest stage_start_date)
     opt_in_by_month: Dict[str, float] = {m: 0.0 for m in months}
-    # Aggregate Converted by month of approval date
-    converted_by_month: Dict[str, float] = {m: 0.0 for m in months}
+    for tid, mk in task_first_start.items():
+        if mk in opt_in_by_month:
+            tv = task_value_map.get(tid, 0.0)
+            opt_in_by_month[mk] += tv
 
+    # Aggregate Converted by month of approval date (stage_amount_usd for approved stages)
+    converted_by_month: Dict[str, float] = {m: 0.0 for m in months}
     seen_stage: set = set()
     for r in active:
         sid = _safe_int(r.get("lci_stage_id"))
         if not sid or sid in seen_stage:
             continue
         seen_stage.add(sid)
-
         stage_status = _safe_int(r.get("lci_stage_status_id"))
-        opt_in_val = _safe_float(r.get("lci_stage_value"))
-        approval_val = _safe_float(r.get("stage_amount_usd"))  # uses approval_value for status 10
-
-        # Opt In: group by stage start month
-        start_date = r.get("stage_start_date")
-        if start_date:
-            try:
-                ts = pd.to_datetime(start_date)
-                mk = f"{ts.year}-{ts.month:02d}"
-                if mk in opt_in_by_month:
-                    opt_in_by_month[mk] += opt_in_val
-            except Exception:
-                pass
-
-        # Converted: group by approval date (only for approved stages)
         if stage_status in STATUS_APPROVED:
             approval_date = r.get("lci_stage_approval_date")
             if approval_date:
@@ -658,7 +673,7 @@ def get_lci_wallet_burndown(date_from: Optional[str], date_to: Optional[str]) ->
                     ts = pd.to_datetime(approval_date)
                     mk = f"{ts.year}-{ts.month:02d}"
                     if mk in converted_by_month:
-                        converted_by_month[mk] += approval_val
+                        converted_by_month[mk] += _safe_float(r.get("stage_amount_usd"))
                 except Exception:
                     pass
 
