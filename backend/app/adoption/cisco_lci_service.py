@@ -390,14 +390,9 @@ def get_lci_yoy() -> List[Dict[str, Any]]:
         elif sid_status in STATUS_LOST:
             by_fy[fy]["lost"] += amount
 
-    # Potential per FY: sum stage_amount_usd of all active stages (not cancelled/closed)
-    all_dedup: Dict[int, Dict] = {}
-    for r in rows:
-        sid = _safe_int(r.get("lci_stage_id"))
-        if sid and sid not in all_dedup:
-            all_dedup[sid] = r
-
-    for r in all_dedup.values():
+    # Potential per FY: use the same seen stages (scoped to relevant FYs)
+    # potential = approved + lost + pipeline (all non-cancelled stages in that FY)
+    for r in seen.values():
         fy = r.get("lci_effective_fy")
         if not fy or fy not in by_fy:
             continue
@@ -568,6 +563,129 @@ def get_lci_total_eligibles(fy: Optional[int]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"get_lci_total_eligibles: {e}\n{traceback.format_exc()}")
         return {"fy": fy, "total_eligibles": 0.0, "total_potential": 0.0, "total_opt_in": 0.0, "n_eligibles": 0, "n_potential": 0, "n_opt_in": 0, "by_solution": []}
+
+
+def get_lci_wallet_burndown(date_from: Optional[str], date_to: Optional[str]) -> Dict[str, Any]:
+    """
+    Portfolio Burndown (esgotamento da carteira):
+    Accumulated month-by-month timeline of Opt In, Converted (Approved) and Pipeline.
+
+    - date_from / date_to: "YYYY-MM" inclusive range filter on the timeline
+    - Opt In: sum of lci_stage_value grouped by month of lci_stage_estimated_start
+      (tasks with active stages = opted in, task_status NOT IN cancelled)
+    - Converted: sum of lci_stage_approval_value grouped by month of lci_stage_approval_date
+      (stages with status approved = 9 or 10)
+    - Pipeline: Opt In cumulative − Converted cumulative (what still can be approved)
+    """
+    rows = _load_all_enriched()
+
+    # Filter out cancelled tasks
+    active = [r for r in rows if _safe_int(r.get("lci_task_status")) not in TASK_STATUS_CANCELLED]
+
+    # Build all months in range
+    import pandas as pd
+
+    # Determine range from data if not provided
+    all_dates = []
+    for r in active:
+        start = r.get("stage_start_date") or r.get("lci_stage_estimated_start") or r.get("stage_end_date")
+        if start:
+            try:
+                ts = pd.to_datetime(start)
+                all_dates.append(f"{ts.year}-{ts.month:02d}")
+            except Exception:
+                pass
+        approval = r.get("lci_stage_approval_date")
+        if approval:
+            try:
+                ts = pd.to_datetime(approval)
+                all_dates.append(f"{ts.year}-{ts.month:02d}")
+            except Exception:
+                pass
+
+    if not all_dates:
+        return {"months": [], "date_from": date_from, "date_to": date_to}
+
+    data_min = min(all_dates)
+    data_max = max(all_dates)
+    range_from = date_from if date_from else data_min
+    range_to = date_to if date_to else data_max
+
+    # Generate all months in range
+    try:
+        start_ts = pd.to_datetime(range_from + "-01")
+        end_ts = pd.to_datetime(range_to + "-01")
+        month_range = pd.date_range(start=start_ts, end=end_ts, freq="MS")
+        months = [f"{m.year}-{m.month:02d}" for m in month_range]
+    except Exception:
+        return {"months": [], "date_from": date_from, "date_to": date_to}
+
+    if not months:
+        return {"months": [], "date_from": date_from, "date_to": date_to}
+
+    # Aggregate Opt In by month of stage start
+    opt_in_by_month: Dict[str, float] = {m: 0.0 for m in months}
+    # Aggregate Converted by month of approval date
+    converted_by_month: Dict[str, float] = {m: 0.0 for m in months}
+
+    seen_stage: set = set()
+    for r in active:
+        sid = _safe_int(r.get("lci_stage_id"))
+        if not sid or sid in seen_stage:
+            continue
+        seen_stage.add(sid)
+
+        stage_status = _safe_int(r.get("lci_stage_status_id"))
+        opt_in_val = _safe_float(r.get("lci_stage_value"))
+        approval_val = _safe_float(r.get("stage_amount_usd"))  # uses approval_value for status 10
+
+        # Opt In: group by stage start month
+        start_date = r.get("stage_start_date")
+        if start_date:
+            try:
+                ts = pd.to_datetime(start_date)
+                mk = f"{ts.year}-{ts.month:02d}"
+                if mk in opt_in_by_month:
+                    opt_in_by_month[mk] += opt_in_val
+            except Exception:
+                pass
+
+        # Converted: group by approval date (only for approved stages)
+        if stage_status in STATUS_APPROVED:
+            approval_date = r.get("lci_stage_approval_date")
+            if approval_date:
+                try:
+                    ts = pd.to_datetime(approval_date)
+                    mk = f"{ts.year}-{ts.month:02d}"
+                    if mk in converted_by_month:
+                        converted_by_month[mk] += approval_val
+                except Exception:
+                    pass
+
+    # Build cumulative series
+    result_months = []
+    cum_opt_in = 0.0
+    cum_converted = 0.0
+    for m in months:
+        cum_opt_in += opt_in_by_month.get(m, 0.0)
+        cum_converted += converted_by_month.get(m, 0.0)
+        pipeline = max(0.0, cum_opt_in - cum_converted)
+        result_months.append({
+            "month": m,
+            "opt_in": round(cum_opt_in, 2),
+            "converted": round(cum_converted, 2),
+            "pipeline": round(pipeline, 2),
+            "monthly_opt_in": round(opt_in_by_month.get(m, 0.0), 2),
+            "monthly_converted": round(converted_by_month.get(m, 0.0), 2),
+        })
+
+    return {
+        "months": result_months,
+        "date_from": range_from,
+        "date_to": range_to,
+        "data_min": data_min,
+        "data_max": data_max,
+    }
 
 
 def get_lci_stage_rows(fy: Optional[int], stage_status_filter: str) -> List[Dict[str, Any]]:

@@ -1,3 +1,41 @@
+# Dependências do Node.js / Frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# graphify-axet
+# Compilação e Builds
+dist/
+build/
+*.tsbuildinfo
+
+# Ambientes Virtuais do Python / Backend
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Cache do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Configurações locais e Segredos (Senhas/Chaves)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+*.log
+
+# Arquivos do sistema operacional e IDEs
+.DS_Store
+.vscode/
+.idea/
+
+# Outros
 .graphify/

@@ -271,13 +271,13 @@ def get_forecast_by_client(fy: int) -> Dict[str, Any]:
     for (client, cat), val in by_client.items():
         all_clients.append({"client": client, "category": cat, "value": round(val, 2)})
 
-    top5 = sorted(
+    all_achieved = sorted(
         [{"client": k, "value": round(v, 2), "value_fmt": _fmt_k(v)} for k, v in achieved_by_client.items()],
         key=lambda x: x["value"],
         reverse=True
-    )[:5]
+    )
 
-    return {"all": sorted(all_clients, key=lambda x: (x["client"], x["category"])), "top5_achieved": top5}
+    return {"all": sorted(all_clients, key=lambda x: (x["client"], x["category"])), "top5_achieved": all_achieved}
 
 
 # ─────────────────────────────────────────

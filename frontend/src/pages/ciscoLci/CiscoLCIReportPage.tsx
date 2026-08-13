@@ -5,6 +5,8 @@ import { DollarSign, BarChart3, Download, HelpCircle } from "lucide-react";
 import Plot from "react-plotly.js";
 import { ciscoLciApi } from "@/api/ciscoLci";
 import type { LCIStageRow } from "@/api/ciscoLci";
+import { forecastApi } from "@/api/forecast";
+import type { IncentiveByFY, EffortItem } from "@/api/forecast";
 import Pagination from "@/components/ui/Pagination";
 import MultiSelectDropdown from "@/components/ui/MultiSelectDropdown";
 import { exportToXlsxMultiSheet } from "@/utils/exportXlsx";
@@ -177,6 +179,10 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
   const summaryQuery = useQuery({ queryKey: ["lci", "summary", selectedFY], queryFn: () => ciscoLciApi.getSummary(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
   const totalEligiblesQuery = useQuery({ queryKey: ["lci", "total-eligibles", selectedFY], queryFn: () => ciscoLciApi.getTotalEligibles(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
   const stageStatusQuery = useQuery({ queryKey: ["lci", "stage-status", selectedFY], queryFn: () => ciscoLciApi.getByStageStatus(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
+  const forecastClientQuery = useQuery({ queryKey: ["forecast", "client", selectedFY], queryFn: () => forecastApi.getByClient(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
+  const incentiveFYQuery = useQuery({ queryKey: ["forecast", "incentive-fy"], queryFn: () => forecastApi.getIncentiveByFY().then((r) => r.data), staleTime: 10 * 60 * 1000 });
+  const effortClientQuery = useQuery({ queryKey: ["forecast", "effort-client"], queryFn: () => forecastApi.getEffortClient().then((r) => r.data), staleTime: 10 * 60 * 1000 });
+  const effortUCQuery = useQuery({ queryKey: ["forecast", "effort-uc"], queryFn: () => forecastApi.getEffortUseCase().then((r) => r.data), staleTime: 10 * 60 * 1000 });
   const lostJustQuery = useQuery({ queryKey: ["lci", "lost-justification", selectedFY], queryFn: () => ciscoLciApi.getLostJustification(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
   const termQuery = useQuery({ queryKey: ["lci", "term", selectedFY], queryFn: () => ciscoLciApi.getTerminationStatus(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
   const burnupQuery = useQuery({ queryKey: ["lci", "burnup", selectedFY], queryFn: () => ciscoLciApi.getBurnup(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
@@ -423,6 +429,17 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
                   />
                 </div>
               )}
+              {/* All Clients — Highest Achieved */}
+              {forecastClientQuery.data?.top5_achieved && forecastClientQuery.data.top5_achieved.length > 0 && (
+                <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                  <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-3">Clients — Highest Achieved — FY {selectedFY}</p>
+                  <Plot
+                    data={[{ type: "bar" as const, orientation: "h" as const, y: forecastClientQuery.data.top5_achieved.map((d) => d.client), x: forecastClientQuery.data.top5_achieved.map((d) => d.value), marker: { color: "#005B96" }, text: forecastClientQuery.data.top5_achieved.map((d) => d.value_fmt), textposition: "outside" as const, hovertemplate: "%{y}<br>%{x:,.2f}<extra></extra>" }]}
+                    layout={{ ...plotLayout(isDark), height: Math.max(260, forecastClientQuery.data.top5_achieved.length * 32 + 80), yaxis: { autorange: "reversed" as const, automargin: true }, xaxis: { automargin: true, range: [0, Math.max(...forecastClientQuery.data.top5_achieved.map((d) => d.value)) * 1.3] }, margin: { t: 20, b: 40, l: 180, r: 100 } }}
+                    useResizeHandler style={{ width: "100%" }} config={{ displayModeBar: false }}
+                  />
+                </div>
+              )}
               {/* Cancelled/Closed Task Justification */}
               {lostJust.length > 0 && (
                 <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
@@ -477,6 +494,47 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
                 <KPICard label={t("adoption.ciscoLci.awaiting")} value={String(s.total_awaiting_stages)} accent="yellow" />
                 <KPICard label={t("adoption.ciscoLci.tasksAwaitingOptIn")} value={String(s.tasks_awaiting_opt_in)} accent="yellow" />
                 <KPICard label={t("adoption.ciscoLci.tasksLostOptIn")} value={String(s.tasks_lost_opt_in_pending)} accent="red" />
+              </div>
+              {/* Forecast charts: Incentive History, Effort by Client/UC */}
+              {incentiveFYQuery.data && incentiveFYQuery.data.length > 0 && (
+                <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                  <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-1">Incentive Task History by Fiscal Year</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">Count of incentive tasks per FY</p>
+                  <Plot
+                    data={[
+                      { type: "bar" as const, x: (incentiveFYQuery.data as IncentiveByFY[]).map((d) => String(d.fy)), y: (incentiveFYQuery.data as IncentiveByFY[]).map((d) => d.count), marker: { color: "#19A3FC" }, name: "Tasks", text: (incentiveFYQuery.data as IncentiveByFY[]).map((d) => String(d.count)), textposition: "outside" as const },
+                      { type: "scatter" as const, x: (incentiveFYQuery.data as IncentiveByFY[]).map((d) => String(d.fy)), y: (incentiveFYQuery.data as IncentiveByFY[]).map((d) => d.count), mode: "lines+markers" as const, marker: { color: "red" }, line: { color: "red" }, name: "Trend" },
+                    ]}
+                    layout={{ ...plotLayout(isDark), height: 280, showlegend: false }}
+                    useResizeHandler style={{ width: "100%" }} config={{ displayModeBar: false }}
+                  />
+                </div>
+              )}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                  <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-1">Effort by Client</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">Average days for completed incentive tasks</p>
+                  {effortClientQuery.isLoading ? <div className="flex justify-center py-4"><div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div> : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead><tr className="border-b border-gray-200 dark:border-gray-700"><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Client</th><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Average</th><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Best</th><th className="text-left py-2 text-gray-600 dark:text-gray-400 font-semibold">Worst</th></tr></thead>
+                        <tbody>{(effortClientQuery.data as EffortItem[] ?? []).map((r, i) => (<tr key={i} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"><td className="py-1.5 pr-3 text-gray-700 dark:text-gray-300 font-medium truncate max-w-[160px]">{String((r as unknown as Record<string,unknown>).client ?? "—")}</td><td className="py-1.5 pr-3 text-gray-600 dark:text-gray-400">{r.avg_fmt}</td><td className="py-1.5 pr-3 text-green-600 dark:text-green-400">{r.min_fmt}</td><td className="py-1.5 text-red-600 dark:text-red-400">{r.max_fmt}</td></tr>))}</tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+                <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                  <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-1">Effort by Use Case</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">Average days for completed incentive tasks</p>
+                  {effortUCQuery.isLoading ? <div className="flex justify-center py-4"><div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div> : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead><tr className="border-b border-gray-200 dark:border-gray-700"><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Use Case</th><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Average</th><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Best</th><th className="text-left py-2 text-gray-600 dark:text-gray-400 font-semibold">Worst</th></tr></thead>
+                        <tbody>{(effortUCQuery.data as EffortItem[] ?? []).map((r, i) => (<tr key={i} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"><td className="py-1.5 pr-3 text-gray-700 dark:text-gray-300 font-medium truncate max-w-[160px]">{String((r as unknown as Record<string,unknown>).use_case ?? "—")}</td><td className="py-1.5 pr-3 text-gray-600 dark:text-gray-400">{r.avg_fmt}</td><td className="py-1.5 pr-3 text-green-600 dark:text-green-400">{r.min_fmt}</td><td className="py-1.5 text-red-600 dark:text-red-400">{r.max_fmt}</td></tr>))}</tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
               {/* Stage Status + Termination charts inside Operational tab */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

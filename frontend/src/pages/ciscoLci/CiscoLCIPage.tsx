@@ -1,15 +1,15 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { FileText, TrendingUp, BarChart3, Layers } from "lucide-react";
+import { FileText, BarChart3, Layers, TrendingDown } from "lucide-react";
 import { ciscoLciApi } from "@/api/ciscoLci";
 import { lciEligibleStatusApi } from "@/api/lciEligibleStatus";
 import { useAuthStore } from "@/store/authStore";
 import CiscoLCIReportPage from "./CiscoLCIReportPage";
-import CiscoLCIForecastPage from "./CiscoLCIForecastPage";
 import CiscoLCIEligibleStatusPage from "./CiscoLCIEligibleStatusPage";
 import CiscoLCISolutionVsProjectPage from "./CiscoLCISolutionVsProjectPage";
+import CiscoLCIPortfolioBurndownPage from "./CiscoLCIPortfolioBurndownPage";
 
-type TabType = "report" | "forecast" | "eligible" | "solution";
+type TabType = "report" | "eligible" | "solution" | "burndown";
 
 function currentNttFy(): number {
   const now = new Date();
@@ -24,7 +24,7 @@ export default function CiscoLCIPage() {
 
   const allTabs: { key: TabType; label: string; icon: React.ReactNode; resourceKey: string }[] = [
     { key: "report", label: "Cisco LCI Report", icon: <FileText size={14} />, resourceKey: "adoption.report_cisco_lci" },
-    { key: "forecast", label: "Forecast", icon: <TrendingUp size={14} />, resourceKey: "adoption.report_forecast" },
+    { key: "burndown", label: "Portfolio Burndown", icon: <TrendingDown size={14} />, resourceKey: "adoption.report_cisco_lci" },
     { key: "eligible", label: "Eligible Status", icon: <BarChart3 size={14} />, resourceKey: "adoption.report_lci_eligible_status" },
     { key: "solution", label: "Solution vs Project", icon: <Layers size={14} />, resourceKey: "adoption.report_lci_solution_vs_project" },
   ];
@@ -97,7 +97,7 @@ export default function CiscoLCIPage() {
       </div>
 
       {activeTab === "report" && <CiscoLCIReportPage fy={effectiveFY} />}
-      {activeTab === "forecast" && <CiscoLCIForecastPage fy={effectiveFY} />}
+      {activeTab === "burndown" && <CiscoLCIPortfolioBurndownPage />}
       {activeTab === "eligible" && <CiscoLCIEligibleStatusPage fy={effectiveFY} />}
       {activeTab === "solution" && <CiscoLCISolutionVsProjectPage fy={effectiveFY} />}
     </div>

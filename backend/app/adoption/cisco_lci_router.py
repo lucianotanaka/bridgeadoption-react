@@ -24,6 +24,7 @@ from app.adoption.cisco_lci_service import (
     get_lci_stage_rows,
     get_lci_total_eligibles,
     get_lci_lost_justification,
+    get_lci_wallet_burndown,
 )
 from app.core.security import decode_access_token
 
@@ -103,6 +104,15 @@ def lci_total_eligibles(
     fy: Optional[int] = Query(None),
 ):
     return get_lci_total_eligibles(fy)
+
+
+@router.get("/wallet-burndown", response_model=Dict[str, Any])
+def lci_wallet_burndown(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    date_from: Optional[str] = Query(None, description="Start month YYYY-MM"),
+    date_to: Optional[str] = Query(None, description="End month YYYY-MM"),
+):
+    return get_lci_wallet_burndown(date_from, date_to)
 
 
 @router.get("/stages", response_model=List[Dict[str, Any]])
