@@ -565,16 +565,16 @@ def get_lci_total_eligibles(fy: Optional[int]) -> Dict[str, Any]:
         return {"fy": fy, "total_eligibles": 0.0, "total_potential": 0.0, "total_opt_in": 0.0, "n_eligibles": 0, "n_potential": 0, "n_opt_in": 0, "by_solution": []}
 
 
-def get_lci_wallet_burndown(date_from: Optional[str], date_to: Optional[str]) -> Dict[str, Any]:
+def get_lci_wallet_burndown(date_from: Optional[str], date_to: Optional[str], fy: Optional[int] = None) -> Dict[str, Any]:
     """
     Portfolio Burndown (esgotamento da carteira):
     Accumulated month-by-month timeline of Opt In, Converted (Approved) and Pipeline.
 
     - date_from / date_to: "YYYY-MM" inclusive range filter on the timeline
-    - Opt In: sum of task_value per task (same as Financial Overview card) grouped by month
-      of stage_start_date of the FIRST stage of each task that opted in
-    - Converted: sum of stage_amount_usd (approval_value for status 10) grouped by month
-      of lci_stage_approval_date (same as Financial Overview card)
+    - fy: when provided, KPI totals (fy_summary) are computed with the same logic as
+      get_lci_summary(fy) so they match the Cisco LCI Report Financial Overview cards exactly.
+    - Opt In: sum of task_value per task grouped by month of stage_start_date
+    - Converted: sum of stage_amount_usd grouped by month of lci_stage_approval_date
     - Pipeline: Opt In cumulative − Converted cumulative
     """
     rows = _load_all_enriched()
@@ -694,12 +694,51 @@ def get_lci_wallet_burndown(date_from: Optional[str], date_to: Optional[str]) ->
             "monthly_converted": round(converted_by_month.get(m, 0.0), 2),
         })
 
+    # Compute FY-scoped KPI summary (same as Cisco LCI Report Financial Overview)
+    fy_summary = None
+    if fy is not None:
+        try:
+            summary = get_lci_summary(fy)
+            # Total Opt In from totalEligibles (task_value based)
+            opt_in_total = 0.0
+            if _REPO_OK:
+                try:
+                    repo = CiscoLCIRepository()
+                    task_rows = repo.load_cisco_lci_all(fy=fy, as_df=False) or []
+                    fy_rows = [r for r in rows if _safe_int(r.get("lci_task_status")) not in TASK_STATUS_CANCELLED]
+                    fy_stage_rows = [r for r in fy_rows if r.get("lci_effective_fy") == fy]
+                    opted_in_task_ids = {_safe_int(r.get("lci_task_id")) for r in fy_stage_rows}
+                    CANCELLED = {4, 5}
+                    seen_tids: set = set()
+                    for r in task_rows:
+                        tid = _safe_int(r.get("task_id"))
+                        if tid in opted_in_task_ids and tid not in seen_tids:
+                            if _safe_int(r.get("task_status_id")) not in CANCELLED:
+                                opt_in_total += _safe_float(r.get("task_value"))
+                                seen_tids.add(tid)
+                except Exception:
+                    opt_in_total = summary.get("fin_potential", 0.0)
+            else:
+                opt_in_total = summary.get("fin_potential", 0.0)
+
+            fy_summary = {
+                "fy": fy,
+                "opt_in": round(opt_in_total, 2),
+                "approved": summary.get("fin_approved", 0.0),
+                "lost": summary.get("fin_lost", 0.0),
+                "conversion_rate": round(summary.get("fin_approved", 0.0) / opt_in_total, 4) if opt_in_total > 0 else 0.0,
+                "pipeline": round(opt_in_total - summary.get("fin_approved", 0.0), 2),
+            }
+        except Exception as e:
+            logger.warning(f"get_lci_wallet_burndown fy_summary: {e}")
+
     return {
         "months": result_months,
         "date_from": range_from,
         "date_to": range_to,
         "data_min": data_min,
         "data_max": data_max,
+        "fy_summary": fy_summary,
     }
 
 

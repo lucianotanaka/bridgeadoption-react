@@ -97,7 +97,7 @@ export default function CiscoLCIPage() {
       </div>
 
       {activeTab === "report" && <CiscoLCIReportPage fy={effectiveFY} />}
-      {activeTab === "burndown" && <CiscoLCIPortfolioBurndownPage />}
+      {activeTab === "burndown" && <CiscoLCIPortfolioBurndownPage fy={effectiveFY} />}
       {activeTab === "eligible" && <CiscoLCIEligibleStatusPage fy={effectiveFY} />}
       {activeTab === "solution" && <CiscoLCISolutionVsProjectPage fy={effectiveFY} />}
     </div>

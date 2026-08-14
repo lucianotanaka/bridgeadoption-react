@@ -91,10 +91,11 @@ export const ciscoLciApi = {
     if (fy) params.append("fy", String(fy));
     return apiClient.get<LCIStageRow[]>(`/adoption/cisco-lci/stages?${params.toString()}`);
   },
-  getWalletBurndown: (dateFrom?: string, dateTo?: string) => {
+  getWalletBurndown: (dateFrom?: string, dateTo?: string, fy?: number) => {
     const params = new URLSearchParams();
     if (dateFrom) params.append("date_from", dateFrom);
     if (dateTo) params.append("date_to", dateTo);
+    if (fy) params.append("fy", String(fy));
     const qs = params.toString();
     return apiClient.get<{
       months: {
@@ -109,6 +110,14 @@ export const ciscoLciApi = {
       date_to: string;
       data_min: string;
       data_max: string;
+      fy_summary: {
+        fy: number;
+        opt_in: number;
+        approved: number;
+        lost: number;
+        conversion_rate: number;
+        pipeline: number;
+      } | null;
     }>(`/adoption/cisco-lci/wallet-burndown${qs ? `?${qs}` : ""}`);
   },
   getLostJustification: (fy?: number) =>

@@ -112,7 +112,7 @@ function MonthPicker({ label, value, onChange, min, max }: { label: string; valu
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
-export default function CiscoLCIPortfolioBurndownPage() {
+export default function CiscoLCIPortfolioBurndownPage({ fy }: { fy: number }) {
   const { t } = useTranslation();
   const isDark = document.documentElement.classList.contains("dark");
 
@@ -122,8 +122,8 @@ export default function CiscoLCIPortfolioBurndownPage() {
   const [isExporting, setIsExporting] = useState(false);
 
   const burndownQuery = useQuery({
-    queryKey: ["lci", "wallet-burndown", dateFrom, dateTo],
-    queryFn: () => ciscoLciApi.getWalletBurndown(dateFrom || undefined, dateTo || undefined).then((r) => r.data),
+    queryKey: ["lci", "wallet-burndown", dateFrom, dateTo, fy],
+    queryFn: () => ciscoLciApi.getWalletBurndown(dateFrom || undefined, dateTo || undefined, fy).then((r) => r.data),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -131,11 +131,16 @@ export default function CiscoLCIPortfolioBurndownPage() {
   const months = data?.months ?? [];
   const monthLabels = months.map((m) => fmtMonthLabel(m.month));
 
+  // KPI cards: use FY-scoped summary (identical to Cisco LCI Report Financial Overview)
+  // Falls back to cumulative chart totals if fy_summary not available
+  const fySummary = data?.fy_summary;
   const lastMonth = months[months.length - 1];
-  const totalOptIn = lastMonth?.opt_in ?? 0;
-  const totalConverted = lastMonth?.converted ?? 0;
-  const totalPipeline = lastMonth?.pipeline ?? 0;
-  const conversionRate = totalOptIn > 0 ? (totalConverted / totalOptIn) * 100 : 0;
+  const totalOptIn = fySummary?.opt_in ?? lastMonth?.opt_in ?? 0;
+  const totalConverted = fySummary?.approved ?? lastMonth?.converted ?? 0;
+  const totalPipeline = fySummary?.pipeline ?? lastMonth?.pipeline ?? 0;
+  const conversionRate = fySummary != null
+    ? (fySummary.conversion_rate * 100)
+    : (totalOptIn > 0 ? (totalConverted / totalOptIn) * 100 : 0);
 
   const pbOptInLabel = t("adoption.ciscoLci.pbOptIn");
   const pbApprovedLabel = t("adoption.ciscoLci.pbApproved");

@@ -111,8 +111,9 @@ def lci_wallet_burndown(
     current_user: Annotated[dict, Depends(get_current_user)],
     date_from: Optional[str] = Query(None, description="Start month YYYY-MM"),
     date_to: Optional[str] = Query(None, description="End month YYYY-MM"),
+    fy: Optional[int] = Query(None, description="NTT Fiscal Year for KPI summary alignment"),
 ):
-    return get_lci_wallet_burndown(date_from, date_to)
+    return get_lci_wallet_burndown(date_from, date_to, fy)
 
 
 @router.get("/stages", response_model=List[Dict[str, Any]])
