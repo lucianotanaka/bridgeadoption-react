@@ -105,7 +105,7 @@ function StageTable({ rows, page, pageSize }: { rows: LCIStageRow[]; page: numbe
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-            {["Task", "Client", "Solution", "Use Case", "WS", "CSM", "Stage", "Value USD", "Status", "End Date", "Completion"].map((h) => (
+            {["Task", "Client", "Solution", "Use Case", "Task WS", "Activity WS", "CSM", "Stage", "Value USD", "Status", "Start Date", "End Date", "Completion"].map((h) => (
               <th key={h} className="text-left py-2 px-2 text-gray-600 dark:text-gray-400 font-semibold whitespace-nowrap">{h}</th>
             ))}
           </tr>
@@ -118,6 +118,7 @@ function StageTable({ rows, page, pageSize }: { rows: LCIStageRow[]; page: numbe
               <td className="py-1.5 px-2 text-gray-600 dark:text-gray-400 max-w-[120px] truncate">{r.lci_solution ?? "—"}</td>
               <td className="py-1.5 px-2 text-gray-600 dark:text-gray-400 max-w-[120px] truncate">{r.lci_use_case ?? "—"}</td>
               <td className="py-1.5 px-2 text-gray-500 dark:text-gray-500">{r.lci_ws ?? "—"}</td>
+              <td className="py-1.5 px-2 text-gray-500 dark:text-gray-500">{r.lci_stage_ws ?? "—"}</td>
               <td className="py-1.5 px-2 text-gray-600 dark:text-gray-400 max-w-[100px] truncate">{r.lci_csm_name ?? "—"}</td>
               <td className="py-1.5 px-2 text-gray-600 dark:text-gray-400">{r.lci_stage_name ?? "—"}</td>
               <td className="py-1.5 px-2 text-gray-700 dark:text-gray-300 font-medium">{r.stage_amount_usd != null ? fmtUSD(r.stage_amount_usd) : "—"}</td>
@@ -128,6 +129,7 @@ function StageTable({ rows, page, pageSize }: { rows: LCIStageRow[]; page: numbe
                   "bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300"
                 }`}>{r.lci_stage_status_name ?? "—"}</span>
               </td>
+              <td className="py-1.5 px-2 text-gray-500 dark:text-gray-500">{r.stage_start_date ? r.stage_start_date.slice(0, 10) : "—"}</td>
               <td className="py-1.5 px-2 text-gray-500 dark:text-gray-500">{r.stage_end_date ? r.stage_end_date.slice(0, 10) : "—"}</td>
               <td className="py-1.5 px-2 text-gray-500 dark:text-gray-500">{r.termination_status ?? "—"}</td>
             </tr>
@@ -146,11 +148,13 @@ const STAGE_TABLE_COLUMNS: { key: string; label: string }[] = [
   { key: "lci_client_name", label: "Client" },
   { key: "lci_solution", label: "Solution" },
   { key: "lci_use_case", label: "Use Case" },
-  { key: "lci_ws", label: "WS" },
+  { key: "lci_ws", label: "Task WS" },
+  { key: "lci_stage_ws", label: "Activity WS" },
   { key: "lci_csm_name", label: "CSM" },
   { key: "lci_stage_name", label: "Stage" },
   { key: "stage_amount_usd", label: "Value USD" },
   { key: "lci_stage_status_name", label: "Status" },
+  { key: "stage_start_date", label: "Start Date" },
   { key: "stage_end_date", label: "End Date" },
   { key: "termination_status", label: "Completion" },
 ];

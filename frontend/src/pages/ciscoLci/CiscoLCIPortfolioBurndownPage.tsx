@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { Download } from "lucide-react";
 import Plot from "react-plotly.js";
 import { ciscoLciApi } from "@/api/ciscoLci";
+import * as XLSX from "xlsx";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -28,6 +30,26 @@ const plotLayout = (isDark: boolean) => ({
   margin: { t: 20, b: 60, l: 80, r: 40 },
 });
 
+/** Returns April of the current NTT Fiscal Year.
+ *  NTT FY starts in April: if current month >= April, FY year = current year; else FY year = current year - 1.
+ */
+function currentFYApril(): string {
+  const now = new Date();
+  const month = now.getMonth() + 1; // 1-12
+  const year = now.getFullYear();
+  const fyYear = month >= 4 ? year : year - 1;
+  return `${fyYear}-04`;
+}
+
+/** Returns March of the year AFTER the current NTT FY ends (18 months from FY start). */
+function currentFYMarch(): string {
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+  const fyYear = month >= 4 ? year : year - 1;
+  return `${fyYear + 1}-03`;
+}
+
 // ─── Tooltip component ────────────────────────────────────────────────────────
 
 function InfoTooltip({ text, left }: { text: string; left?: boolean }) {
@@ -44,12 +66,8 @@ function InfoTooltip({ text, left }: { text: string; left?: boolean }) {
 
   return (
     <div ref={ref} className="relative inline-block">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors ml-1"
-        aria-label="More info"
-      >
+      <button type="button" onClick={() => setOpen((v) => !v)}
+        className="text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors ml-1" aria-label="More info">
         <span className="inline-block w-3.5 h-3.5 rounded-full border border-current text-center leading-3 text-xs font-bold select-none">?</span>
       </button>
       {open && (
@@ -98,12 +116,10 @@ export default function CiscoLCIPortfolioBurndownPage() {
   const { t } = useTranslation();
   const isDark = document.documentElement.classList.contains("dark");
 
-  const now = new Date();
-  const defaultFrom = `${now.getFullYear() - 1}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const defaultTo = `${now.getFullYear() + 1}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-
-  const [dateFrom, setDateFrom] = useState(defaultFrom);
-  const [dateTo, setDateTo] = useState(defaultTo);
+  // Default: FROM = April of current NTT FY, TO = March of next year (end of 18-month window)
+  const [dateFrom, setDateFrom] = useState(currentFYApril);
+  const [dateTo, setDateTo] = useState(currentFYMarch);
+  const [isExporting, setIsExporting] = useState(false);
 
   const burndownQuery = useQuery({
     queryKey: ["lci", "wallet-burndown", dateFrom, dateTo],
@@ -124,6 +140,28 @@ export default function CiscoLCIPortfolioBurndownPage() {
   const pbOptInLabel = t("adoption.ciscoLci.pbOptIn");
   const pbApprovedLabel = t("adoption.ciscoLci.pbApproved");
   const pbPipelineLabel = t("adoption.ciscoLci.pbPipeline");
+
+  const handleExport = () => {
+    if (!months.length) return;
+    setIsExporting(true);
+    try {
+      const rows = months.map((m) => ({
+        Month: m.month,
+        [pbOptInLabel + " (Monthly)"]: m.monthly_opt_in,
+        [pbApprovedLabel + " (Monthly)"]: m.monthly_converted,
+        [pbOptInLabel + " (Cumulative)"]: m.opt_in,
+        [pbApprovedLabel + " (Cumulative)"]: m.converted,
+        [pbPipelineLabel]: m.pipeline,
+        "Conversion Rate (%)": m.opt_in > 0 ? parseFloat(((m.converted / m.opt_in) * 100).toFixed(1)) : 0,
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Portfolio Burndown");
+      XLSX.writeFile(wb, `portfolio_burndown_${dateFrom}_to_${dateTo}.xlsx`);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -199,6 +237,53 @@ export default function CiscoLCIPortfolioBurndownPage() {
             layout={{ ...plotLayout(isDark), height: 300, barmode: "group" as const, xaxis: { categoryorder: "array" as const, categoryarray: monthLabels }, yaxis: { tickprefix: "$", tickformat: ",.0f" }, legend: { orientation: "h" as const, y: -0.2 }, margin: { t: 20, b: 80, l: 80, r: 40 } }}
             useResizeHandler style={{ width: "100%" }} config={{ displayModeBar: false }}
           />
+        </div>
+      )}
+
+      {/* Data table with export */}
+      {months.length > 0 && (
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">Monthly Data</p>
+            <button
+              onClick={handleExport}
+              disabled={isExporting}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 rounded-lg transition-colors"
+            >
+              <Download size={13} /> {isExporting ? "Exporting..." : t("adoption.ciscoLci.exportExcel")}
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                  <th className="text-left py-2 px-2 text-gray-600 dark:text-gray-400 font-semibold whitespace-nowrap">Month</th>
+                  <th className="text-right py-2 px-2 text-gray-600 dark:text-gray-400 font-semibold whitespace-nowrap">{pbOptInLabel} (Monthly)</th>
+                  <th className="text-right py-2 px-2 text-gray-600 dark:text-gray-400 font-semibold whitespace-nowrap">{pbApprovedLabel} (Monthly)</th>
+                  <th className="text-right py-2 px-2 text-gray-600 dark:text-gray-400 font-semibold whitespace-nowrap">{pbOptInLabel} (Cum.)</th>
+                  <th className="text-right py-2 px-2 text-gray-600 dark:text-gray-400 font-semibold whitespace-nowrap">{pbApprovedLabel} (Cum.)</th>
+                  <th className="text-right py-2 px-2 text-gray-600 dark:text-gray-400 font-semibold whitespace-nowrap">{pbPipelineLabel}</th>
+                  <th className="text-right py-2 px-2 text-gray-600 dark:text-gray-400 font-semibold whitespace-nowrap">{t("adoption.ciscoLci.pbConversionRate")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {months.map((m, i) => {
+                  const cr = m.opt_in > 0 ? ((m.converted / m.opt_in) * 100).toFixed(1) : "0.0";
+                  return (
+                    <tr key={m.month} className={`border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 ${i === months.length - 1 ? "font-semibold bg-gray-50 dark:bg-gray-800" : ""}`}>
+                      <td className="py-1.5 px-2 text-gray-700 dark:text-gray-300">{fmtMonthLabel(m.month)}</td>
+                      <td className="py-1.5 px-2 text-right text-blue-600 dark:text-blue-400">{m.monthly_opt_in > 0 ? fmtUSD(m.monthly_opt_in) : "—"}</td>
+                      <td className="py-1.5 px-2 text-right text-green-600 dark:text-green-400">{m.monthly_converted > 0 ? fmtUSD(m.monthly_converted) : "—"}</td>
+                      <td className="py-1.5 px-2 text-right text-blue-600 dark:text-blue-400">{fmtUSD(m.opt_in)}</td>
+                      <td className="py-1.5 px-2 text-right text-green-600 dark:text-green-400">{fmtUSD(m.converted)}</td>
+                      <td className="py-1.5 px-2 text-right text-orange-500 dark:text-orange-400">{fmtUSD(m.pipeline)}</td>
+                      <td className="py-1.5 px-2 text-right text-yellow-600 dark:text-yellow-400">{cr}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
