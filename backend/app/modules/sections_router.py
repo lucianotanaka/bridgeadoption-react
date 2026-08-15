@@ -15,8 +15,15 @@ from app.modules.sections_service import (
     get_user_roles, assign_role_to_user, remove_role_from_user,
     get_role_permissions, list_actions, list_resources,
     add_permission_to_role, remove_permission_from_role, update_permission,
+    create_role, update_role, toggle_role_active,
+    create_action, create_resource, update_resource, toggle_resource_active,
     get_team_goals, get_assets, get_account_team,
     get_adoption_tasks, get_cisco_sa_usage, get_cisco_true_forward,
+    admin_search_companies, admin_get_company, admin_create_company,
+    admin_update_company, admin_vacate_company,
+    admin_get_company_tab, admin_get_company_tab_multi,
+    admin_add_company_name, admin_update_company_name, admin_vacate_company_name,
+    admin_update_cisco_ea_customer,
 )
 from app.core.security import decode_access_token
 
@@ -206,12 +213,152 @@ def admin_update_permission(permission_id: int, body: Dict[str, Any], current_us
     if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
     return {"success": update_permission(permission_id, body["action_id"])}
 
+@admin_router.post("/roles", response_model=Dict[str, Any])
+def admin_create_role(body: Dict[str, Any], current_user: Annotated[dict, Depends(get_current_user)]):
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    result = create_role(body.get("role_name", ""), body.get("role_description", ""))
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@admin_router.put("/roles/{role_id}", response_model=Dict[str, Any])
+def admin_update_role(role_id: int, body: Dict[str, Any], current_user: Annotated[dict, Depends(get_current_user)]):
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    return update_role(role_id, body.get("role_name", ""), body.get("role_description", ""))
+
+@admin_router.post("/roles/{role_id}/toggle-active", response_model=Dict[str, Any])
+def admin_toggle_role_active(role_id: int, current_user: Annotated[dict, Depends(get_current_user)]):
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    return toggle_role_active(role_id)
+
+@admin_router.post("/actions", response_model=Dict[str, Any])
+def admin_create_action(body: Dict[str, Any], current_user: Annotated[dict, Depends(get_current_user)]):
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    result = create_action(body.get("action_key", ""), body.get("action_name", ""))
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@admin_router.post("/resources", response_model=Dict[str, Any])
+def admin_create_resource(body: Dict[str, Any], current_user: Annotated[dict, Depends(get_current_user)]):
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    result = create_resource(body.get("resource_key", ""), body.get("resource_name", ""), body.get("resource_icon", ""))
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@admin_router.put("/resources/{resource_id}", response_model=Dict[str, Any])
+def admin_update_resource(resource_id: int, body: Dict[str, Any], current_user: Annotated[dict, Depends(get_current_user)]):
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    return update_resource(resource_id, body.get("resource_key", ""), body.get("resource_name", ""), body.get("resource_icon", ""))
+
+@admin_router.post("/resources/{resource_id}/toggle-active", response_model=Dict[str, Any])
+def admin_toggle_resource_active(resource_id: int, current_user: Annotated[dict, Depends(get_current_user)]):
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    return toggle_resource_active(resource_id)
+
 # ─── Admin — Companies ────────────────────────────────────
 
 @admin_router.get("/companies", response_model=List[Dict[str, Any]])
 def admin_companies(current_user: Annotated[dict, Depends(get_current_user)], search: Optional[str] = Query(None)):
     if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
     return get_admin_companies(search)
+
+@admin_router.get("/companies/search", response_model=List[Dict[str, Any]])
+def admin_companies_search(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    name: str = Query(..., description="Company name (partial match)"),
+):
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    return admin_search_companies(name)
+
+@admin_router.get("/companies/{company_id}", response_model=Dict[str, Any])
+def admin_company_detail(
+    company_id: int,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    return admin_get_company(company_id)
+
+@admin_router.post("/companies", response_model=Dict[str, Any])
+def admin_company_create(
+    body: Dict[str, Any],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    return admin_create_company(body)
+
+@admin_router.put("/companies/{company_id}", response_model=Dict[str, Any])
+def admin_company_update(
+    company_id: int,
+    body: Dict[str, Any],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    return admin_update_company(company_id, body)
+
+@admin_router.post("/companies/{company_id}/vacate", response_model=Dict[str, Any])
+def admin_company_vacate(
+    company_id: int,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    return admin_vacate_company(company_id)
+
+@admin_router.get("/companies/{company_id}/tab/{tab_name}", response_model=List[Dict[str, Any]])
+def admin_company_tab(
+    company_id: int,
+    tab_name: str,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    return admin_get_company_tab(tab_name, company_id)
+
+@admin_router.post("/companies/tab-multi", response_model=List[Dict[str, Any]])
+def admin_company_tab_multi(
+    body: Dict[str, Any],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Get tab data for multiple company IDs. Body: {tab_name, company_ids}"""
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    tab_name = body.get("tab_name", "")
+    company_ids = body.get("company_ids", [])
+    return admin_get_company_tab_multi(tab_name, company_ids)
+
+@admin_router.post("/companies/{company_id}/names", response_model=Dict[str, Any])
+def admin_company_add_name(
+    company_id: int,
+    body: Dict[str, Any],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    return admin_add_company_name(company_id, body.get("name", ""))
+
+@admin_router.put("/companies/names/{listname_id}", response_model=Dict[str, Any])
+def admin_company_update_name(
+    listname_id: int,
+    body: Dict[str, Any],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    return admin_update_company_name(listname_id, body.get("company_id", 0), body.get("name", ""))
+
+@admin_router.post("/companies/names/{listname_id}/vacate", response_model=Dict[str, Any])
+def admin_company_vacate_name(
+    listname_id: int,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    return admin_vacate_company_name(listname_id)
+
+@admin_router.put("/cisco-ea/{ea_id}/customer", response_model=Dict[str, Any])
+def admin_update_ea_customer(
+    ea_id: int,
+    body: Dict[str, Any],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    return admin_update_cisco_ea_customer(ea_id, body.get("end_customer_id", 0))
 
 # ─── Admin — CSM List ─────────────────────────────────────
 

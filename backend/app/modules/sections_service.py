@@ -320,6 +320,75 @@ def update_permission(permission_id: int, action_id: int) -> bool:
     except Exception as e:
         logger.error(f"update_permission: {e}"); return False
 
+def create_role(role_name: str, role_description: str) -> Dict:
+    if not _AUTH_OK: return {"error": "Repository not available"}
+    try:
+        repo = AuthRepository()
+        new_id = repo.create_role(role_name, role_description)
+        if new_id is None:
+            return {"error": "Failed to create role (possibly duplicate name)"}
+        return {"role_id": new_id}
+    except Exception as e:
+        logger.error(f"create_role: {e}"); return {"error": str(e)}
+
+def update_role(role_id: int, role_name: str, role_description: str) -> Dict:
+    if not _AUTH_OK: return {"error": "Repository not available"}
+    try:
+        repo = AuthRepository()
+        ok = repo.update_role(role_id, role_name, role_description)
+        return {"success": ok}
+    except Exception as e:
+        logger.error(f"update_role: {e}"); return {"error": str(e)}
+
+def toggle_role_active(role_id: int) -> Dict:
+    if not _AUTH_OK: return {"error": "Repository not available"}
+    try:
+        repo = AuthRepository()
+        ok = repo.toggle_role_active(role_id)
+        return {"success": ok}
+    except Exception as e:
+        logger.error(f"toggle_role_active: {e}"); return {"error": str(e)}
+
+def create_action(action_key: str, action_name: str) -> Dict:
+    if not _AUTH_OK: return {"error": "Repository not available"}
+    try:
+        repo = AuthRepository()
+        new_id = repo.create_action(action_key, action_name)
+        if new_id is None:
+            return {"error": "Failed to create action (possibly duplicate key)"}
+        return {"action_id": new_id}
+    except Exception as e:
+        logger.error(f"create_action: {e}"); return {"error": str(e)}
+
+def create_resource(resource_key: str, resource_name: str, resource_icon: str) -> Dict:
+    if not _AUTH_OK: return {"error": "Repository not available"}
+    try:
+        repo = AuthRepository()
+        new_id = repo.create_resource(resource_key, resource_name, resource_icon)
+        if new_id is None:
+            return {"error": "Failed to create resource (possibly duplicate key)"}
+        return {"resource_id": new_id}
+    except Exception as e:
+        logger.error(f"create_resource: {e}"); return {"error": str(e)}
+
+def update_resource(resource_id: int, resource_key: str, resource_name: str, resource_icon: str) -> Dict:
+    if not _AUTH_OK: return {"error": "Repository not available"}
+    try:
+        repo = AuthRepository()
+        ok = repo.update_resource(resource_id, resource_key, resource_name, resource_icon)
+        return {"success": ok}
+    except Exception as e:
+        logger.error(f"update_resource: {e}"); return {"error": str(e)}
+
+def toggle_resource_active(resource_id: int) -> Dict:
+    if not _AUTH_OK: return {"error": "Repository not available"}
+    try:
+        repo = AuthRepository()
+        ok = repo.toggle_resource_active(resource_id)
+        return {"success": ok}
+    except Exception as e:
+        logger.error(f"toggle_resource_active: {e}"); return {"error": str(e)}
+
 
 # ─── Admin: Team Goals ────────────────────────────────────
 def get_team_goals(fy: Optional[int] = None) -> List[Dict]:
@@ -336,6 +405,224 @@ def get_team_goals(fy: Optional[int] = None) -> List[Dict]:
 # ─── Admin: Companies (admin view) ───────────────────────
 def get_admin_companies(search: Optional[str] = None) -> List[Dict]:
     return get_companies(search)
+
+
+# ─── Admin: Companies — full CRUD ─────────────────────────
+
+def admin_search_companies(name_part: str) -> List[Dict]:
+    """Search companies by name part via tbCompanyListName JOIN tbCompany."""
+    try:
+        from src.infrastructure.database.connection import get_sqlalchemy_engine
+        import pandas as pd
+        engine = get_sqlalchemy_engine()
+        sql = """
+            SELECT DISTINCT
+                c.company_id,
+                c.company_type,
+                c.company_name
+            FROM tbCompany c
+            INNER JOIN tbCompanyListName l ON l.companylistname_company_id = c.company_id
+            WHERE l.companylistname_name LIKE %(name)s
+            ORDER BY c.company_name
+            LIMIT 500
+        """
+        df = pd.read_sql(sql, engine, params={"name": f"%{name_part}%"})
+        return _df(df)
+    except Exception as e:
+        logger.error(f"admin_search_companies: {e}\n{traceback.format_exc()}"); return []
+
+
+def admin_get_company(company_id: int) -> Dict:
+    """Get a company record by ID."""
+    if not _COMPANY_OK: return {}
+    try:
+        repo = CompanyRepository()
+        result = repo.find_by_id(company_id)
+        return _ser(dict(result)) if result else {}
+    except Exception as e:
+        logger.error(f"admin_get_company: {e}"); return {}
+
+
+def admin_create_company(data: Dict) -> Dict:
+    """Create a new company (reuses VAGO slots)."""
+    if not _COMPANY_OK: return {"error": "Repository not available"}
+    try:
+        repo = CompanyRepository()
+        new_id = repo.insert(data)
+        return {"company_id": new_id}
+    except Exception as e:
+        logger.error(f"admin_create_company: {e}"); return {"error": str(e)}
+
+
+def admin_update_company(company_id: int, data: Dict) -> Dict:
+    """Update a company by ID."""
+    if not _COMPANY_OK: return {"error": "Repository not available"}
+    try:
+        repo = CompanyRepository()
+        repo.update_with_custom_where(data=data, where_clause="company_id = %s", params=(company_id,))
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"admin_update_company: {e}"); return {"error": str(e)}
+
+
+def admin_vacate_company(company_id: int) -> Dict:
+    """Vacate a company — clears all fields, sets name to 'VAGO {id}'."""
+    if not _COMPANY_OK: return {"error": "Repository not available"}
+    try:
+        repo = CompanyRepository()
+        vacate_data: Dict[str, Any] = {
+            "company_is_vendor": None,
+            "company_type": None,
+            "company_name": f"VAGO {company_id}",
+            "company_priority": None,
+            "company_vertical": None,
+            "company_meeting_frequency": None,
+            "company_logo": None,
+            "company_homepage": None,
+            "company_remark": None,
+            "company_cnpj": None,
+            "company_group_id": 0,
+        }
+        repo.update_with_custom_where(data=vacate_data, where_clause="company_id = %s", params=(company_id,))
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"admin_vacate_company: {e}"); return {"error": str(e)}
+
+
+def admin_get_company_tab(tab_name: str, company_id: int) -> List[Dict]:
+    """Return rows for a specific tab for a single company_id."""
+    try:
+        from src.infrastructure.database.connection import get_sqlalchemy_engine
+        import pandas as pd
+        engine = get_sqlalchemy_engine()
+        queries: Dict[str, tuple] = {
+            "tbCompany": (
+                "SELECT company_id, company_type, company_name FROM tbCompany WHERE company_id = %(id)s",
+                {"id": company_id},
+            ),
+            "tbCompanyListName": (
+                "SELECT companylistname_company_id, companylistname_name, companylistname_id FROM tbCompanyListName WHERE companylistname_company_id = %(id)s ORDER BY companylistname_name",
+                {"id": company_id},
+            ),
+            "tbCiscoEA": (
+                "SELECT * FROM tbCiscoEA WHERE ea_end_customer_id = %(id)s ORDER BY ea_id LIMIT 500",
+                {"id": company_id},
+            ),
+            "tbProject": (
+                "SELECT project_id, project_customer_id, project_ov, project_name, project_status FROM tbProject WHERE project_customer_id = %(id)s ORDER BY project_id LIMIT 500",
+                {"id": company_id},
+            ),
+            "tbNotaFiscalAsset": (
+                """SELECT nfa.* FROM tbNotaFiscalAsset nfa
+                   WHERE nfa.nfasset_asset_id IN (
+                       SELECT vendorasset_asset_id FROM tbContractVendorAsset WHERE vendorasset_customer_id = %(id)s
+                       UNION
+                       SELECT nttasset_asset_id FROM tbContractNTTAsset WHERE nttasset_customer_id = %(id)s
+                   ) ORDER BY nfa.nfasset_id LIMIT 500""",
+                {"id": company_id},
+            ),
+            "tbContractNTTAsset": (
+                "SELECT * FROM tbContractNTTAsset WHERE nttasset_customer_id = %(id)s ORDER BY nttasset_id LIMIT 500",
+                {"id": company_id},
+            ),
+            "tbContractVendorAsset": (
+                "SELECT * FROM tbContractVendorAsset WHERE vendorasset_customer_id = %(id)s ORDER BY vendorasset_id LIMIT 500",
+                {"id": company_id},
+            ),
+            "tbTask": (
+                "SELECT task_id, task_customer_id, task_ws, task_deal_id, task_reference, task_status FROM tbTask WHERE task_customer_id = %(id)s ORDER BY task_id LIMIT 500",
+                {"id": company_id},
+            ),
+            "tbAccountTeam": (
+                "SELECT * FROM tbAccountTeam WHERE accountteam_company_id = %(id)s ORDER BY accountteam_id LIMIT 500",
+                {"id": company_id},
+            ),
+        }
+        if tab_name not in queries:
+            return []
+        sql, params = queries[tab_name]
+        df = pd.read_sql(sql, engine, params=params)
+        return _df(df)
+    except Exception as e:
+        logger.error(f"admin_get_company_tab({tab_name},{company_id}): {e}\n{traceback.format_exc()}"); return []
+
+
+def admin_get_company_tab_multi(tab_name: str, company_ids: List[int]) -> List[Dict]:
+    """Return rows for a specific tab for a list of company_ids."""
+    if not company_ids:
+        return []
+    try:
+        from src.infrastructure.database.connection import get_sqlalchemy_engine
+        import pandas as pd
+        engine = get_sqlalchemy_engine()
+        ph = ", ".join(str(i) for i in company_ids)
+        queries: Dict[str, str] = {
+            "tbCompany": f"SELECT company_id, company_type, company_name FROM tbCompany WHERE company_id IN ({ph}) ORDER BY company_name",
+            "tbCompanyListName": f"SELECT companylistname_company_id, companylistname_name, companylistname_id FROM tbCompanyListName WHERE companylistname_company_id IN ({ph}) ORDER BY companylistname_name",
+            "tbCiscoEA": f"SELECT * FROM tbCiscoEA WHERE ea_end_customer_id IN ({ph}) ORDER BY ea_id LIMIT 500",
+            "tbProject": f"SELECT project_id, project_customer_id, project_ov, project_name, project_status FROM tbProject WHERE project_customer_id IN ({ph}) ORDER BY project_id LIMIT 500",
+            "tbNotaFiscalAsset": f"SELECT nfa.* FROM tbNotaFiscalAsset nfa WHERE nfa.nfasset_asset_id IN (SELECT vendorasset_asset_id FROM tbContractVendorAsset WHERE vendorasset_customer_id IN ({ph}) UNION SELECT nttasset_asset_id FROM tbContractNTTAsset WHERE nttasset_customer_id IN ({ph})) ORDER BY nfa.nfasset_id LIMIT 500",
+            "tbContractNTTAsset": f"SELECT * FROM tbContractNTTAsset WHERE nttasset_customer_id IN ({ph}) ORDER BY nttasset_id LIMIT 500",
+            "tbContractVendorAsset": f"SELECT * FROM tbContractVendorAsset WHERE vendorasset_customer_id IN ({ph}) ORDER BY vendorasset_id LIMIT 500",
+            "tbTask": f"SELECT task_id, task_customer_id, task_ws, task_deal_id, task_reference, task_status FROM tbTask WHERE task_customer_id IN ({ph}) ORDER BY task_id LIMIT 500",
+            "tbAccountTeam": f"SELECT * FROM tbAccountTeam WHERE accountteam_company_id IN ({ph}) ORDER BY accountteam_id LIMIT 500",
+        }
+        if tab_name not in queries:
+            return []
+        df = pd.read_sql(queries[tab_name], engine)
+        return _df(df)
+    except Exception as e:
+        logger.error(f"admin_get_company_tab_multi({tab_name}): {e}\n{traceback.format_exc()}"); return []
+
+
+def admin_add_company_name(company_id: int, name: str) -> Dict:
+    """Insert a new row into tbCompanyListName."""
+    try:
+        from src.infrastructure.database.repositories.company_list_name_repository import CompanyListNameRepository
+        repo = CompanyListNameRepository()
+        new_id = repo.insert({"companylistname_company_id": company_id, "companylistname_name": name})
+        return {"companylistname_id": new_id}
+    except Exception as e:
+        logger.error(f"admin_add_company_name: {e}"); return {"error": str(e)}
+
+
+def admin_update_company_name(listname_id: int, company_id: int, name: str) -> Dict:
+    """Update a tbCompanyListName record."""
+    try:
+        from src.infrastructure.database.repositories.company_list_name_repository import CompanyListNameRepository
+        repo = CompanyListNameRepository()
+        repo.update(
+            data={"companylistname_company_id": company_id, "companylistname_name": name},
+            where={"companylistname_id": listname_id},
+        )
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"admin_update_company_name: {e}"); return {"error": str(e)}
+
+
+def admin_vacate_company_name(listname_id: int) -> Dict:
+    """Vacate a tbCompanyListName record (set company_id=0, name='VAGO {id}')."""
+    try:
+        from src.infrastructure.database.repositories.company_list_name_repository import CompanyListNameRepository
+        repo = CompanyListNameRepository()
+        repo.update(
+            data={"companylistname_company_id": 0, "companylistname_name": f"VAGO {listname_id}"},
+            where={"companylistname_id": listname_id},
+        )
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"admin_vacate_company_name: {e}"); return {"error": str(e)}
+
+
+def admin_update_cisco_ea_customer(ea_id: int, end_customer_id: int) -> Dict:
+    """Update ea_end_customer_id for a tbCiscoEA record."""
+    try:
+        from src.infrastructure.database.repositories.cisco_ea_repository import CiscoEARepository
+        repo = CiscoEARepository()
+        repo.update(data={"ea_end_customer_id": end_customer_id}, where={"ea_id": ea_id})
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"admin_update_cisco_ea_customer: {e}"); return {"error": str(e)}
 
 
 # ─── Portfolio: Asset ─────────────────────────────────────
