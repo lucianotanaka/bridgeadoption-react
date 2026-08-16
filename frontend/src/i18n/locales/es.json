@@ -355,11 +355,44 @@
     },
     "csmAccount": {
       "title": "CSM Account",
-      "subtitle": "Customer Success Manager — Portafolio de Cuentas"
+      "subtitle": "Customer Success Manager — Portafolio de Cuentas",
+      "totalAccounts": "Total de Cuentas",
+      "csms": "CSMs",
+      "uniqueClients": "Clientes Únicos",
+      "topType": "Tipo Principal",
+      "allCsms": "Todos los CSMs",
+      "allClients": "Todos los Clientes",
+      "allTypes": "Todos los Tipos",
+      "client": "Cliente",
+      "clients": "clientes",
+      "records": "Registros",
+      "exportExcel": "Exportar Excel",
+      "chart2Title": "Clientes por CSM"
     },
     "teamTarget": {
       "title": "Meta del Equipo",
-      "subtitle": "Metas y Logros del Equipo de Adopción"
+      "subtitle": "Metas y Logros del Equipo de Adopción",
+      "fiscalYear": "Año Fiscal",
+      "target": "Meta",
+      "selectTargetPlaceholder": "— Seleccione una meta —",
+      "detailsTitle": "Detalles de la Meta",
+      "taskTypes": "Tipos de Tarea",
+      "measurement": "Método de Medición",
+      "value": "Valor",
+      "individual": "Individual",
+      "weightPts": "Peso (pts)",
+      "employees": "Empleados",
+      "targetProgress": "Progreso de la Meta",
+      "individualAppraisal": "Evaluación Individual",
+      "bySum": "por Suma",
+      "byCounting": "por Conteo",
+      "targetDollar": "Meta ($)",
+      "achievedDollar": "Alcanzado ($)",
+      "noTargetsFound": "No se encontraron metas para el FY {{fy}}.",
+      "noIndividualProgress": "No se encontraron datos de progreso individual para esta meta.",
+      "noMeasureData": "Sin datos de medición para esta meta.",
+      "methodNotDetermined": "Método de medición no determinado.",
+      "selectTargetHint": "Seleccione una Meta arriba para ver sus detalles y gráficos de progreso."
     },
     "lciStatus": {
       "title": "LCI Status",
@@ -404,7 +437,18 @@
     },
     "accountTeam": {
       "title": "Portafolio — Equipo de Cuenta",
-      "subtitle": "Miembros del Equipo de Cuenta del Cliente"
+      "subtitle": "Miembros del Equipo de Cuenta del Cliente",
+      "client": "Cliente",
+      "member": "Miembro",
+      "type": "Tipo",
+      "allocated": "Asignado",
+      "titleEdit": "Editar Asignaciones",
+      "titleAdd": "Agregar Miembro",
+      "editMode": "Modo Edición",
+      "btnSave": "Guardar",
+      "warning1": "Por favor, seleccione un usuario y un tipo.",
+      "info1": "Todos los usuarios ya están vinculados a esta empresa.",
+      "recordsFound": "{{count}} registro(s) encontrado(s)"
     },
     "adoptionTasks": {
       "title": "Portafolio — Tareas de Adopción",

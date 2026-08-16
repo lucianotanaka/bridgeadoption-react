@@ -355,11 +355,44 @@
     },
     "csmAccount": {
       "title": "CSM Account",
-      "subtitle": "Customer Success Manager — Account Portfolio"
+      "subtitle": "Customer Success Manager — Account Portfolio",
+      "totalAccounts": "Total Accounts",
+      "csms": "CSMs",
+      "uniqueClients": "Unique Clients",
+      "topType": "Top Type",
+      "allCsms": "All CSMs",
+      "allClients": "All Clients",
+      "allTypes": "All Types",
+      "client": "Client",
+      "clients": "clients",
+      "records": "Records",
+      "exportExcel": "Export Excel",
+      "chart2Title": "Clients by CSM"
     },
     "teamTarget": {
       "title": "Team Target",
-      "subtitle": "Adoption Team Goals & Achievement"
+      "subtitle": "Adoption Team Goals & Achievement",
+      "fiscalYear": "Fiscal Year",
+      "target": "Target",
+      "selectTargetPlaceholder": "— Select a target —",
+      "detailsTitle": "Target Details",
+      "taskTypes": "Task Types",
+      "measurement": "Measurement",
+      "value": "Value",
+      "individual": "Individual",
+      "weightPts": "Weight (pts)",
+      "employees": "Employees",
+      "targetProgress": "Target Progress",
+      "individualAppraisal": "Individual Appraisal",
+      "bySum": "by Sum",
+      "byCounting": "by Counting",
+      "targetDollar": "Target ($)",
+      "achievedDollar": "Achieved ($)",
+      "noTargetsFound": "No targets found for FY {{fy}}.",
+      "noIndividualProgress": "No individual progress data found for this target.",
+      "noMeasureData": "No measurement data available for this target.",
+      "methodNotDetermined": "Measurement method not determined.",
+      "selectTargetHint": "Select a Target above to view its details and progress charts."
     },
     "lciStatus": {
       "title": "LCI Status",
@@ -404,7 +437,18 @@
     },
     "accountTeam": {
       "title": "Portfolio — Account Team",
-      "subtitle": "Customer Account Team Members"
+      "subtitle": "Customer Account Team Members",
+      "client": "Client",
+      "member": "Member",
+      "type": "Type",
+      "allocated": "Allocated",
+      "titleEdit": "Edit Allocations",
+      "titleAdd": "Add Member",
+      "editMode": "Edit Mode",
+      "btnSave": "Save",
+      "warning1": "Please select a user and a type.",
+      "info1": "All users are already linked to this company.",
+      "recordsFound": "{{count}} record(s) found"
     },
     "adoptionTasks": {
       "title": "Portfolio — Adoption Tasks",

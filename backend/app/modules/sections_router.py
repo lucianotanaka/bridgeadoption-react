@@ -6,6 +6,7 @@ from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 
 from app.modules.sections_service import (
     get_farol, get_companies, get_cisco_ea_metering, get_cisco_ea_consolidated,
@@ -18,12 +19,25 @@ from app.modules.sections_service import (
     create_role, update_role, toggle_role_active,
     create_action, create_resource, update_resource, toggle_resource_active,
     get_team_goals, get_assets, get_account_team,
+    get_account_team_matrix, get_account_team_all_rows, get_account_team_ntt_users,
+    update_account_team_row, insert_account_team_row,
     get_adoption_tasks, get_cisco_sa_usage, get_cisco_true_forward,
     admin_search_companies, admin_get_company, admin_create_company,
     admin_update_company, admin_vacate_company,
     admin_get_company_tab, admin_get_company_tab_multi,
     admin_add_company_name, admin_update_company_name, admin_vacate_company_name,
     admin_update_cisco_ea_customer,
+)
+from app.modules.admin_task_service import (
+    admin_get_task_filter_options,
+    admin_filter_tasks,
+    admin_get_activities_one,
+    admin_get_activities_many,
+    admin_get_records_many,
+    admin_get_records_task,
+    admin_get_records_activity,
+    admin_remove_tasks,
+    admin_remove_activity,
 )
 from app.core.security import decode_access_token
 
@@ -81,12 +95,63 @@ def portfolio_assets(
 ):
     return get_assets(customer_id)
 
+@portfolio_router.get("/account-team/matrix", response_model=List[Dict[str, Any]])
+def portfolio_account_team_matrix(
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """
+    Returns all allocated account team rows joined with Cisco Domain.
+    Frontend builds the pivot matrix from these raw rows.
+    """
+    return get_account_team_matrix()
+
+@portfolio_router.get("/account-team/rows", response_model=List[Dict[str, Any]])
+def portfolio_account_team_rows(
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """
+    Returns ALL account team rows (allocated + unallocated) for the edit panel.
+    """
+    return get_account_team_all_rows()
+
+@portfolio_router.get("/account-team/users", response_model=List[Dict[str, Any]])
+def portfolio_account_team_users(
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Returns all NTT internal users for the 'Add Member' form."""
+    return get_account_team_ntt_users()
+
 @portfolio_router.get("/account-team", response_model=List[Dict[str, Any]])
 def portfolio_account_team(
     current_user: Annotated[dict, Depends(get_current_user)],
     customer_id: Optional[int] = Query(None),
 ):
     return get_account_team(customer_id)
+
+@portfolio_router.put("/account-team/{accountteam_id}", response_model=Dict[str, Any])
+def portfolio_update_account_team(
+    accountteam_id: int,
+    body: Dict[str, Any],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """
+    Updates an account team record (allocated flag, changed_in, changed_by, end_date).
+    Mirrors save_account_team_change() from Streamlit.
+    """
+    success = update_account_team_row(accountteam_id, body)
+    return {"success": success}
+
+@portfolio_router.post("/account-team", response_model=Dict[str, Any])
+def portfolio_insert_account_team(
+    body: Dict[str, Any],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """
+    Inserts a new account team member for a company.
+    Mirrors account_team_repo.insert(new_dic) from Streamlit.
+    """
+    new_id = insert_account_team_row(body)
+    return {"accountteam_id": new_id, "success": new_id > 0}
 
 @portfolio_router.get("/adoption-tasks", response_model=List[Dict[str, Any]])
 def portfolio_adoption_tasks(
@@ -372,3 +437,149 @@ def admin_csm_list(current_user: Annotated[dict, Depends(get_current_user)]):
 def admin_team_goals(current_user: Annotated[dict, Depends(get_current_user)], fy: Optional[int] = Query(None)):
     if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
     return get_team_goals(fy)
+
+
+# ─── Admin — Tasks (admin_task.py migration) ──────────────
+
+class AdminTaskFilterRequest(BaseModel):
+    task_id: Optional[int] = None
+    ws_list: Optional[List[str]] = None
+    deal_ids: Optional[List[str]] = None
+    tracks: Optional[List[str]] = None
+    subtracks: Optional[List[str]] = None
+
+
+class AdminTaskUpdateRequest(BaseModel):
+    data: Dict[str, Any]
+
+
+class AdminRemoveTasksRequest(BaseModel):
+    task_ids: List[int]
+
+
+class AdminRemoveActivityRequest(BaseModel):
+    activity_id: int
+
+
+@admin_router.get("/tasks/filter-options", response_model=Dict[str, List[str]])
+def admin_task_filter_options(current_user: Annotated[dict, Depends(get_current_user)]):
+    """Returns distinct ws/deal/track/subtrack values for admin task filters."""
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Admin required")
+    return admin_get_task_filter_options()
+
+
+@admin_router.post("/tasks/filter", response_model=List[Dict[str, Any]])
+def admin_task_filter(
+    body: AdminTaskFilterRequest,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Filters tasks from vwTask by task_id, ws, deal, track, subtrack."""
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Admin required")
+    return admin_filter_tasks(
+        task_id=body.task_id,
+        ws_list=body.ws_list,
+        deal_ids=body.deal_ids,
+        tracks=body.tracks,
+        subtracks=body.subtracks,
+    )
+
+
+@admin_router.put("/tasks/{task_id}", response_model=Dict[str, Any])
+def admin_task_update(
+    task_id: int,
+    body: AdminTaskUpdateRequest,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Updates task fields in tbTask (admin use — no auto_completed logic)."""
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Admin required")
+    from app.tasks.filter_service import update_task
+    success = update_task(task_id=task_id, data=body.data)
+    return {"success": success}
+
+
+@admin_router.post("/tasks/remove", response_model=Dict[str, Any])
+def admin_task_remove(
+    body: AdminRemoveTasksRequest,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Zeros out tbTask + tbTaskActivity + tbTaskRecord for given task_ids."""
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Admin required")
+    if not body.task_ids:
+        raise HTTPException(status_code=400, detail="task_ids cannot be empty")
+    return admin_remove_tasks(body.task_ids)
+
+
+@admin_router.get("/tasks/{task_id}/activities", response_model=List[Dict[str, Any]])
+def admin_task_activities(
+    task_id: int,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Returns activities for a single task_id."""
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Admin required")
+    return admin_get_activities_one(task_id)
+
+
+@admin_router.get("/tasks/{task_id}/records", response_model=List[Dict[str, Any]])
+def admin_task_records(
+    task_id: int,
+    current_user: Annotated[dict, Depends(get_current_user)],
+    activity_id: Optional[int] = Query(None),
+):
+    """Returns records for a task; optionally filtered by activity_id."""
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Admin required")
+    if activity_id:
+        return admin_get_records_activity(task_id, activity_id)
+    return admin_get_records_task(task_id)
+
+
+@admin_router.post("/tasks/activities-many", response_model=List[Dict[str, Any]])
+def admin_activities_many(
+    body: AdminRemoveTasksRequest,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Returns activities for a list of task_ids (body.task_ids)."""
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Admin required")
+    return admin_get_activities_many(body.task_ids)
+
+
+@admin_router.post("/tasks/records-many", response_model=List[Dict[str, Any]])
+def admin_records_many(
+    body: AdminRemoveTasksRequest,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Returns records for a list of task_ids (body.task_ids)."""
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Admin required")
+    return admin_get_records_many(body.task_ids)
+
+
+@admin_router.put("/tasks/activities/{activity_id}", response_model=Dict[str, Any])
+def admin_activity_update(
+    activity_id: int,
+    body: AdminTaskUpdateRequest,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Updates activity fields in tbTaskActivity."""
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Admin required")
+    from app.tasks.filter_service import update_activity
+    success = update_activity(activity_id=activity_id, data=body.data)
+    return {"success": success}
+
+
+@admin_router.post("/tasks/activities/{activity_id}/remove", response_model=Dict[str, Any])
+def admin_activity_remove(
+    activity_id: int,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Zeros out tbTaskActivity + tbTaskRecord for a given activity_id."""
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Admin required")
+    return admin_remove_activity(activity_id)

@@ -84,5 +84,65 @@
     "notFound": "Recurso não encontrado",
     "forbidden": "Sem permissão para esta ação",
     "serverError": "Erro interno do servidor"
+  },
+  "portfolio": {
+    "accountTeam": {
+      "title": "Portfolio — Account Team",
+      "subtitle": "Membros do Account Team do Cliente",
+      "client": "Cliente",
+      "member": "Membro",
+      "type": "Tipo",
+      "allocated": "Alocado",
+      "titleEdit": "Editar Alocações",
+      "titleAdd": "Adicionar Membro",
+      "editMode": "Modo Edição",
+      "btnSave": "Salvar",
+      "warning1": "Por favor, selecione um usuário e um tipo.",
+      "info1": "Todos os usuários já estão vinculados a esta empresa.",
+      "recordsFound": "{{count}} registro(s) encontrado(s)"
+    }
+  },
+  "adoption": {
+    "csmAccount": {
+      "title": "CSM Account",
+      "subtitle": "Customer Success Manager — Portfólio de Contas",
+      "totalAccounts": "Total de Contas",
+      "csms": "CSMs",
+      "uniqueClients": "Clientes Únicos",
+      "topType": "Tipo Principal",
+      "allCsms": "Todos os CSMs",
+      "allClients": "Todos os Clientes",
+      "allTypes": "Todos os Tipos",
+      "client": "Cliente",
+      "clients": "clientes",
+      "records": "Registros",
+      "exportExcel": "Exportar Excel",
+      "chart2Title": "Clientes por CSM"
+    },
+    "teamTarget": {
+      "title": "Meta da Equipe",
+      "subtitle": "Metas e Realizações da Equipe de Adoção",
+      "fiscalYear": "Ano Fiscal",
+      "target": "Meta",
+      "selectTargetPlaceholder": "— Selecione uma meta —",
+      "detailsTitle": "Detalhes da Meta",
+      "taskTypes": "Tipos de Tarefa",
+      "measurement": "Método de Medição",
+      "value": "Valor",
+      "individual": "Individual",
+      "weightPts": "Peso (pts)",
+      "employees": "Funcionários",
+      "targetProgress": "Progresso da Meta",
+      "individualAppraisal": "Avaliação Individual",
+      "bySum": "por Somatória",
+      "byCounting": "por Contagem",
+      "targetDollar": "Meta ($)",
+      "achievedDollar": "Atingido ($)",
+      "noTargetsFound": "Nenhuma meta encontrada para o FY {{fy}}.",
+      "noIndividualProgress": "Nenhum progresso individual encontrado para esta meta.",
+      "noMeasureData": "Sem dados de medição para esta meta.",
+      "methodNotDetermined": "Método de medição não determinado.",
+      "selectTargetHint": "Selecione uma Meta acima para ver os detalhes e gráficos de progresso."
+    }
   }
 }

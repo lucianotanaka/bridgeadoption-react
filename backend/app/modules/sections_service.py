@@ -719,3 +719,113 @@ def get_account_team(customer_id: Optional[int] = None) -> List[Dict]:
         return _df(df)
     except Exception as e:
         logger.error(f"get_account_team: {e}\n{traceback.format_exc()}"); return []
+
+
+def get_account_team_matrix() -> List[Dict]:
+    """
+    Returns all ALLOCATED account team rows joined with Cisco Domain.
+    The React frontend uses these raw rows to build the pivot matrix.
+    Mirrors build_account_team_matrix() from account_team.py (Streamlit).
+    """
+    if not _AT_OK:
+        return []
+    try:
+        import pandas as pd
+        repo = AccountTeamRepository()
+        df = repo.find_all_df()
+        if df is None or df.empty:
+            return []
+        # Filter only allocated rows (mirrors Streamlit: accountteam_allocated != 0 and not null)
+        df = df[
+            (df["accountteam_allocated"] != 0) &
+            (df["accountteam_allocated"].notna())
+        ]
+        # Attach Cisco Domain per company
+        try:
+            from src.infrastructure.database.repositories.cisco_domain_repository import CiscoDomainRepository
+            dom_repo = CiscoDomainRepository()
+            df_domain = dom_repo.get_domain_all(client_id=None, as_df=True)
+            if df_domain is not None and not df_domain.empty:
+                df_domain["client_id"] = df_domain["client_id"].astype(int)
+                df_domain_grp = (
+                    df_domain.groupby("client_id")["cisco_domain"]
+                    .apply(lambda x: ", ".join(sorted(set(str(v) for v in x if v))))
+                    .reset_index()
+                    .rename(columns={"client_id": "accountteam_company_id", "cisco_domain": "cisco_domain"})
+                )
+                df["accountteam_company_id"] = df["accountteam_company_id"].astype(int)
+                df = df.merge(df_domain_grp, on="accountteam_company_id", how="left")
+            else:
+                df["cisco_domain"] = None
+        except Exception as de:
+            logger.warning(f"get_account_team_matrix: cisco_domain join failed: {de}")
+            df["cisco_domain"] = None
+        return _df(df)
+    except Exception as e:
+        logger.error(f"get_account_team_matrix: {e}\n{traceback.format_exc()}")
+        return []
+
+
+def get_account_team_all_rows() -> List[Dict]:
+    """
+    Returns ALL account team rows (allocated + unallocated) for the edit panel.
+    Mirrors df_account_team = account_team_repo.find_all_df() from Streamlit.
+    """
+    if not _AT_OK:
+        return []
+    try:
+        repo = AccountTeamRepository()
+        df = repo.find_all_df()
+        return _df(df)
+    except Exception as e:
+        logger.error(f"get_account_team_all_rows: {e}\n{traceback.format_exc()}")
+        return []
+
+
+def get_account_team_ntt_users() -> List[Dict]:
+    """
+    Returns NTT internal persons (person_company_id IS NULL, person_enabled=1)
+    for the 'Add Member' form in the Account Team page.
+    Source: tbPerson via PersonRepository.get_ntt_persons().
+    """
+    try:
+        from src.infrastructure.database.repositories.person_repository import PersonRepository
+        repo = PersonRepository()
+        df = repo.get_ntt_persons(only_enabled=True, as_df=True)
+        return _df(df)
+    except Exception as e:
+        logger.error(f"get_account_team_ntt_users: {e}\n{traceback.format_exc()}")
+        return []
+
+
+def update_account_team_row(accountteam_id: int, data: Dict) -> bool:
+    """
+    Updates an account team record (allocated, changed_in, changed_by, end_date, etc.).
+    Mirrors save_account_team_change() from Streamlit.
+    """
+    if not _AT_OK:
+        return False
+    try:
+        repo = AccountTeamRepository()
+        data["accountteam_id"] = accountteam_id
+        repo.update(data)
+        return True
+    except Exception as e:
+        logger.error(f"update_account_team_row: {e}")
+        return False
+
+
+def insert_account_team_row(data: Dict) -> int:
+    """
+    Inserts a new account team record. Returns the new accountteam_id or 0 on failure.
+    Mirrors account_team_repo.insert(new_dic) from Streamlit.
+    """
+    if not _AT_OK:
+        return 0
+    try:
+        repo = AccountTeamRepository()
+        new_id = repo.insert(data)
+        return int(new_id) if new_id else 0
+    except Exception as e:
+        logger.error(f"insert_account_team_row: {e}")
+        return 0

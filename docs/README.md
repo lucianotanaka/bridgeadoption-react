@@ -68,7 +68,8 @@ O **Bridge Adoption** é um portal web interno NTT Data para gestão de adoção
 
 #### Grupo Adoption (`adoption/`)
 - **`adoption/forecast.md`** — Forecast: previsão backlog vs realizado vs meta
-- **`adoption/cisco_lci.md`** — Cisco LCI: estágios, valores, taxa de conversão
+- **`adoption/cisco_lci.md`** — Cisco LCI: documentação completa (visão geral, abas, backend, API, i18n, troubleshooting)
+- **`adoption/cisco_lci_business_rules.md`** — Cisco LCI: regras de negócio detalhadas, dicionário de dados, fórmulas dos KPIs
 - **`adoption/csm_account.md`** — CSM Account: portfólio de contas por CSM
 - **`adoption/team_target.md`** — Team Target: metas vs atingimento por CSM
 - **`adoption/lci_status.md`** — LCI Status: elegibilidade e Solution vs Project
@@ -97,6 +98,8 @@ O **Bridge Adoption** é um portal web interno NTT Data para gestão de adoção
 ### `05_deployment/`
 - **`deployment_guide.md`** — Deploy completo: frontend + backend + Apache + systemd + checklist
 - `task/` — arquitetura e troubleshooting do módulo Tasks (5 arquivos)
+- `cisco_lci/` — Cisco LCI: guia de implantação, sustentação e troubleshooting
+  - **`cisco_lci/cisco_lci_overview.md`** — Deploy, serviços, verificação de saúde, troubleshooting, histórico de versões
 
 ### `06_security/`
 - **`authorization_rbac.md`** — RBAC React v3.0: JWT, PermissionRoute, AdminRoute, permissões
@@ -107,6 +110,8 @@ O **Bridge Adoption** é um portal web interno NTT Data para gestão de adoção
 - `README.md` — visão geral dos grupos de endpoints
 - **`auth_endpoints.md`** — Login, logout, language, theme
 - **`admin_endpoints.md`** — Usuários, roles, permissões, recursos, empresas
+- **`cisco_lci_endpoints.md`** — Cisco LCI: todos os endpoints com parâmetros, respostas e exemplos
+- **`team_target_endpoints.md`** — Team Target: fiscal-years, targets enriquecidos, medição por target_id
 
 ### `08_frontend/`
 - `README.md` — visão geral da stack React, estrutura, build e deploy
@@ -124,8 +129,14 @@ O **Bridge Adoption** é um portal web interno NTT Data para gestão de adoção
 | Criar novo módulo | `08_frontend/architecture.md` + `06_security/authorization_rbac.md` |
 | Gerenciar permissões | `06_security/authorization_rbac.md` |
 | Entender a API | `07_api/auth_endpoints.md` + `07_api/admin_endpoints.md` |
+| **API Cisco LCI** | `07_api/cisco_lci_endpoints.md` |
+| **API Team Target** | `07_api/team_target_endpoints.md` |
 | Adicionar tradução | `08_frontend/i18n.md` |
 | Gerenciar estado | `08_frontend/state_management.md` |
 | Entender um módulo específico | `02_application/<grupo>/<modulo>.md` |
+| **Entender módulo Cisco LCI** | `02_application/adoption/cisco_lci.md` |
+| **Regras de negócio Cisco LCI** | `02_application/adoption/cisco_lci_business_rules.md` |
+| **Deploy/sustentação Cisco LCI** | `05_deployment/cisco_lci/cisco_lci_overview.md` |
 | Entender arquitetura geral | `01_architecture/architecture_overview.md` |
 | Troubleshooting deploy/backend | `05_deployment/deployment_guide.md` |
+| **Troubleshooting Cisco LCI** | `05_deployment/cisco_lci/cisco_lci_overview.md#7-troubleshooting-comum` |

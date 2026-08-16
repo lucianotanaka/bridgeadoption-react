@@ -1,207 +1,384 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
+/**
+ * RebatePage — Adoption: Rebate & Opportunities
+ * Migração completa do Streamlit report_rebate_and_opportunities.py
+ * Tabs: LCI Approved | LCI Journey | Task Incentive | SIP Opportunities | Cisco EA
+ */
+import { useState, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import { RefreshCw, Download } from "lucide-react";
 import Plot from "react-plotly.js";
+import * as XLSX from "xlsx";
 import apiClient from "@/api/client";
 
-type TabKey = "lci-approved" | "lci-journey" | "task-incentive" | "sip" | "cisco-ea";
-const TABS: { key: TabKey; label: string }[] = [
-  { key: "lci-approved", label: "LCI Approved" },
-  { key: "lci-journey", label: "LCI Journey" },
-  { key: "task-incentive", label: "Task Incentive" },
-  { key: "sip", label: "SIP Opportunities" },
-  { key: "cisco-ea", label: "Cisco EA" },
+// ─── Types ────────────────────────────────────────────────
+interface Summary {
+  fy: number; ea_generated_pct: string;
+  count_sip_in_progress: number; count_sip_approved: number;
+  count_tasks: number; count_completed: number;
+  count_in_progress: number; count_under_review: number;
+  total_approved_usd: number; total_backlog_usd: number;
+}
+type Row = Record<string, unknown>;
+type Tab = "sipOpportunities" | "ciscoEA";
+
+// ─── Colour maps ──────────────────────────────────────────
+const SC: Record<string, string> = {
+  "OPEN": "#4A90D9", "IN PROGRESS": "#F5A623", "ON HOLD": "#9B59B6",
+  "COMPLETED": "#27AE60", "DONE": "#27AE60", "CANCELLED": "#E74C3C",
+  "DECLINED": "#C0392B", "APPROVED": "#2ECC71", "UNDER REVIEW": "#3498DB", "PENDING": "#F39C12",
+};
+const FB = ["#005B96", "#6B48A2", "#00897B", "#E67E22", "#E74C3C", "#2980B9"];
+const card = "bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4";
+
+// ─── Formatters ───────────────────────────────────────────
+const fmtC = (v: number) => {
+  if (!isFinite(v) || isNaN(v)) return "$0";
+  if (Math.abs(v) >= 1e6) return "$" + (v / 1e6).toFixed(1) + "M";
+  if (Math.abs(v) >= 1e3) return "$" + (v / 1e3).toFixed(1) + "K";
+  return "$" + v.toFixed(2);
+};
+const fmtD = (v: unknown): string => {
+  if (!v) return "";
+  try { const d = new Date(String(v)); return isNaN(d.getTime()) ? String(v) : d.toISOString().split("T")[0]; }
+  catch { return String(v); }
+};
+const fmtN = (v: unknown, dec = 2): string => {
+  if (v === null || v === undefined || v === "") return "";
+  const n = Number(v);
+  return isNaN(n) ? String(v) : n.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
+};
+const fyRange = (fy: number) => {
+  const dt = new Date(fy + 1, 2, 31);
+  const df = new Date(dt);
+  df.setMonth(df.getMonth() - 18);
+  return { df, dt };
+};
+const mkLay = (dark: boolean, title: string, h: number, xT = "", yT = "") => {
+  const bg = dark ? "#111827" : "white";
+  const gr = dark ? "#374151" : "#e5e7eb";
+  const fc = dark ? "#d1d5db" : "#374151";
+  return {
+    title: { text: title, font: { color: fc, size: 12 }, x: 0 },
+    paper_bgcolor: bg, plot_bgcolor: bg, font: { color: fc, size: 11 },
+    margin: { l: 60, r: 20, t: 40, b: 70 }, height: h,
+    xaxis: { title: xT, gridcolor: gr, automargin: true },
+    yaxis: { title: yT, gridcolor: gr, automargin: true }, showlegend: false,
+  };
+};
+
+// ─── KPI Card ─────────────────────────────────────────────
+function KPI({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className={card}>
+      <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">{label}</p>
+      <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{value}</p>
+    </div>
+  );
+}
+
+// ─── DataTable ────────────────────────────────────────────
+interface CD { key: string; label: string; fmt?: (v: unknown) => string; r?: boolean; }
+
+function Tbl({ rows, cols, onExp, expLbl = "Excel", loading = false, title }: {
+  rows: Row[]; cols: CD[]; onExp?: () => void; expLbl?: string; loading?: boolean; title?: string;
+}) {
+  const { t } = useTranslation();
+  const [pg, setPg] = useState(1);
+  const [ps, setPs] = useState(25);
+  const tp = Math.max(1, Math.ceil(rows.length / ps));
+  const fr = rows.length === 0 ? 0 : (pg - 1) * ps + 1;
+  const to = Math.min(pg * ps, rows.length);
+  const paged = rows.slice((pg - 1) * ps, pg * ps);
+  let ws = Math.max(1, pg - 2); const we = Math.min(tp, ws + 4);
+  if (we - ws < 4) ws = Math.max(1, we - 4);
+  const pns = Array.from({ length: we - ws + 1 }, (_, i) => ws + i);
+  const bB = "flex items-center justify-center w-7 h-7 text-xs font-medium rounded-lg transition-colors";
+  const bA = bB + " bg-blue-600 text-white";
+  const bI = bB + " border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed";
+  if (loading) return (
+    <div className="flex justify-center py-12">
+      <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        {title && <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wide">{title} ({rows.length})</p>}
+        {onExp && (
+          <button onClick={onExp} disabled={rows.length === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 rounded-lg ml-auto">
+            <Download size={13} /> {expLbl}
+          </button>
+        )}
+      </div>
+      {rows.length === 0
+        ? <p className="text-center text-xs text-gray-400 py-8">{t("common.noData")}</p>
+        : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                    <th className="text-left py-2 px-2 text-gray-500 font-semibold w-8">#</th>
+                    {cols.map(c => (
+                      <th key={c.key} className={"py-2 px-2 text-gray-500 font-semibold whitespace-nowrap " + (c.r ? "text-right" : "text-left")}>{c.label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {paged.map((row, i) => (
+                    <tr key={i} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800">
+                      <td className="py-1.5 px-2 text-gray-400">{(pg - 1) * ps + i + 1}</td>
+                      {cols.map(c => {
+                        const v = row[c.key];
+                        const d = c.fmt ? c.fmt(v) : (v === null || v === undefined ? "" : String(v));
+                        return <td key={c.key} className={"py-1.5 px-2 text-gray-700 dark:text-gray-300 max-w-[200px] overflow-hidden text-ellipsis " + (c.r ? "text-right" : "")}>{d}</td>;
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-gray-100 dark:border-gray-800 mt-2">
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-500">{t("common.showing")} <b>{fr}</b>–<b>{to}</b> {t("common.of")} <b>{rows.length}</b></span>
+                <select value={ps} onChange={e => { setPs(Number(e.target.value)); setPg(1); }}
+                  className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                  {[25, 50, 100, 200].map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setPg(1)} disabled={pg === 1} className={bI}>«</button>
+                <button onClick={() => setPg(p => Math.max(1, p - 1))} disabled={pg === 1} className={bI}>‹</button>
+                {ws > 1 && <span className="text-xs text-gray-400 px-1">…</span>}
+                {pns.map(p => <button key={p} onClick={() => setPg(p)} className={p === pg ? bA : bI}>{p}</button>)}
+                {we < tp && <span className="text-xs text-gray-400 px-1">…</span>}
+                <button onClick={() => setPg(p => Math.min(tp, p + 1))} disabled={pg >= tp} className={bI}>›</button>
+                <button onClick={() => setPg(tp)} disabled={pg >= tp} className={bI}>»</button>
+              </div>
+            </div>
+          </>
+        )}
+    </div>
+  );
+}
+
+// ─── Excel export ─────────────────────────────────────────
+function doExport(rows: Row[], cols: CD[], fn: string) {
+  const data = rows.map((r, i) => {
+    const o: Row = { "#": i + 1 };
+    cols.forEach(c => { o[c.label] = c.fmt ? c.fmt(r[c.key]) : (r[c.key] ?? ""); });
+    return o;
+  });
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+  XLSX.writeFile(wb, fn);
+}
+
+// ─── Column definitions ───────────────────────────────────
+const COLS_SIP: CD[] = [
+  { key: "task_id", label: "ID" }, { key: "task_tasktype_name", label: "Type" },
+  { key: "task_owner_name", label: "Owner" }, { key: "task_client_name", label: "Client" },
+  { key: "task_reference", label: "Reference" },
+  { key: "task_start", label: "Start", fmt: fmtD }, { key: "task_end", label: "End", fmt: fmtD },
+  { key: "task_days", label: "Days" }, { key: "task_end_fy", label: "FY" },
+  { key: "task_status_name", label: "Status" }, { key: "task_currency", label: "Cur" },
+  { key: "task_deal_value", label: "Deal Value", fmt: v => fmtN(v), r: true },
+  { key: "task_note", label: "Note" },
 ];
 
-interface Summary {
-  fy: number;
-  ea_generated_pct: string;
-  count_sip_in_progress: number;
-  count_sip_approved: number;
-  count_tasks: number;
-  count_completed: number;
-  count_in_progress: number;
-  count_under_review: number;
-  total_approved_usd: number;
-  total_backlog_usd: number;
-}
+const COLS_EA: CD[] = [
+  { key: "mcea_suite_name", label: "Suite" },
+  { key: "mcea_purchased", label: "Purchased", fmt: v => fmtN(v, 0), r: true },
+  { key: "mcea_generated", label: "Generated", fmt: v => fmtN(v, 0), r: true },
+  { key: "mcea_start_date", label: "Start", fmt: fmtD },
+  { key: "mcea_end_date", label: "End", fmt: fmtD },
+];
 
-function fmtUSD(v: number): string {
-  if (v >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
-  if (v >= 1e3) return `$${(v / 1e3).toFixed(1)}K`;
-  return `$${v.toFixed(0)}`;
-}
-
-function KPICard({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-3">
-      <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase mb-0.5">{label}</p>
-      <p className="text-xl font-bold text-blue-600 dark:text-blue-400">{value}</p>
-      {sub && <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{sub}</p>}
-    </div>
-  );
-}
-
-function TableView({ rows, maxCols = 12 }: { rows: Record<string, unknown>[]; maxCols?: number }) {
-  const headers = rows.length > 0 ? Object.keys(rows[0]).filter(h => !h.startsWith("__")).slice(0, maxCols) : [];
-  if (!rows.length) return <p className="text-center text-gray-400 dark:text-gray-500 py-6">No data.</p>;
-  return (
-    <div className="overflow-x-auto">
-      <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{rows.length} records</p>
-      <table className="w-full text-xs">
-        <thead><tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">{headers.map(h => <th key={h} className="text-left py-2 px-2 text-gray-600 dark:text-gray-400 font-semibold whitespace-nowrap">{h}</th>)}</tr></thead>
-        <tbody>{rows.slice(0, 500).map((r, i) => <tr key={i} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800">{headers.map(h => <td key={h} className="py-1.5 px-2 text-gray-600 dark:text-gray-400 truncate max-w-[160px]">{r[h] == null ? "—" : String(r[h])}</td>)}</tr>)}</tbody>
-      </table>
-      {rows.length > 500 && <p className="text-xs text-gray-400 text-center mt-2">Showing 500 of {rows.length}</p>}
-    </div>
-  );
-}
-
+// ─── Main Page ────────────────────────────────────────────
 export default function RebatePage() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
   const isDark = document.documentElement.classList.contains("dark");
-  const currentYear = new Date().getFullYear();
-  const [selectedFY, setSelectedFY] = useState<number>(currentYear);
-  const [tab, setTab] = useState<TabKey>("lci-approved");
+  const today = new Date();
 
-  const fyQ = useQuery({ queryKey: ["rebate-fy"], queryFn: () => apiClient.get<number[]>("/adoption/rebate/fiscal-years").then(r => r.data), staleTime: 10 * 60 * 1000 });
-  const summaryQ = useQuery({ queryKey: ["rebate-summary", selectedFY], queryFn: () => apiClient.get<Summary>(`/adoption/rebate/summary?fy=${selectedFY}`).then(r => r.data), staleTime: 3 * 60 * 1000 });
-  const taskQ = useQuery({ queryKey: ["rebate-task", selectedFY, tab], queryFn: () => apiClient.get<Record<string, unknown>[]>(`/adoption/rebate/task-incentive?fy=${selectedFY}`).then(r => r.data), staleTime: 5 * 60 * 1000, enabled: tab === "task-incentive" });
-  const sipQ = useQuery({ queryKey: ["rebate-sip"], queryFn: () => apiClient.get<Record<string, unknown>[]>("/adoption/rebate/sip-opportunities").then(r => r.data), staleTime: 5 * 60 * 1000, enabled: tab === "sip" });
-  const eaQ = useQuery({ queryKey: ["rebate-ea"], queryFn: () => apiClient.get<Record<string, unknown>[]>("/adoption/rebate/cisco-ea").then(r => r.data), staleTime: 5 * 60 * 1000, enabled: tab === "cisco-ea" });
-  const approvedQ = useQuery({ queryKey: ["rebate-approved", selectedFY, tab], queryFn: () => apiClient.get<Record<string, unknown>[]>(`/adoption/rebate/lci-approved?fy=${selectedFY}`).then(r => r.data), staleTime: 5 * 60 * 1000, enabled: tab === "lci-approved" });
-  const journeyQ = useQuery({ queryKey: ["rebate-journey", selectedFY, tab], queryFn: () => apiClient.get<Record<string, unknown>[]>(`/adoption/rebate/lci-journey?fy=${selectedFY}`).then(r => r.data), staleTime: 5 * 60 * 1000, enabled: tab === "lci-journey" });
+  const [activeTab, setActiveTab] = useState<Tab>("sipOpportunities");
+  const [selectedFy, setSelectedFy] = useState<number | null>(null);
 
-  const fyList = fyQ.data ?? [];
-  const s = summaryQ.data;
+  // ── Fiscal years ──────────────────────────────────────
+  const fyQ = useQuery({
+    queryKey: ["rebate-fiscal-years"],
+    queryFn: () => apiClient.get<number[]>("/adoption/rebate/fiscal-years").then(r => r.data),
+    staleTime: 10 * 60 * 1000,
+  });
+  const fyOptions = fyQ.data ?? [];
 
-  // Status distribution chart from task incentive
-  const taskRows = taskQ.data ?? [];
-  const statusAgg: Record<string, number> = {};
-  taskRows.forEach(r => {
-    const st = String(r.task_status_name ?? r.task_status ?? "Unknown");
-    statusAgg[st] = (statusAgg[st] || 0) + 1;
+  // Auto-select current FY on first load
+  const fy = useMemo(() => {
+    if (selectedFy !== null) return selectedFy;
+    if (fyOptions.length === 0) return null;
+    const m = today.getMonth() + 1;
+    const curFy = m >= 4 ? today.getFullYear() : today.getFullYear() - 1;
+    return fyOptions.includes(curFy) ? curFy : fyOptions[fyOptions.length - 1];
+  }, [selectedFy, fyOptions]);
+
+  // ── Summary (KPI cards) ───────────────────────────────
+  const sumQ = useQuery({
+    queryKey: ["rebate-summary", fy],
+    queryFn: () => apiClient.get<Summary>("/adoption/rebate/summary", { params: { fy } }).then(r => r.data),
+    enabled: fy !== null,
+    staleTime: 5 * 60 * 1000,
   });
 
-  // EA chart
-  const eaRows = eaQ.data ?? [];
-  const eaSuiteAgg: Record<string, { purchased: number; generated: number }> = {};
-  eaRows.forEach(r => {
-    const suite = String(r.mcea_suite_name ?? "Unknown");
-    if (!eaSuiteAgg[suite]) eaSuiteAgg[suite] = { purchased: 0, generated: 0 };
-    eaSuiteAgg[suite].purchased += Number(r.mcea_purchased ?? 0);
-    const gen = Math.min(Number(r.mcea_generated ?? 0), Number(r.mcea_purchased ?? 0));
-    eaSuiteAgg[suite].generated += gen;
+  // ── Per-tab lazy queries ───────────────────────────────
+  const sipQ = useQuery({
+    queryKey: ["rebate-sip"],
+    queryFn: () => apiClient.get<Row[]>("/adoption/rebate/sip-opportunities").then(r => r.data),
+    enabled: activeTab === "sipOpportunities",
+    staleTime: 5 * 60 * 1000,
   });
-  const eaSuites = Object.entries(eaSuiteAgg)
-    .map(([suite, d]) => ({ suite, pct: d.purchased > 0 ? d.generated / d.purchased : 0 }))
-    .sort((a, b) => b.pct - a.pct);
-
-  const plotLayout = (h = 300) => ({
-    paper_bgcolor: isDark ? "#111827" : "white",
-    plot_bgcolor: isDark ? "#111827" : "white",
-    font: { color: isDark ? "#d1d5db" : "#374151", size: 10 },
-    margin: { t: 30, b: 40, l: 40, r: 30 },
-    height: h,
+  const eaQ = useQuery({
+    queryKey: ["rebate-cisco-ea"],
+    queryFn: () => apiClient.get<Row[]>("/adoption/rebate/cisco-ea").then(r => r.data),
+    enabled: activeTab === "ciscoEA",
+    staleTime: 5 * 60 * 1000,
   });
 
-  const activeRows = {
-    "lci-approved": approvedQ.data ?? [],
-    "lci-journey": journeyQ.data ?? [],
-    "task-incentive": taskRows,
-    "sip": sipQ.data ?? [],
-    "cisco-ea": eaRows,
-  }[tab];
+  // ── EA chart data ──────────────────────────────────────
+  const eaChart = useMemo(() => {
+    const rows = (eaQ.data ?? []).filter(r => {
+      const ed = r.mcea_end_date ? new Date(String(r.mcea_end_date)) : null;
+      return ed && ed >= today;
+    });
+    if (!rows.length) return null;
+    const suiteMap: Record<string, { p: number; g: number }> = {};
+    rows.forEach(r => {
+      const suite = String(r.mcea_suite_name ?? "Unknown");
+      const p = Number(r.mcea_purchased ?? 0);
+      const g = Math.min(Number(r.mcea_generated ?? 0), p);
+      if (!suiteMap[suite]) suiteMap[suite] = { p: 0, g: 0 };
+      suiteMap[suite].p += p;
+      suiteMap[suite].g += g;
+    });
+    const entries = Object.entries(suiteMap)
+      .map(([suite, { p, g }]) => ({ suite, pct: p > 0 ? g / p : 0 }))
+      .sort((a, b) => b.pct - a.pct);
+    return {
+      y: entries.map(e => e.suite),
+      x: entries.map(e => e.pct),
+      text: entries.map(e => (e.pct * 100).toFixed(1) + "%"),
+      colors: entries.map((_, i) => FB[i % FB.length]),
+      h: Math.max(300, entries.length * 28),
+    };
+  }, [eaQ.data]);
 
-  const isLoading = {
-    "lci-approved": approvedQ.isLoading,
-    "lci-journey": journeyQ.isLoading,
-    "task-incentive": taskQ.isLoading,
-    "sip": sipQ.isLoading,
-    "cisco-ea": eaQ.isLoading,
-  }[tab];
-
-  const refetch = () => {
-    void summaryQ.refetch();
-    void approvedQ.refetch();
-    void journeyQ.refetch();
+  // ── Refresh ────────────────────────────────────────────
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["rebate-fiscal-years"] });
+    qc.invalidateQueries({ queryKey: ["rebate-summary", fy] });
+    qc.invalidateQueries({ queryKey: ["rebate-sip"] });
+    qc.invalidateQueries({ queryKey: ["rebate-cisco-ea"] });
   };
+
+  const sum = sumQ.data;
+  const spin = <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />;
+
+  const tabLabels: Record<Tab, string> = {
+    sipOpportunities: t("adoption.rebate.sipOpportunities"),
+    ciscoEA: t("adoption.rebate.ciscoEA"),
+  };
+
+  const tabBtnCls = (tab: Tab) =>
+    "px-4 py-2 text-xs font-semibold rounded-lg border transition-colors " +
+    (activeTab === tab
+      ? "bg-blue-600 text-white border-blue-600"
+      : "bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800");
 
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Rebate & Opportunities</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Cisco SIP / LCI Incentive Tracking</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("adoption.rebate.title")}</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{t("adoption.rebate.subtitle")}</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex gap-1">
-            {fyList.map(fy => (
-              <button key={fy} onClick={() => setSelectedFY(fy)} className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${selectedFY === fy ? "bg-blue-600 text-white" : "bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400"}`}>{fy}</button>
-            ))}
+        <button onClick={refresh} className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+          <RefreshCw size={14} /> {t("common.refresh")}
+        </button>
+      </div>
+
+      {/* FY Selector */}
+      <div className={card}>
+        <div className="flex items-center gap-4 flex-wrap">
+          <div>
+            <label className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1 block">{t("adoption.teamTarget.fiscalYear")}</label>
+            <select
+              value={fy ?? ""}
+              onChange={e => setSelectedFy(Number(e.target.value))}
+              className="text-xs px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              {fyOptions.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
           </div>
-          <button onClick={refetch} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            <RefreshCw size={13} /> Refresh
-          </button>
+          {sumQ.isLoading && <div className="flex items-center gap-2 pt-4">{spin} <span className="text-xs text-gray-400">{t("common.loading")}</span></div>}
         </div>
       </div>
 
       {/* KPI Cards */}
-      {s && (
-        <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2">
-          <KPICard label="EA Generated" value={s.ea_generated_pct} />
-          <KPICard label="SIP In Progress" value={String(s.count_sip_in_progress)} />
-          <KPICard label="SIP Approved" value={String(s.count_sip_approved)} />
-          <KPICard label="LCI Tasks" value={String(s.count_tasks)} />
-          <KPICard label="Completed" value={String(s.count_completed)} />
-          <KPICard label="In Progress" value={String(s.count_in_progress)} />
-          <KPICard label="Under Review" value={String(s.count_under_review)} />
-          <KPICard label="LCI Approved" value={fmtUSD(s.total_approved_usd)} sub={`FY ${s.fy}`} />
-          <KPICard label="LCI Backlog" value={fmtUSD(s.total_backlog_usd)} />
+      {sum && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <KPI label={t("adoption.rebate.eaGenerated")} value={sum.ea_generated_pct} />
+          <KPI label={t("adoption.rebate.sipInProgress")} value={sum.count_sip_in_progress} />
+          <KPI label={t("adoption.rebate.sipApproved")} value={sum.count_sip_approved} />
         </div>
       )}
 
-      {/* Charts row: status distribution + EA */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-2">Task Distribution by Status (FY {selectedFY})</p>
-          {taskQ.isLoading && tab !== "task-incentive" ? (
-            <p className="text-xs text-gray-400 py-4">Load "Task Incentive" tab to populate</p>
-          ) : Object.keys(statusAgg).length > 0 ? (
-            <Plot
-              data={[{ type: "bar" as const, x: Object.keys(statusAgg), y: Object.values(statusAgg), marker: { color: "#5DADE2" }, text: Object.values(statusAgg).map(String), textposition: "outside" as const }]}
-              layout={{ ...plotLayout(250) }}
-              useResizeHandler style={{ width: "100%" }} config={{ displayModeBar: false }}
-            />
-          ) : <p className="text-xs text-gray-400 py-4 text-center">Click "Task Incentive" tab to load data</p>}
-        </div>
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-2">EA Licenses Generated % by Suite</p>
-          {eaQ.isLoading ? (
-            <p className="text-xs text-gray-400 py-4">Load "Cisco EA" tab to populate</p>
-          ) : eaSuites.length > 0 ? (
-            <Plot
-              data={[{ type: "bar" as const, x: eaSuites.map(e => e.pct), y: eaSuites.map(e => e.suite), orientation: "h" as const, marker: { color: "#12B76A" }, text: eaSuites.map(e => `${(e.pct * 100).toFixed(1)}%`), textposition: "outside" as const }]}
-              layout={{ ...plotLayout(Math.max(250, eaSuites.length * 25)), xaxis: { tickformat: ".0%", range: [0, 1.15] }, margin: { t: 20, b: 30, l: 250, r: 60 } }}
-              useResizeHandler style={{ width: "100%" }} config={{ displayModeBar: false }}
-            />
-          ) : <p className="text-xs text-gray-400 py-4 text-center">Click "Cisco EA" tab to load data</p>}
-        </div>
+      {/* EA Licenses Generated % by Suite */}
+      <div className={card}>
+        <p className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">EA LICENSES GENERATED % BY SUITE</p>
+        {activeTab !== "ciscoEA"
+          ? <p className="text-xs text-gray-400 text-center py-6">Click "{t("adoption.rebate.ciscoEA")}" tab to load data</p>
+          : eaQ.isLoading
+            ? <div className="flex justify-center py-8">{spin}</div>
+            : eaChart
+              ? <Plot
+                  data={[{ type: "bar", orientation: "h" as const, y: eaChart.y, x: eaChart.x, text: eaChart.text, textposition: "outside" as const, marker: { color: eaChart.colors } }]}
+                  layout={{ ...mkLay(isDark, "", eaChart.h, "% Generated", "Suite"), yaxis: { autorange: "reversed" as const, automargin: true } }}
+                  useResizeHandler style={{ width: "100%" }} config={{ displayModeBar: false, responsive: true }}
+                />
+              : <p className="text-xs text-gray-400 text-center py-6">{t("common.noData")}</p>
+        }
       </div>
 
-      {/* Data Tabs */}
-      <div className="flex gap-2 flex-wrap">
-        {TABS.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)} className={`px-4 py-2 text-sm font-medium rounded-xl transition-colors ${tab === t.key ? "bg-blue-600 text-white" : "bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>
-            {t.label}
-          </button>
+      {/* Tab bar */}
+      <div className="flex flex-wrap gap-2">
+        {(["sipOpportunities", "ciscoEA"] as Tab[]).map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab)} className={tabBtnCls(tab)}>{tabLabels[tab]}</button>
         ))}
       </div>
 
-      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-        {isLoading ? (
-          <div className="flex justify-center py-8"><div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
-        ) : <TableView rows={activeRows} />}
+      {/* Tab content */}
+      <div className={card}>
+        {activeTab === "sipOpportunities" && (
+          <Tbl
+            rows={sipQ.data ?? []}
+            cols={COLS_SIP}
+            loading={sipQ.isLoading}
+            title={t("adoption.rebate.sipOpportunities")}
+            onExp={() => doExport(sipQ.data ?? [], COLS_SIP, new Date().toISOString().split("T")[0] + "_task_sip.xlsx")}
+          />
+        )}
+        {activeTab === "ciscoEA" && (
+          <Tbl
+            rows={eaQ.data ?? []}
+            cols={COLS_EA}
+            loading={eaQ.isLoading}
+            title={t("adoption.rebate.ciscoEA")}
+            onExp={() => doExport(eaQ.data ?? [], COLS_EA, new Date().toISOString().split("T")[0] + "_cisco_ea.xlsx")}
+          />
+        )}
       </div>
     </div>
   );

@@ -5,6 +5,8 @@ Endpoints:
   GET /api/adoption/csm-account/accounts
   GET /api/adoption/csm-account/summary
   GET /api/adoption/team-target/fiscal-years
+  GET /api/adoption/team-target/targets?fy=2026
+  GET /api/adoption/team-target/{target_id}/measure
   GET /api/adoption/team-target?fy=2026
   GET /api/adoption/lci-status/eligible
   GET /api/adoption/lci-status/solution-vs-project
@@ -24,6 +26,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.adoption.csm_account_service import get_csm_accounts, get_csm_account_summary
 from app.adoption.extras_service import (
     get_team_target_fiscal_years, get_team_target,
+    get_team_target_targets, get_team_target_measure,
     get_lci_eligible_status, get_lci_solution_vs_project,
     get_rebate_fiscal_years, get_rebate_task_incentive, get_rebate_cisco_ea,
     get_rebate_lci_approved, get_rebate_lci_journey,
@@ -61,6 +64,21 @@ target_router = APIRouter(prefix="/api/adoption/team-target", tags=["adoption-te
 @target_router.get("/fiscal-years", response_model=List[int])
 def target_fiscal_years(current_user: Annotated[dict, Depends(get_current_user)]):
     return get_team_target_fiscal_years()
+
+@target_router.get("/targets", response_model=List[Dict[str, Any]])
+def team_target_targets(current_user: Annotated[dict, Depends(get_current_user)], fy: int = Query(...)):
+    """
+    Returns enriched list of targets for a given FY.
+    Includes resolved task_names and user_names arrays.
+    """
+    return get_team_target_targets(fy)
+
+@target_router.get("/{target_id}/measure", response_model=List[Dict[str, Any]])
+def team_target_measure(target_id: int, current_user: Annotated[dict, Depends(get_current_user)]):
+    """
+    Returns measurement rows from vwMeasureTeamTarget for a given target_id.
+    """
+    return get_team_target_measure(target_id)
 
 @target_router.get("", response_model=List[Dict[str, Any]])
 def team_target(current_user: Annotated[dict, Depends(get_current_user)], fy: Optional[int] = Query(None)):

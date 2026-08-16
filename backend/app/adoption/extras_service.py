@@ -88,6 +88,111 @@ def get_team_target(fy: Optional[int] = None) -> List[Dict[str, Any]]:
         logger.error(f"get_team_target: {e}\n{traceback.format_exc()}"); return []
 
 
+def get_team_target_targets(fy: int) -> List[Dict[str, Any]]:
+    """
+    Returns enriched Team Target list for a given FY (team_id=30).
+    Includes resolved task names and user names.
+    Espelha lógica de show_adoption_team_target() — filtros de seleção de meta.
+    """
+    if not _TEAM_OK or not _OK:
+        return []
+    try:
+        import pandas as pd
+        repo = TeamTargetRepository()
+        df = repo.get_team_target_by_fy(fy=fy, team_id=30, as_df=True)
+        if df is None or df.empty:
+            return []
+
+        from src.infrastructure.database.repositories.task_repository import TaskRepository
+        from src.infrastructure.database.repositories.user_repository import UserRepository
+        task_repo_inst = TaskRepository()
+        user_repo_inst = UserRepository()
+
+        result = []
+        for _, row in df.iterrows():
+            tasks_list_raw = str(row.get("TASKS", "") or "")
+            users_list_raw = str(row.get("USERS", "") or "")
+
+            # --- resolve task type names ---
+            task_names: List[str] = []
+            if tasks_list_raw and tasks_list_raw.lower() not in ("", "none", "nan"):
+                try:
+                    tasks_df = task_repo_inst.get_task_type_by_ids(type_ids=tasks_list_raw, as_df=True)
+                    if tasks_df is not None and not tasks_df.empty and "tasktype_name" in tasks_df.columns:
+                        task_names = tasks_df["tasktype_name"].dropna().tolist()
+                except Exception as te:
+                    logger.warning(f"get_team_target_targets: task names error: {te}")
+
+            # --- resolve user names and IDs ---
+            user_names: List[str] = []
+            user_ids: List[int] = []
+            # parse user IDs directly from the raw string (comma-separated ints)
+            for uid in users_list_raw.split(","):
+                uid = uid.strip()
+                if uid.isdigit():
+                    user_ids.append(int(uid))
+            if users_list_raw and users_list_raw.lower() not in ("", "none", "nan"):
+                try:
+                    users_df = user_repo_inst.get_users_by_squad(
+                        department_id=30,
+                        user_id_str=users_list_raw,
+                        as_df=True,
+                    )
+                    if users_df is not None and not users_df.empty and "squad_user_name" in users_df.columns:
+                        user_names = users_df["squad_user_name"].dropna().tolist()
+                except Exception as ue:
+                    logger.warning(f"get_team_target_targets: user names error: {ue}")
+
+            desc_raw = row.get("DESCRIPTION", "")
+            description = "" if (desc_raw is None or (isinstance(desc_raw, float) and pd.isna(desc_raw))) else str(desc_raw)
+
+            result.append({
+                "id": int(row.get("ID", 0) or 0),
+                "fy": int(row.get("FY", fy) or fy),
+                "name": str(row.get("TARGET", "") or ""),
+                "description": description,
+                "tasks_list": tasks_list_raw,
+                "task_names": task_names,
+                "users_list": users_list_raw,
+                "user_ids": user_ids,
+                "user_names": user_names,
+                "measure_by_counting": int(row.get("MEASURE_BY_COUNTING", 0) or 0),
+                "measure_by_sum": int(row.get("MEASURE_BY_SUM", 0) or 0),
+                "points": int(row.get("POINTS", 0) or 0),
+                "multiplier": int(row.get("MULTIPLIER", 0) or 0),
+                "value": float(row.get("VALUE", 0) or 0),
+                "individual": int(row.get("INDIVIDUAL", 0) or 0),
+            })
+
+        return result
+    except Exception as e:
+        logger.error(f"get_team_target_targets: {e}\n{traceback.format_exc()}")
+        return []
+
+
+def get_team_target_measure(target_id: int) -> List[Dict[str, Any]]:
+    """
+    Returns measurement rows from vwMeasureTeamTarget for a given target_id.
+    Espelha create_target_progress_chart() — dados de medição.
+    """
+    if not _TEAM_OK:
+        return []
+    try:
+        import pandas as pd
+        repo = TeamTargetRepository()
+        df = repo.get_measure_team_target_by_id(target_id=target_id, as_df=True)
+        if df is None or df.empty:
+            return []
+        # Normalise numeric columns
+        for col in ("target_value", "activity_approved_value"):
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        return _df_to_list(df)
+    except Exception as e:
+        logger.error(f"get_team_target_measure: {e}\n{traceback.format_exc()}")
+        return []
+
+
 # ─── LCI STATUS ───────────────────────────────────────────
 
 def get_lci_eligible_status() -> List[Dict[str, Any]]:

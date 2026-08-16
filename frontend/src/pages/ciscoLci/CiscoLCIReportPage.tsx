@@ -10,6 +10,7 @@ import type { IncentiveByFY, EffortItem } from "@/api/forecast";
 import Pagination from "@/components/ui/Pagination";
 import MultiSelectDropdown from "@/components/ui/MultiSelectDropdown";
 import { exportToXlsxMultiSheet } from "@/utils/exportXlsx";
+import apiClient from "@/api/client";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -166,6 +167,119 @@ const EXPORT_TABS: { key: StageFilter; sheetName: string }[] = [
   { key: "lost", sheetName: "Lost" },
 ];
 
+// ─── LCI Journey types & columns ──────────────────────────
+type LciJourneyRow = Record<string, unknown>;
+const LCI_JOURNEY_COLS: { key: string; label: string; num?: boolean; date?: boolean }[] = [
+  { key: "task_id", label: "Task ID" },
+  { key: "task_type_name", label: "Task Type" },
+  { key: "task_client_name", label: "Client" },
+  { key: "task_csm_name", label: "CSM" },
+  { key: "task_track", label: "Solution/Track" },
+  { key: "task_use_case", label: "Use Case/Subtrack" },
+  { key: "task_ws", label: "Task WS" },
+  { key: "task_did", label: "Deal ID" },
+  { key: "task_start_date", label: "Start Date", date: true },
+  { key: "task_end_date", label: "End Date", date: true },
+  { key: "task_status_name", label: "Status" },
+  { key: "task_currency", label: "Currency" },
+  { key: "task_value", label: "Value", num: true },
+  { key: "task_backlog", label: "Backlog", num: true },
+  { key: "onboard_status", label: "Onboard Status" },
+  { key: "use_status", label: "Use Status" },
+  { key: "engage_status", label: "Engage Status" },
+  { key: "adopt_status", label: "Adopt Status" },
+  { key: "implement_status", label: "Implement Status" },
+  { key: "optimize_status", label: "Optimize Status" },
+  { key: "onboard_value", label: "Onboard Value", num: true },
+  { key: "use_value", label: "Use Value", num: true },
+  { key: "engage_value", label: "Engage Value", num: true },
+  { key: "adopt_value", label: "Adopt Value", num: true },
+  { key: "implement_value", label: "Implement Value", num: true },
+  { key: "onboard_approved_value", label: "Onboard Approved Value", num: true },
+  { key: "use_approved_value", label: "Use Approved Value", num: true },
+  { key: "engage_approved_value", label: "Engage Approved Value", num: true },
+  { key: "adopt_approved_value", label: "Adopt Approved Value", num: true },
+  { key: "implement_approved_value", label: "Implement Approved Value", num: true },
+];
+
+function fmtJourneyCell(val: unknown, col: typeof LCI_JOURNEY_COLS[0]): string {
+  if (val === null || val === undefined) return "—";
+  if (col.date) {
+    try { const d = new Date(String(val)); return isNaN(d.getTime()) ? String(val) : d.toISOString().split("T")[0]; }
+    catch { return String(val); }
+  }
+  if (col.num) {
+    const n = Number(val);
+    return isNaN(n) ? String(val) : n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  return String(val);
+}
+
+const JOURNEY_PAGE_SIZE = 25;
+
+function LciJourneyTable({ rows, fy, onExport }: { rows: LciJourneyRow[]; fy: number; onExport: () => void }) {
+  const [pg, setPg] = useState(1);
+  const [ps, setPs] = useState(JOURNEY_PAGE_SIZE);
+  const total = rows.length;
+  const from = total === 0 ? 0 : (pg - 1) * ps + 1;
+  const to = Math.min(pg * ps, total);
+  const paged = rows.slice((pg - 1) * ps, pg * ps);
+  if (!rows.length) return <p className="text-xs text-gray-400 text-center py-4">No data.</p>;
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wide">
+          LCI Journey — FY {fy} ({total} records)
+        </p>
+        <button
+          onClick={onExport}
+          disabled={!total}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 rounded-lg"
+        >
+          <Download size={13} /> Export Excel
+        </button>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+              <th className="text-left py-2 px-2 text-gray-500 dark:text-gray-400 font-semibold w-8">#</th>
+              {LCI_JOURNEY_COLS.map(c => (
+                <th key={c.key} className={"py-2 px-2 text-gray-500 dark:text-gray-400 font-semibold whitespace-nowrap " + (c.num ? "text-right" : "text-left")}>
+                  {c.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {paged.map((row, i) => (
+              <tr key={i} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800">
+                <td className="py-1.5 px-2 text-gray-400">{(pg - 1) * ps + i + 1}</td>
+                {LCI_JOURNEY_COLS.map(c => (
+                  <td key={c.key} className={"py-1.5 px-2 text-gray-700 dark:text-gray-300 max-w-[180px] overflow-hidden text-ellipsis " + (c.num ? "text-right" : "")}>
+                    {fmtJourneyCell(row[c.key], c)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-gray-100 dark:border-gray-800 mt-2 text-xs text-gray-500 dark:text-gray-400">
+        <span>Showing <b>{from}</b>–<b>{to}</b> of <b>{total}</b></span>
+        <Pagination
+          page={pg}
+          pageSize={ps}
+          total={total}
+          onPageChange={setPg}
+          pageSizeOptions={[10, 25, 50, 100, 200]}
+          onPageSizeChange={(size) => { setPs(size); setPg(1); }}
+        />
+      </div>
+    </div>
+  );
+}
+
 type OverviewTab = "financial" | "operational";
 
 export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
@@ -188,6 +302,12 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
   const effortClientQuery = useQuery({ queryKey: ["forecast", "effort-client"], queryFn: () => forecastApi.getEffortClient().then((r) => r.data), staleTime: 10 * 60 * 1000 });
   const effortUCQuery = useQuery({ queryKey: ["forecast", "effort-uc"], queryFn: () => forecastApi.getEffortUseCase().then((r) => r.data), staleTime: 10 * 60 * 1000 });
   const lostJustQuery = useQuery({ queryKey: ["lci", "lost-justification", selectedFY], queryFn: () => ciscoLciApi.getLostJustification(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
+  const lciJourneyQuery = useQuery({
+    queryKey: ["lci", "journey", selectedFY],
+    queryFn: () => apiClient.get<LciJourneyRow[]>("/adoption/rebate/lci-journey", { params: { fy: selectedFY } }).then(r => r.data),
+    enabled: overviewTab === "operational",
+    staleTime: 5 * 60 * 1000,
+  });
   const termQuery = useQuery({ queryKey: ["lci", "term", selectedFY], queryFn: () => ciscoLciApi.getTerminationStatus(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
   const burnupQuery = useQuery({ queryKey: ["lci", "burnup", selectedFY], queryFn: () => ciscoLciApi.getBurnup(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
   const yoyQuery = useQuery({ queryKey: ["lci", "yoy"], queryFn: () => ciscoLciApi.getYoY().then((r) => r.data), staleTime: 10 * 60 * 1000 });
@@ -246,6 +366,21 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
       ),
     [stages, filterClient, filterSolution, filterUseCase]
   );
+
+  // Filter journey rows by task_end_date within the NTT FY period (Apr 1 → Mar 31)
+  const filteredJourneyRows = useMemo(() => {
+    const rows = lciJourneyQuery.data ?? [];
+    if (!rows.length) return [];
+    const fyStart = new Date(selectedFY, 3, 1);       // Apr 1 of FY
+    const fyEnd = new Date(selectedFY + 1, 2, 31, 23, 59, 59); // Mar 31 of FY+1
+    return rows.filter(r => {
+      if (!r.task_end_date) return false;
+      try {
+        const d = new Date(String(r.task_end_date));
+        return !isNaN(d.getTime()) && d >= fyStart && d <= fyEnd;
+      } catch { return false; }
+    });
+  }, [lciJourneyQuery.data, selectedFY]);
 
   const applyFilters = (rows: LCIStageRow[]) =>
     rows.filter(
@@ -514,33 +649,7 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
                   />
                 </div>
               )}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-                  <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-1">Effort by Client</p>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">Average days for completed incentive tasks</p>
-                  {effortClientQuery.isLoading ? <div className="flex justify-center py-4"><div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div> : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead><tr className="border-b border-gray-200 dark:border-gray-700"><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Client</th><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Average</th><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Best</th><th className="text-left py-2 text-gray-600 dark:text-gray-400 font-semibold">Worst</th></tr></thead>
-                        <tbody>{(effortClientQuery.data as EffortItem[] ?? []).map((r, i) => (<tr key={i} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"><td className="py-1.5 pr-3 text-gray-700 dark:text-gray-300 font-medium truncate max-w-[160px]">{String((r as unknown as Record<string,unknown>).client ?? "—")}</td><td className="py-1.5 pr-3 text-gray-600 dark:text-gray-400">{r.avg_fmt}</td><td className="py-1.5 pr-3 text-green-600 dark:text-green-400">{r.min_fmt}</td><td className="py-1.5 text-red-600 dark:text-red-400">{r.max_fmt}</td></tr>))}</tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-                <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-                  <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-1">Effort by Use Case</p>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">Average days for completed incentive tasks</p>
-                  {effortUCQuery.isLoading ? <div className="flex justify-center py-4"><div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div> : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead><tr className="border-b border-gray-200 dark:border-gray-700"><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Use Case</th><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Average</th><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Best</th><th className="text-left py-2 text-gray-600 dark:text-gray-400 font-semibold">Worst</th></tr></thead>
-                        <tbody>{(effortUCQuery.data as EffortItem[] ?? []).map((r, i) => (<tr key={i} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"><td className="py-1.5 pr-3 text-gray-700 dark:text-gray-300 font-medium truncate max-w-[160px]">{String((r as unknown as Record<string,unknown>).use_case ?? "—")}</td><td className="py-1.5 pr-3 text-gray-600 dark:text-gray-400">{r.avg_fmt}</td><td className="py-1.5 pr-3 text-green-600 dark:text-green-400">{r.min_fmt}</td><td className="py-1.5 text-red-600 dark:text-red-400">{r.max_fmt}</td></tr>))}</tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              </div>
-              {/* Stage Status + Termination charts inside Operational tab */}
+              {/* Stage Status + Termination charts */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div className="lg:col-span-2 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
                   <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-3">{t("adoption.ciscoLci.valueCountByStageStatus")}</p>
@@ -569,6 +678,46 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
                     />
                   ) : <p className="text-xs text-gray-400 py-4">No approved data.</p>}
                 </div>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                  <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-1">Effort by Client</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">Average days for completed incentive tasks</p>
+                  {effortClientQuery.isLoading ? <div className="flex justify-center py-4"><div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div> : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead><tr className="border-b border-gray-200 dark:border-gray-700"><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Client</th><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Average</th><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Best</th><th className="text-left py-2 text-gray-600 dark:text-gray-400 font-semibold">Worst</th></tr></thead>
+                        <tbody>{(effortClientQuery.data as EffortItem[] ?? []).map((r, i) => (<tr key={i} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"><td className="py-1.5 pr-3 text-gray-700 dark:text-gray-300 font-medium truncate max-w-[160px]">{String((r as unknown as Record<string,unknown>).client ?? "—")}</td><td className="py-1.5 pr-3 text-gray-600 dark:text-gray-400">{r.avg_fmt}</td><td className="py-1.5 pr-3 text-green-600 dark:text-green-400">{r.min_fmt}</td><td className="py-1.5 text-red-600 dark:text-red-400">{r.max_fmt}</td></tr>))}</tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+                <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                  <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-1">Effort by Use Case</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">Average days for completed incentive tasks</p>
+                  {effortUCQuery.isLoading ? <div className="flex justify-center py-4"><div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div> : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead><tr className="border-b border-gray-200 dark:border-gray-700"><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Use Case</th><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Average</th><th className="text-left py-2 pr-3 text-gray-600 dark:text-gray-400 font-semibold">Best</th><th className="text-left py-2 text-gray-600 dark:text-gray-400 font-semibold">Worst</th></tr></thead>
+                        <tbody>{(effortUCQuery.data as EffortItem[] ?? []).map((r, i) => (<tr key={i} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"><td className="py-1.5 pr-3 text-gray-700 dark:text-gray-300 font-medium truncate max-w-[160px]">{String((r as unknown as Record<string,unknown>).use_case ?? "—")}</td><td className="py-1.5 pr-3 text-gray-600 dark:text-gray-400">{r.avg_fmt}</td><td className="py-1.5 pr-3 text-green-600 dark:text-green-400">{r.min_fmt}</td><td className="py-1.5 text-red-600 dark:text-red-400">{r.max_fmt}</td></tr>))}</tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {/* LCI Journey Table */}
+              <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                {lciJourneyQuery.isLoading
+                  ? <div className="flex justify-center py-8"><div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
+                  : <LciJourneyTable
+                      rows={filteredJourneyRows}
+                      fy={selectedFY}
+                      onExport={() => exportToXlsxMultiSheet(
+                        [{ sheetName: "LCI Journey", rows: filteredJourneyRows as unknown as Record<string, unknown>[], columns: LCI_JOURNEY_COLS }],
+                        `lci_journey_fy_${selectedFY}`
+                      )}
+                    />
+                }
               </div>
             </div>
           )}
