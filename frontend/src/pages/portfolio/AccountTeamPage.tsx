@@ -113,25 +113,46 @@ function exportTSV(matrix: MatrixRow[], visibleExtra: string[], clientLabel: str
 // ─── MultiSelect ──────────────────────────────────────────
 function MultiSelect({ label, options, value, onChange }: { label: string; options: string[]; value: string[]; onChange: (v: string[]) => void }) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const toggle = (opt: string) => onChange(value.includes(opt) ? value.filter((v) => v !== opt) : [...value, opt]);
+  const filtered = search.trim() ? options.filter((o) => o.toLowerCase().includes(search.toLowerCase())) : options;
   return (
     <div className="relative flex flex-col gap-1">
       <label className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{label}</label>
-      <button type="button" onClick={() => setOpen((o) => !o)} className={`${inputCls} text-left flex items-center justify-between gap-1 min-w-[130px]`}>
+      <button type="button" onClick={() => { setOpen((o) => !o); setSearch(""); }} className={`${inputCls} text-left flex items-center justify-between gap-1 min-w-[130px]`}>
         <span className="truncate">{value.length === 0 ? "All" : value.length === 1 ? value[0] : `${value.length} sel.`}</span>
         <span className="text-gray-400 text-[10px]">▾</span>
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className="absolute top-full mt-1 z-30 w-max min-w-full max-h-52 overflow-y-auto bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg">
-            {options.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">No options</p>}
-            {value.length > 0 && <button type="button" onClick={() => { onChange([]); setOpen(false); }} className="w-full text-left px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 border-b border-gray-100 dark:border-gray-700">Clear all</button>}
-            {options.map((opt) => (
-              <label key={opt} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
-                <input type="checkbox" checked={value.includes(opt)} onChange={() => toggle(opt)} className="rounded" />{opt}
-              </label>
-            ))}
+          <div className="fixed inset-0 z-20" onClick={() => { setOpen(false); setSearch(""); }} />
+          <div className="absolute top-full mt-1 z-30 w-max min-w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg flex flex-col" style={{ maxHeight: "280px" }}>
+            {/* Search input */}
+            <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+              <input
+                autoFocus
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search…"
+                onClick={(e) => e.stopPropagation()}
+                className="w-full text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            {/* Options list */}
+            <div className="overflow-y-auto flex-1">
+              {value.length > 0 && !search && (
+                <button type="button" onClick={() => { onChange([]); setOpen(false); setSearch(""); }} className="w-full text-left px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 border-b border-gray-100 dark:border-gray-700">
+                  Clear all
+                </button>
+              )}
+              {filtered.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">No results</p>}
+              {filtered.map((opt) => (
+                <label key={opt} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
+                  <input type="checkbox" checked={value.includes(opt)} onChange={() => toggle(opt)} className="rounded" />{opt}
+                </label>
+              ))}
+            </div>
           </div>
         </>
       )}
