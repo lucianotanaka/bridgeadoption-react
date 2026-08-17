@@ -314,8 +314,8 @@ function MatrixTable({ rows, visibleExtra, clientLabel }: { rows: MatrixRow[]; v
 }
 
 // ─── EditPanel ────────────────────────────────────────────
-function EditPanel({ allRows, filterCompanies, filterDir, filterAm, filterCdm, filterCsm, userTypeOptions, onRefresh }: {
-  allRows: AccountTeamRow[]; filterCompanies: string[]; filterDir: string[]; filterAm: string[]; filterCdm: string[]; filterCsm: string[]; userTypeOptions: string[]; onRefresh: () => void;
+function EditPanel({ allRows, filterCompanies, filterDir, filterAm, filterCdm, filterCsm, filterRsa, userTypeOptions, onRefresh }: {
+  allRows: AccountTeamRow[]; filterCompanies: string[]; filterDir: string[]; filterAm: string[]; filterCdm: string[]; filterCsm: string[]; filterRsa: string[]; userTypeOptions: string[]; onRefresh: () => void;
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -348,10 +348,10 @@ function EditPanel({ allRows, filterCompanies, filterDir, filterAm, filterCdm, f
   const filteredRows = useMemo(() => {
     let rows = allRows;
     if (filterCompanies.length) rows = rows.filter((r) => filterCompanies.includes(r.accountteam_company_name));
-    const pf = [...filterDir, ...filterAm, ...filterCdm, ...filterCsm];
+    const pf = [...filterDir, ...filterAm, ...filterCdm, ...filterCsm, ...filterRsa];
     if (pf.length) rows = rows.filter((r) => pf.includes(r.accountteam_user_name));
     return rows;
-  }, [allRows, filterCompanies, filterDir, filterAm, filterCdm, filterCsm]);
+  }, [allRows, filterCompanies, filterDir, filterAm, filterCdm, filterCsm, filterRsa]);
 
   const companies = useMemo(() => [...new Set(filteredRows.map((r) => r.accountteam_company_name))].sort(), [filteredRows]);
 
@@ -563,6 +563,7 @@ export default function AccountTeamPage() {
   const cdmOptions = useMemo(() => getUniq(matrix, "CDM"), [matrix]);
   const csmOptions = useMemo(() => getUniq(matrix, "CSM"), [matrix]);
   const dirOptions = useMemo(() => getUniq(matrix, "DIR"), [matrix]);
+  const rsaOptions = useMemo(() => getUniq(matrix, "RSA"), [matrix]);
   const userTypeOptions = useMemo(() => [...new Set(allRows.map((r) => r.accountteam_person_type).filter(Boolean))].sort(), [allRows]);
 
   // ─── Filter state ──────────────────────────────────────
@@ -571,6 +572,7 @@ export default function AccountTeamPage() {
   const [fAm, setFAm] = useState<string[]>([]);
   const [fCdm, setFCdm] = useState<string[]>([]);
   const [fCsm, setFCsm] = useState<string[]>([]);
+  const [fRsa, setFRsa] = useState<string[]>([]);
   const [showEdit, setShowEdit] = useState(false);
 
   // ─── Column visibility state ───────────────────────────
@@ -597,14 +599,15 @@ export default function AccountTeamPage() {
       if (!hasVal(row["AM"] as string | undefined, fAm)) return false;
       if (!hasVal(row["CDM"] as string | undefined, fCdm)) return false;
       if (!hasVal(row["CSM"] as string | undefined, fCsm)) return false;
+      if (!hasVal(row["RSA"] as string | undefined, fRsa)) return false;
       return true;
     }).map((row, idx) => ({ ...row, "#": idx + 1 }));
     // Reset to page 1 when filters change (can't call setState in useMemo, done via effect below)
     return result;
-  }, [matrix, fCompany, fDir, fAm, fCdm, fCsm]);
+  }, [matrix, fCompany, fDir, fAm, fCdm, fCsm, fRsa]);
 
   // Reset to page 1 when filtered result set changes
-  useMemo(() => { setPage(1); }, [filtered.length, fCompany.join(), fDir.join(), fAm.join(), fCdm.join(), fCsm.join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  useMemo(() => { setPage(1); }, [filtered.length, fCompany.join(), fDir.join(), fAm.join(), fCdm.join(), fCsm.join(), fRsa.join()]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Paginated slice
   const paginated = useMemo(
@@ -651,11 +654,14 @@ export default function AccountTeamPage() {
           <MultiSelect label="AM" options={amOptions} value={fAm} onChange={setFAm} />
           <MultiSelect label="CDM" options={cdmOptions} value={fCdm} onChange={setFCdm} />
           <MultiSelect label="CSM" options={csmOptions} value={fCsm} onChange={setFCsm} />
-          {(fCompany.length > 0 || fDir.length > 0 || fAm.length > 0 || fCdm.length > 0 || fCsm.length > 0) && (
+          {rsaOptions.length > 0 && (
+            <MultiSelect label="RSA" options={rsaOptions} value={fRsa} onChange={setFRsa} />
+          )}
+          {(fCompany.length > 0 || fDir.length > 0 || fAm.length > 0 || fCdm.length > 0 || fCsm.length > 0 || fRsa.length > 0) && (
             <div className="flex flex-col justify-end">
               <button
                 type="button"
-                onClick={() => { setFCompany([]); setFDir([]); setFAm([]); setFCdm([]); setFCsm([]); }}
+                onClick={() => { setFCompany([]); setFDir([]); setFAm([]); setFCdm([]); setFCsm([]); setFRsa([]); }}
                 className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg transition-colors"
               >
                 <X size={12} /> {t("common.clearFilters")}
@@ -686,11 +692,12 @@ export default function AccountTeamPage() {
       {canEdit && !isLoading && rowsQ.data && showEdit && (
         <EditPanel
           allRows={allRows}
-          filterCompanies={fCompany}
+      filterCompanies={fCompany}
           filterDir={fDir}
           filterAm={fAm}
           filterCdm={fCdm}
           filterCsm={fCsm}
+          filterRsa={fRsa}
           userTypeOptions={userTypeOptions}
           onRefresh={refetchAll}
         />
