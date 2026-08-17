@@ -19,6 +19,7 @@ export default function AdminUsersPage() {
   const [activeTab, setActiveTab] = useState<"data" | "roles" | "permissions">("data");
   const [editData, setEditData] = useState<Record<string, string>>({});
   const [savedMsg, setSavedMsg] = useState("");
+  const [changePasswd, setChangePasswd] = useState(false);
   const [selectedUserRoleId, setSelectedUserRoleId] = useState<number | null>(null);
   const [editActions, setEditActions] = useState<Record<number, number>>({});
   const [newPermResourceId, setNewPermResourceId] = useState<number | null>(null);
@@ -31,7 +32,16 @@ export default function AdminUsersPage() {
   const permissionsQ = useQuery({ queryKey: ["role-permissions", selectedUserRoleId], queryFn: () => apiClient.get<PermissionRow[]>(`/admin/roles/${selectedUserRoleId}/permissions`).then(r => r.data), enabled: !!selectedUserRoleId && activeTab === "permissions" });
 
   const searchMut = useMutation<UserRow[], Error, void>({ mutationFn: () => apiClient.get<UserRow[]>(`/admin/users/search?${nameSearch ? `name=${encodeURIComponent(nameSearch)}` : ""}${emailSearch ? `&email=${encodeURIComponent(emailSearch)}` : ""}`).then(r => r.data), onSuccess: d => setSearchResults(d) });
-  const updateMut = useMutation<unknown, Error, void>({ mutationFn: () => apiClient.put(`/admin/users/${editUser!.user_id}`, editData).then(r => r.data), onSuccess: () => { setSavedMsg("Saved"); void searchMut.mutate(); } });
+  const updateMut = useMutation<unknown, Error, void>({
+    mutationFn: () => {
+      // Never send an empty user_password — omit it so the backend leaves the existing hash untouched
+      const { user_password, ...rest } = editData;
+      const payload: Record<string, string> = { ...rest, user_change_passwd: changePasswd ? "1" : "0" };
+      if (user_password) payload.user_password = user_password;
+      return apiClient.put(`/admin/users/${editUser!.user_id}`, payload).then(r => r.data);
+    },
+    onSuccess: () => { setSavedMsg("Saved"); void searchMut.mutate(); },
+  });
   const assignRoleMut = useMutation<unknown, Error, number>({ mutationFn: id => apiClient.post(`/admin/users/${editUser!.user_id}/roles/${id}`).then(r => r.data), onSuccess: () => void qc.invalidateQueries({ queryKey: ["user-roles", editUser?.user_id] }) });
   const removeRoleMut = useMutation<unknown, Error, number>({ mutationFn: id => apiClient.delete(`/admin/users/${editUser!.user_id}/roles/${id}`).then(r => r.data), onSuccess: () => void qc.invalidateQueries({ queryKey: ["user-roles", editUser?.user_id] }) });
   const addPermMut = useMutation<unknown, Error, { user_role_id: number; resource_id: number; action_id: number }>({ mutationFn: b => apiClient.post("/admin/permissions", b).then(r => r.data), onSuccess: () => { void qc.invalidateQueries({ queryKey: ["role-permissions", selectedUserRoleId] }); setNewPermResourceId(null); setNewPermActionId(null); } });
@@ -42,6 +52,7 @@ export default function AdminUsersPage() {
     setEditUser(user);
     setActiveTab("data");
     setEditData({ user_name: String(user.user_name ?? ""), user_full_name: String(user.user_full_name ?? ""), user_email: String(user.user_email ?? "") });
+    setChangePasswd(Number(user.user_change_passwd ?? 0) === 1);
     setSavedMsg("");
     setSelectedUserRoleId(null);
     setEditActions({});
@@ -140,7 +151,19 @@ export default function AdminUsersPage() {
               ))}
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">New Password (leave blank to keep)</label>
-                <input type="password" value={editData.user_password ?? ""} onChange={e => setEditData(p => ({ ...p, user_password: e.target.value, user_change_passwd: "1" }))} className={inputCls} />
+                <input type="password" value={editData.user_password ?? ""} onChange={e => { setEditData(p => ({ ...p, user_password: e.target.value })); if (e.target.value) setChangePasswd(true); }} className={inputCls} />
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  id="change-passwd-toggle"
+                  type="checkbox"
+                  checked={changePasswd}
+                  onChange={e => setChangePasswd(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                />
+                <label htmlFor="change-passwd-toggle" className="text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none">
+                  Require password change on next login
+                </label>
               </div>
               <button onClick={() => updateMut.mutate()} disabled={updateMut.isPending} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-60">
                 <Save size={13} />{updateMut.isPending ? "Saving..." : "Save"}

@@ -65,7 +65,8 @@
     "technical": "Técnico",
     "operational": "Operacional",
     "importer": "Importador",
-    "admin": "Admin"
+    "admin": "Admin",
+    "portfolioCiscoEA": "Cisco EA"
   },
   "task": {
     "title": "Tareas",
@@ -100,6 +101,12 @@
       "warning1": "Por favor, seleccione un usuario y un tipo.",
       "info1": "Todos los usuarios ya están vinculados a esta empresa.",
       "recordsFound": "{{count}} registro(s) encontrado(s)"
+    },
+    "ciscoEA": {
+      "title": "Portafolio — Cisco EA",
+      "subtitle": "Cisco Enterprise Agreement — Informe de Licencias",
+      "eaGenerated": "EA Generado",
+      "tableTitle": "Cisco EA"
     }
   },
   "adoption": {

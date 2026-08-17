@@ -82,7 +82,8 @@
     "adminCompanies": "Companies",
     "adminRoles": "Roles & Auth",
     "adminTeamGoals": "Team Goals",
-    "adminTasks": "Tasks (Admin)"
+    "adminTasks": "Tasks (Admin)",
+    "portfolioCiscoEA": "Cisco EA"
   },
   "task": {
     "title": "Tasks",
@@ -461,6 +462,12 @@
       "ciscoEA": "Cisco EA License Usage",
       "ciscoSA": "Cisco Smart Account",
       "trueForward": "Cisco True Forward"
+    },
+    "ciscoEA": {
+      "title": "Portfolio — Cisco EA",
+      "subtitle": "Cisco Enterprise Agreement — License Report",
+      "eaGenerated": "EA Generated",
+      "tableTitle": "Cisco EA"
     }
   },
   "projects": {

@@ -17,9 +17,11 @@ interface AuthState {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  requirePasswordChange: boolean;
   setAuth: (user: User, token: string) => void;
   clearAuth: () => void;
   setLoading: (loading: boolean) => void;
+  setRequirePasswordChange: (value: boolean) => void;
   hasPermission: (permission: string) => boolean;
   hasRole: (role: string | string[]) => boolean;
 }
@@ -31,13 +33,18 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       isAuthenticated: false,
       isLoading: false,
+      requirePasswordChange: false,
 
       setAuth: (user, token) => {
         set({ user, token, isAuthenticated: true });
       },
 
       clearAuth: () => {
-        set({ user: null, token: null, isAuthenticated: false });
+        set({ user: null, token: null, isAuthenticated: false, requirePasswordChange: false });
+      },
+
+      setRequirePasswordChange: (value) => {
+        set({ requirePasswordChange: value });
       },
 
       setLoading: (loading) => {

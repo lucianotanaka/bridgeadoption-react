@@ -74,9 +74,11 @@ export function useAuth() {
     token,
     isAuthenticated,
     isLoading,
+    requirePasswordChange,
     setAuth,
     clearAuth,
     setLoading,
+    setRequirePasswordChange,
     hasPermission,
     hasRole,
   } = useAuthStore();
@@ -92,7 +94,7 @@ export function useAuth() {
           password: credentials.password,
         });
 
-        const { access_token, user_id, user_name, roles, permissions, language, theme } = response.data;
+        const { access_token, user_id, user_name, roles, permissions, language, theme, require_password_change } = response.data;
 
         setAuth(
           {
@@ -116,7 +118,9 @@ export function useAuth() {
         const lang = normalizeLanguage(language);
         void i18n.changeLanguage(lang);
 
-        navigate("/");
+        // If user must change password, redirect to change-password page
+        setRequirePasswordChange(require_password_change ?? false);
+        navigate(require_password_change ? "/change-password" : "/");
         return { success: true };
       } catch (error) {
         return { success: false, error };
@@ -165,9 +169,11 @@ export function useAuth() {
     token,
     isAuthenticated,
     isLoading,
+    requirePasswordChange,
     login,
     logout,
     fetchCurrentUser,
+    setRequirePasswordChange,
     hasPermission,
     hasRole,
   };

@@ -183,11 +183,30 @@ def get_users(active_only: bool = False) -> List[Dict]:
         logger.error(f"get_users: {e}\n{traceback.format_exc()}"); return []
 
 def search_users(name: Optional[str] = None, email: Optional[str] = None) -> List[Dict]:
-    if not _USER_OK: return []
+    """Search users — returns user_change_passwd so the admin form can show the correct state."""
     try:
-        repo = UserRepository()
-        rows = repo.search_users(name=name, email=email) or []
-        return [_ser(dict(r)) for r in rows]
+        from src.infrastructure.database.connection import get_db_connection
+        conn = get_db_connection()
+        try:
+            query = """
+                SELECT user_id, user_name, user_full_name, user_email, user_change_passwd
+                FROM tbUser
+                WHERE user_company_id = 0
+            """
+            params = []
+            if name:
+                query += " AND user_name LIKE %s"
+                params.append(f"%{name}%")
+            if email:
+                query += " AND user_email LIKE %s"
+                params.append(f"%{email}%")
+            query += " ORDER BY user_name"
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(query, tuple(params))
+            rows = cursor.fetchall()
+            return [_ser(dict(r)) for r in rows]
+        finally:
+            conn.close()
     except Exception as e:
         logger.error(f"search_users: {e}\n{traceback.format_exc()}"); return []
 
@@ -721,11 +740,30 @@ def get_account_team(customer_id: Optional[int] = None) -> List[Dict]:
         logger.error(f"get_account_team: {e}\n{traceback.format_exc()}"); return []
 
 
+def _normalize_account_team_cols(df) -> "pd.DataFrame":
+    """
+    Normalize legacy column names from vwAccountTeam so the frontend always
+    receives the new names regardless of whether the DB view has been updated.
+
+    Renames:
+      accountteam_user_type  → accountteam_person_type
+      accountteam_user_id    → accountteam_person_id   (if present and person_id absent)
+    """
+    if df is None:
+        return df
+    if "accountteam_user_type" in df.columns and "accountteam_person_type" not in df.columns:
+        df = df.rename(columns={"accountteam_user_type": "accountteam_person_type"})
+    if "accountteam_user_id" in df.columns and "accountteam_person_id" not in df.columns:
+        df = df.rename(columns={"accountteam_user_id": "accountteam_person_id"})
+    return df
+
+
 def get_account_team_matrix() -> List[Dict]:
     """
     Returns all ALLOCATED account team rows joined with Cisco Domain.
     The React frontend uses these raw rows to build the pivot matrix.
     Mirrors build_account_team_matrix() from account_team.py (Streamlit).
+    Column names are normalized: accountteam_user_type → accountteam_person_type.
     """
     if not _AT_OK:
         return []
@@ -735,6 +773,8 @@ def get_account_team_matrix() -> List[Dict]:
         df = repo.find_all_df()
         if df is None or df.empty:
             return []
+        # Normalize column names (handles views that haven't been updated yet)
+        df = _normalize_account_team_cols(df)
         # Filter only allocated rows (mirrors Streamlit: accountteam_allocated != 0 and not null)
         df = df[
             (df["accountteam_allocated"] != 0) &
@@ -770,12 +810,14 @@ def get_account_team_all_rows() -> List[Dict]:
     """
     Returns ALL account team rows (allocated + unallocated) for the edit panel.
     Mirrors df_account_team = account_team_repo.find_all_df() from Streamlit.
+    Column names are normalized: accountteam_user_type → accountteam_person_type.
     """
     if not _AT_OK:
         return []
     try:
         repo = AccountTeamRepository()
         df = repo.find_all_df()
+        df = _normalize_account_team_cols(df)
         return _df(df)
     except Exception as e:
         logger.error(f"get_account_team_all_rows: {e}\n{traceback.format_exc()}")

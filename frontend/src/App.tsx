@@ -7,6 +7,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import PrivateRoute from "@/router/PrivateRoute";
 import PermissionRoute, { AdminRoute } from "@/router/PermissionRoute";
 import LoginPage from "@/pages/auth/LoginPage";
+import ChangePasswordPage from "@/pages/auth/ChangePasswordPage";
 import DashboardPage from "@/pages/dashboard/DashboardPage";
 import TaskPage from "@/pages/tasks/TaskPage";
 
@@ -24,6 +25,7 @@ import AssetPage from "@/pages/portfolio/AssetPage";
 import AccountTeamPage from "@/pages/portfolio/AccountTeamPage";
 import AdoptionTasksPage from "@/pages/portfolio/AdoptionTasksPage";
 import ClientOverviewPage from "@/pages/portfolio/ClientOverviewPage";
+import CiscoEAPage from "@/pages/portfolio/CiscoEAPage";
 
 // Public
 import PublicCsmAccountPage from "@/pages/public/PublicCsmAccountPage";
@@ -67,6 +69,7 @@ export default function App() {
           <Routes>
             {/* Public (unauthenticated) */}
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/change-password" element={<ChangePasswordPage />} />
 
             {/* Protected — requires valid JWT token */}
             <Route element={<PrivateRoute />}>
@@ -126,6 +129,9 @@ export default function App() {
                 </Route>
                 <Route element={<PermissionRoute resourceKey="portfolio.client_overview" />}>
                   <Route path="/portfolio/client-overview" element={<ClientOverviewPage />} />
+                </Route>
+                <Route element={<PermissionRoute resourceKey="portfolio.cisco_enterprise_agreement" />}>
+                  <Route path="/portfolio/cisco-ea" element={<CiscoEAPage />} />
                 </Route>
 
                 {/* Projects */}

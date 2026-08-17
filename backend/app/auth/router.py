@@ -13,12 +13,14 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.auth.schemas import (
     ChangeLanguageRequest,
+    ChangePasswordRequest,
     LoginRequest,
     LoginResponse,
     MessageResponse,
     UserMeResponse,
 )
 from app.auth.service import (
+    change_user_password,
     get_user_roles,
     load_admin_permissions,
     load_user_permissions,
@@ -178,6 +180,34 @@ def change_language(
         )
 
     return MessageResponse(message=f"Language updated to {body.language}")
+
+
+# ─────────────────────────────────────────
+# POST /api/auth/change-password
+# ─────────────────────────────────────────
+
+@router.post("/change-password", response_model=MessageResponse)
+def change_password(
+    body: ChangePasswordRequest,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """
+    Changes the authenticated user's password and clears the
+    user_change_passwd flag (sets it to 0 in tbUser).
+    """
+    user_id = int(current_user.get("sub", 0))
+    if not body.new_password or len(body.new_password) < 4:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 4 characters",
+        )
+    success = change_user_password(user_id, body.new_password)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to change password",
+        )
+    return MessageResponse(message="Password changed successfully")
 
 
 # ─────────────────────────────────────────

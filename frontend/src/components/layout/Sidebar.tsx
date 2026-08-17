@@ -65,6 +65,7 @@ const NAV_ITEMS: NavItem[] = [
       { key: "portfolioAccountTeam", label: "Account Team", icon: <Users size={16} />, path: "/portfolio/account-team", resourceKey: "portfolio.account_team" },
       { key: "portfolioAdoptionTasks", label: "Adoption Tasks", icon: <CheckSquare size={16} />, path: "/portfolio/adoption-tasks", resourceKey: "portfolio.adoption_tasks" },
       { key: "portfolioClientOverview", label: "Client Overview", icon: <BarChart3 size={16} />, path: "/portfolio/client-overview", resourceKey: "portfolio.client_overview" },
+      { key: "portfolioCiscoEA", label: "Cisco EA", icon: <Package size={16} />, path: "/portfolio/cisco-ea", resourceKey: "portfolio.cisco_enterprise_agreement" },
     ],
   },
   { key: "project", label: "Projects", icon: <Briefcase size={18} />, path: "/projects", resourceKey: "project.project" },

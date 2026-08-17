@@ -344,6 +344,31 @@ def update_user_theme(user_id: int, theme: str) -> bool:
         conn.close()
 
 
+def change_user_password(user_id: int, new_password: str) -> bool:
+    """
+    Changes the user's password and clears user_change_passwd flag.
+    Mirrors UserRepository.change_passwd().
+    """
+    conn = get_db_connection()
+    cursor = None
+    try:
+        new_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE tbUser SET user_password = %s, user_change_passwd = 0 WHERE user_id = %s",
+            (new_hash, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception as e:
+        logger.error(f"change_user_password error: {e}")
+        return False
+    finally:
+        if cursor:
+            cursor.close()
+        conn.close()
+
+
 def update_user_language(user_id: int, language: str) -> bool:
     """Updates the preferred language for a user. Accepts both pt/en/es and pt-BR/en-US/es-ES."""
     normalized = _LANG_MAP.get(language)

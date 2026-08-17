@@ -7,7 +7,6 @@ import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { RefreshCw, Download } from "lucide-react";
-import Plot from "react-plotly.js";
 import * as XLSX from "xlsx";
 import apiClient from "@/api/client";
 
@@ -20,24 +19,10 @@ interface Summary {
   total_approved_usd: number; total_backlog_usd: number;
 }
 type Row = Record<string, unknown>;
-type Tab = "sipOpportunities" | "ciscoEA";
 
-// ─── Colour maps ──────────────────────────────────────────
-const SC: Record<string, string> = {
-  "OPEN": "#4A90D9", "IN PROGRESS": "#F5A623", "ON HOLD": "#9B59B6",
-  "COMPLETED": "#27AE60", "DONE": "#27AE60", "CANCELLED": "#E74C3C",
-  "DECLINED": "#C0392B", "APPROVED": "#2ECC71", "UNDER REVIEW": "#3498DB", "PENDING": "#F39C12",
-};
-const FB = ["#005B96", "#6B48A2", "#00897B", "#E67E22", "#E74C3C", "#2980B9"];
 const card = "bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4";
 
 // ─── Formatters ───────────────────────────────────────────
-const fmtC = (v: number) => {
-  if (!isFinite(v) || isNaN(v)) return "$0";
-  if (Math.abs(v) >= 1e6) return "$" + (v / 1e6).toFixed(1) + "M";
-  if (Math.abs(v) >= 1e3) return "$" + (v / 1e3).toFixed(1) + "K";
-  return "$" + v.toFixed(2);
-};
 const fmtD = (v: unknown): string => {
   if (!v) return "";
   try { const d = new Date(String(v)); return isNaN(d.getTime()) ? String(v) : d.toISOString().split("T")[0]; }
@@ -47,24 +32,6 @@ const fmtN = (v: unknown, dec = 2): string => {
   if (v === null || v === undefined || v === "") return "";
   const n = Number(v);
   return isNaN(n) ? String(v) : n.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
-};
-const fyRange = (fy: number) => {
-  const dt = new Date(fy + 1, 2, 31);
-  const df = new Date(dt);
-  df.setMonth(df.getMonth() - 18);
-  return { df, dt };
-};
-const mkLay = (dark: boolean, title: string, h: number, xT = "", yT = "") => {
-  const bg = dark ? "#111827" : "white";
-  const gr = dark ? "#374151" : "#e5e7eb";
-  const fc = dark ? "#d1d5db" : "#374151";
-  return {
-    title: { text: title, font: { color: fc, size: 12 }, x: 0 },
-    paper_bgcolor: bg, plot_bgcolor: bg, font: { color: fc, size: 11 },
-    margin: { l: 60, r: 20, t: 40, b: 70 }, height: h,
-    xaxis: { title: xT, gridcolor: gr, automargin: true },
-    yaxis: { title: yT, gridcolor: gr, automargin: true }, showlegend: false,
-  };
 };
 
 // ─── KPI Card ─────────────────────────────────────────────
@@ -189,22 +156,11 @@ const COLS_SIP: CD[] = [
   { key: "task_note", label: "Note" },
 ];
 
-const COLS_EA: CD[] = [
-  { key: "mcea_suite_name", label: "Suite" },
-  { key: "mcea_purchased", label: "Purchased", fmt: v => fmtN(v, 0), r: true },
-  { key: "mcea_generated", label: "Generated", fmt: v => fmtN(v, 0), r: true },
-  { key: "mcea_start_date", label: "Start", fmt: fmtD },
-  { key: "mcea_end_date", label: "End", fmt: fmtD },
-];
-
 // ─── Main Page ────────────────────────────────────────────
 export default function RebatePage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const isDark = document.documentElement.classList.contains("dark");
   const today = new Date();
-
-  const [activeTab, setActiveTab] = useState<Tab>("sipOpportunities");
   const [selectedFy, setSelectedFy] = useState<number | null>(null);
 
   // ── Fiscal years ──────────────────────────────────────
@@ -222,7 +178,7 @@ export default function RebatePage() {
     const m = today.getMonth() + 1;
     const curFy = m >= 4 ? today.getFullYear() : today.getFullYear() - 1;
     return fyOptions.includes(curFy) ? curFy : fyOptions[fyOptions.length - 1];
-  }, [selectedFy, fyOptions]);
+  }, [selectedFy, fyOptions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Summary (KPI cards) ───────────────────────────────
   const sumQ = useQuery({
@@ -232,69 +188,22 @@ export default function RebatePage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // ── Per-tab lazy queries ───────────────────────────────
+  // ── SIP Opportunities query ────────────────────────────
   const sipQ = useQuery({
     queryKey: ["rebate-sip"],
     queryFn: () => apiClient.get<Row[]>("/adoption/rebate/sip-opportunities").then(r => r.data),
-    enabled: activeTab === "sipOpportunities",
     staleTime: 5 * 60 * 1000,
   });
-  const eaQ = useQuery({
-    queryKey: ["rebate-cisco-ea"],
-    queryFn: () => apiClient.get<Row[]>("/adoption/rebate/cisco-ea").then(r => r.data),
-    enabled: activeTab === "ciscoEA",
-    staleTime: 5 * 60 * 1000,
-  });
-
-  // ── EA chart data ──────────────────────────────────────
-  const eaChart = useMemo(() => {
-    const rows = (eaQ.data ?? []).filter(r => {
-      const ed = r.mcea_end_date ? new Date(String(r.mcea_end_date)) : null;
-      return ed && ed >= today;
-    });
-    if (!rows.length) return null;
-    const suiteMap: Record<string, { p: number; g: number }> = {};
-    rows.forEach(r => {
-      const suite = String(r.mcea_suite_name ?? "Unknown");
-      const p = Number(r.mcea_purchased ?? 0);
-      const g = Math.min(Number(r.mcea_generated ?? 0), p);
-      if (!suiteMap[suite]) suiteMap[suite] = { p: 0, g: 0 };
-      suiteMap[suite].p += p;
-      suiteMap[suite].g += g;
-    });
-    const entries = Object.entries(suiteMap)
-      .map(([suite, { p, g }]) => ({ suite, pct: p > 0 ? g / p : 0 }))
-      .sort((a, b) => b.pct - a.pct);
-    return {
-      y: entries.map(e => e.suite),
-      x: entries.map(e => e.pct),
-      text: entries.map(e => (e.pct * 100).toFixed(1) + "%"),
-      colors: entries.map((_, i) => FB[i % FB.length]),
-      h: Math.max(300, entries.length * 28),
-    };
-  }, [eaQ.data]);
 
   // ── Refresh ────────────────────────────────────────────
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["rebate-fiscal-years"] });
     qc.invalidateQueries({ queryKey: ["rebate-summary", fy] });
     qc.invalidateQueries({ queryKey: ["rebate-sip"] });
-    qc.invalidateQueries({ queryKey: ["rebate-cisco-ea"] });
   };
 
   const sum = sumQ.data;
   const spin = <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />;
-
-  const tabLabels: Record<Tab, string> = {
-    sipOpportunities: t("adoption.rebate.sipOpportunities"),
-    ciscoEA: t("adoption.rebate.ciscoEA"),
-  };
-
-  const tabBtnCls = (tab: Tab) =>
-    "px-4 py-2 text-xs font-semibold rounded-lg border transition-colors " +
-    (activeTab === tab
-      ? "bg-blue-600 text-white border-blue-600"
-      : "bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800");
 
   return (
     <div className="space-y-4">
@@ -328,57 +237,21 @@ export default function RebatePage() {
 
       {/* KPI Cards */}
       {sum && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <KPI label={t("adoption.rebate.eaGenerated")} value={sum.ea_generated_pct} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <KPI label={t("adoption.rebate.sipInProgress")} value={sum.count_sip_in_progress} />
           <KPI label={t("adoption.rebate.sipApproved")} value={sum.count_sip_approved} />
         </div>
       )}
 
-      {/* EA Licenses Generated % by Suite */}
+      {/* SIP Opportunities Table */}
       <div className={card}>
-        <p className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">EA LICENSES GENERATED % BY SUITE</p>
-        {activeTab !== "ciscoEA"
-          ? <p className="text-xs text-gray-400 text-center py-6">Click "{t("adoption.rebate.ciscoEA")}" tab to load data</p>
-          : eaQ.isLoading
-            ? <div className="flex justify-center py-8">{spin}</div>
-            : eaChart
-              ? <Plot
-                  data={[{ type: "bar", orientation: "h" as const, y: eaChart.y, x: eaChart.x, text: eaChart.text, textposition: "outside" as const, marker: { color: eaChart.colors } }]}
-                  layout={{ ...mkLay(isDark, "", eaChart.h, "% Generated", "Suite"), yaxis: { autorange: "reversed" as const, automargin: true } }}
-                  useResizeHandler style={{ width: "100%" }} config={{ displayModeBar: false, responsive: true }}
-                />
-              : <p className="text-xs text-gray-400 text-center py-6">{t("common.noData")}</p>
-        }
-      </div>
-
-      {/* Tab bar */}
-      <div className="flex flex-wrap gap-2">
-        {(["sipOpportunities", "ciscoEA"] as Tab[]).map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)} className={tabBtnCls(tab)}>{tabLabels[tab]}</button>
-        ))}
-      </div>
-
-      {/* Tab content */}
-      <div className={card}>
-        {activeTab === "sipOpportunities" && (
-          <Tbl
-            rows={sipQ.data ?? []}
-            cols={COLS_SIP}
-            loading={sipQ.isLoading}
-            title={t("adoption.rebate.sipOpportunities")}
-            onExp={() => doExport(sipQ.data ?? [], COLS_SIP, new Date().toISOString().split("T")[0] + "_task_sip.xlsx")}
-          />
-        )}
-        {activeTab === "ciscoEA" && (
-          <Tbl
-            rows={eaQ.data ?? []}
-            cols={COLS_EA}
-            loading={eaQ.isLoading}
-            title={t("adoption.rebate.ciscoEA")}
-            onExp={() => doExport(eaQ.data ?? [], COLS_EA, new Date().toISOString().split("T")[0] + "_cisco_ea.xlsx")}
-          />
-        )}
+        <Tbl
+          rows={sipQ.data ?? []}
+          cols={COLS_SIP}
+          loading={sipQ.isLoading}
+          title={t("adoption.rebate.sipOpportunities")}
+          onExp={() => doExport(sipQ.data ?? [], COLS_SIP, new Date().toISOString().split("T")[0] + "_task_sip.xlsx")}
+        />
       </div>
     </div>
   );

@@ -18,6 +18,10 @@ class ChangeLanguageRequest(BaseModel):
     language: str  # "pt-BR" | "en-US" | "es-ES"
 
 
+class ChangePasswordRequest(BaseModel):
+    new_password: str
+
+
 # ─────────────────────────────────────────
 # RESPONSE
 # ─────────────────────────────────────────
