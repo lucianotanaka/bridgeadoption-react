@@ -210,6 +210,48 @@ def search_users(name: Optional[str] = None, email: Optional[str] = None) -> Lis
     except Exception as e:
         logger.error(f"search_users: {e}\n{traceback.format_exc()}"); return []
 
+def search_persons(name: Optional[str] = None, email: Optional[str] = None) -> List[Dict]:
+    """Search NTT internal persons (person_company_id IS NULL) for user creation."""
+    try:
+        from src.infrastructure.database.connection import get_db_connection
+        conn = get_db_connection()
+        try:
+            conditions = ["person_company_id IS NULL", "person_enabled = 1"]
+            params: list = []
+            if name:
+                conditions.append("person_name LIKE %s")
+                params.append(f"%{name}%")
+            if email:
+                conditions.append("person_email LIKE %s")
+                params.append(f"%{email}%")
+            query = f"""
+                SELECT person_id, person_name, person_email, person_job_title, person_type
+                FROM tbPerson
+                WHERE {" AND ".join(conditions)}
+                ORDER BY person_name
+                LIMIT 100
+            """
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(query, tuple(params))
+            rows = cursor.fetchall()
+            return [_ser(dict(r)) for r in rows]
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.error(f"search_persons: {e}\n{traceback.format_exc()}"); return []
+
+
+def create_user(data: Dict) -> Dict:
+    """Create a new user in tbUser. Returns {user_id: int} or {error: str}."""
+    if not _USER_OK: return {"error": "Repository not available"}
+    try:
+        repo = UserRepository()
+        new_id = repo.insert(data)
+        return {"user_id": new_id}
+    except Exception as e:
+        logger.error(f"create_user: {e}"); return {"error": str(e)}
+
+
 def get_user_by_id(user_id: int) -> Dict:
     if not _USER_OK: return {}
     try:
@@ -844,14 +886,17 @@ def update_account_team_row(accountteam_id: int, data: Dict) -> bool:
     """
     Updates an account team record (allocated, changed_in, changed_by, end_date, etc.).
     Mirrors save_account_team_change() from Streamlit.
+
+    NOTE: AccountTeamRepository.update() is defined without 'self' — it must be
+    called as a class/static method, NOT as an instance method, otherwise Python
+    passes the instance as the first argument (edit_values) and data is lost.
     """
     if not _AT_OK:
         return False
     try:
-        repo = AccountTeamRepository()
         data["accountteam_id"] = accountteam_id
-        repo.update(data)
-        return True
+        # Call as class method to avoid the missing-self bug in the repository
+        return AccountTeamRepository.update(data)
     except Exception as e:
         logger.error(f"update_account_team_row: {e}")
         return False

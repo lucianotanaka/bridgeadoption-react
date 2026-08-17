@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from app.modules.sections_service import (
     get_farol, get_companies, get_cisco_ea_metering, get_cisco_ea_consolidated,
     get_projects, get_project_team, get_renewals,
-    get_users, search_users, get_user_by_id, update_user,
+    get_users, search_users, get_user_by_id, update_user, search_persons, create_user,
     get_csm_active, get_roles, get_admin_companies,
     get_user_roles, assign_role_to_user, remove_role_from_user,
     get_role_permissions, list_actions, list_resources,
@@ -424,6 +424,35 @@ def admin_update_ea_customer(
 ):
     if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
     return admin_update_cisco_ea_customer(ea_id, body.get("end_customer_id", 0))
+
+# ─── Admin — Persons (for user creation) ─────────────────
+
+@admin_router.get("/persons/search", response_model=List[Dict[str, Any]])
+def admin_persons_search(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    name: Optional[str] = Query(None),
+    email: Optional[str] = Query(None),
+):
+    """Search NTT internal persons (person_company_id IS NULL) for user creation."""
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    return search_persons(name, email)
+
+@admin_router.post("/users", response_model=Dict[str, Any])
+def admin_user_create(body: Dict[str, Any], current_user: Annotated[dict, Depends(get_current_user)]):
+    """Create a new user in tbUser linked to a tbPerson record."""
+    if not _is_admin(current_user): raise HTTPException(status_code=403, detail="Admin required")
+    if not body.get("user_person_id"):
+        raise HTTPException(status_code=400, detail="user_person_id is required")
+    if not body.get("user_name"):
+        raise HTTPException(status_code=400, detail="user_name is required")
+    if not body.get("user_email"):
+        raise HTTPException(status_code=400, detail="user_email is required")
+    if not body.get("user_password"):
+        raise HTTPException(status_code=400, detail="user_password is required")
+    result = create_user(body)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
 
 # ─── Admin — CSM List ─────────────────────────────────────
 

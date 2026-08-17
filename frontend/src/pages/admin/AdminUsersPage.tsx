@@ -4,6 +4,7 @@ import { Search, Plus, Edit2, X, Save, Shield, Trash2 } from "lucide-react";
 import apiClient from "@/api/client";
 
 interface UserRow { user_id: number; user_name?: string; user_full_name?: string; user_email?: string; [key: string]: unknown; }
+interface PersonRow { person_id: number; person_name: string; person_email?: string; person_job_title?: string; person_type?: string; }
 interface RoleRow { role_id: number; user_role_id: number; role_name: string; [key: string]: unknown; }
 interface AllRole { role_id: number; role_name: string; [key: string]: unknown; }
 interface PermissionRow { permission_id: number; resource_key: string; action_key: string; action_id: number; }
@@ -20,6 +21,19 @@ export default function AdminUsersPage() {
   const [editData, setEditData] = useState<Record<string, string>>({});
   const [savedMsg, setSavedMsg] = useState("");
   const [changePasswd, setChangePasswd] = useState(false);
+
+  // ── Create mode state ─────────────────────────────────
+  const [createMode, setCreateMode] = useState(false);
+  const [personSearchName, setPersonSearchName] = useState("");
+  const [personSearchEmail, setPersonSearchEmail] = useState("");
+  const [personResults, setPersonResults] = useState<PersonRow[] | null>(null);
+  const [selectedPerson, setSelectedPerson] = useState<PersonRow | null>(null);
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserError, setNewUserError] = useState("");
+  const [newUserSuccess, setNewUserSuccess] = useState("");
+
   const [selectedUserRoleId, setSelectedUserRoleId] = useState<number | null>(null);
   const [editActions, setEditActions] = useState<Record<number, number>>({});
   const [newPermResourceId, setNewPermResourceId] = useState<number | null>(null);
@@ -32,6 +46,27 @@ export default function AdminUsersPage() {
   const permissionsQ = useQuery({ queryKey: ["role-permissions", selectedUserRoleId], queryFn: () => apiClient.get<PermissionRow[]>(`/admin/roles/${selectedUserRoleId}/permissions`).then(r => r.data), enabled: !!selectedUserRoleId && activeTab === "permissions" });
 
   const searchMut = useMutation<UserRow[], Error, void>({ mutationFn: () => apiClient.get<UserRow[]>(`/admin/users/search?${nameSearch ? `name=${encodeURIComponent(nameSearch)}` : ""}${emailSearch ? `&email=${encodeURIComponent(emailSearch)}` : ""}`).then(r => r.data), onSuccess: d => setSearchResults(d) });
+  const personSearchMut = useMutation<PersonRow[], Error, void>({ mutationFn: () => apiClient.get<PersonRow[]>(`/admin/persons/search?${personSearchName ? `name=${encodeURIComponent(personSearchName)}` : ""}${personSearchEmail ? `&email=${encodeURIComponent(personSearchEmail)}` : ""}`).then(r => r.data), onSuccess: d => setPersonResults(d) });
+  const createUserMut = useMutation<{ user_id: number }, Error, void>({
+    mutationFn: () => apiClient.post<{ user_id: number }>("/admin/users", {
+      user_name: newUserName,
+      user_full_name: selectedPerson!.person_name,
+      user_email: newUserEmail,
+      user_password: newUserPassword,
+      user_person_id: selectedPerson!.person_id,
+      user_change_passwd: 1,
+      user_language: "en-US",
+    }).then(r => r.data),
+    onSuccess: (data) => {
+      setNewUserSuccess(`✓ User created (ID: ${data.user_id}). They will be required to change password on first login.`);
+      setNewUserError("");
+      setNewUserPassword("");
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Failed to create user.";
+      setNewUserError(msg);
+    },
+  });
   const updateMut = useMutation<unknown, Error, void>({
     mutationFn: () => {
       // Never send an empty user_password — omit it so the backend leaves the existing hash untouched
@@ -47,6 +82,33 @@ export default function AdminUsersPage() {
   const addPermMut = useMutation<unknown, Error, { user_role_id: number; resource_id: number; action_id: number }>({ mutationFn: b => apiClient.post("/admin/permissions", b).then(r => r.data), onSuccess: () => { void qc.invalidateQueries({ queryKey: ["role-permissions", selectedUserRoleId] }); setNewPermResourceId(null); setNewPermActionId(null); } });
   const removePermMut = useMutation<unknown, Error, number>({ mutationFn: id => apiClient.delete(`/admin/permissions/${id}`).then(r => r.data), onSuccess: () => void qc.invalidateQueries({ queryKey: ["role-permissions", selectedUserRoleId] }) });
   const updatePermMut = useMutation<unknown, Error, { permId: number; action_id: number }>({ mutationFn: ({ permId, action_id }) => apiClient.put(`/admin/permissions/${permId}`, { action_id }).then(r => r.data), onSuccess: () => void qc.invalidateQueries({ queryKey: ["role-permissions", selectedUserRoleId] }) });
+
+  const openCreateMode = () => {
+    setCreateMode(true);
+    setEditUser(null);
+    setPersonResults(null);
+    setSelectedPerson(null);
+    setPersonSearchName("");
+    setPersonSearchEmail("");
+    setNewUserName("");
+    setNewUserEmail("");
+    setNewUserPassword("");
+    setNewUserError("");
+    setNewUserSuccess("");
+  };
+
+  const closeCreateMode = () => {
+    setCreateMode(false);
+  };
+
+  const selectPerson = (p: PersonRow) => {
+    setSelectedPerson(p);
+    // Pre-fill username from person name: lowercase, spaces → dots
+    setNewUserName(p.person_name.toLowerCase().replace(/\s+/g, "."));
+    setNewUserEmail(p.person_email ?? "");
+    setNewUserError("");
+    setNewUserSuccess("");
+  };
 
   const openEdit = (user: UserRow) => {
     setEditUser(user);
@@ -98,9 +160,14 @@ export default function AdminUsersPage() {
               <input value={emailSearch} onChange={e => setEmailSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && searchMut.mutate()} className={inputCls} placeholder="Search by email..." />
             </div>
           </div>
-          <button onClick={() => searchMut.mutate()} disabled={searchMut.isPending} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-60">
-            <Search size={13} />{searchMut.isPending ? "Searching..." : "Search"}
-          </button>
+      <div className="flex gap-2">
+            <button onClick={() => searchMut.mutate()} disabled={searchMut.isPending} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-60">
+              <Search size={13} />{searchMut.isPending ? "Searching..." : "Search"}
+            </button>
+            <button onClick={openCreateMode} className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-lg transition-colors">
+              <Plus size={13} /> New User
+            </button>
+          </div>
         </div>
       )}
 
@@ -120,6 +187,94 @@ export default function AdminUsersPage() {
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Create New User panel ────────────────────────────── */}
+      {createMode && !editUser && (
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-gray-700 dark:text-gray-300">New User</h2>
+            <button onClick={closeCreateMode} className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 transition-colors"><X size={16} /></button>
+          </div>
+
+          {/* Step 1 — find person */}
+          {!selectedPerson && (
+            <div className="space-y-3">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Search for the person in tbPerson (NTT internal, person_company_id IS NULL):</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Name</label>
+                  <input value={personSearchName} onChange={e => setPersonSearchName(e.target.value)} onKeyDown={e => e.key === "Enter" && personSearchMut.mutate()} className={inputCls} placeholder="Search by name..." />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Email</label>
+                  <input value={personSearchEmail} onChange={e => setPersonSearchEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && personSearchMut.mutate()} className={inputCls} placeholder="Search by email..." />
+                </div>
+              </div>
+              <button onClick={() => personSearchMut.mutate()} disabled={personSearchMut.isPending} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-60">
+                <Search size={13} />{personSearchMut.isPending ? "Searching..." : "Search Persons"}
+              </button>
+              {personResults !== null && (
+                <div className="mt-2 space-y-1.5">
+                  {personResults.length === 0 ? (
+                    <p className="text-xs text-gray-400">No persons found.</p>
+                  ) : personResults.map(p => (
+                    <div key={p.person_id} className="flex items-center justify-between py-1.5 px-3 border border-gray-200 dark:border-gray-700 rounded-lg">
+                      <div>
+                        <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{p.person_name}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{p.person_email}{p.person_job_title ? ` — ${p.person_job_title}` : ""}</p>
+                      </div>
+                      <button onClick={() => selectPerson(p)} className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-700 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
+                        Select
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 2 — set credentials */}
+          {selectedPerson && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between py-2 px-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                <div>
+                  <p className="text-xs font-medium text-blue-700 dark:text-blue-300">{selectedPerson.person_name}</p>
+                  <p className="text-xs text-blue-500 dark:text-blue-400">{selectedPerson.person_email} — person_id: {selectedPerson.person_id}</p>
+                </div>
+                <button onClick={() => { setSelectedPerson(null); setNewUserError(""); setNewUserSuccess(""); }} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">Change</button>
+              </div>
+
+              {newUserError && <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-lg">{newUserError}</p>}
+              {newUserSuccess && <p className="text-xs text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-3 py-2 rounded-lg">{newUserSuccess}</p>}
+
+              {!newUserSuccess && (
+                <>
+                  <div>
+                    <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Username</label>
+                    <input value={newUserName} onChange={e => setNewUserName(e.target.value)} className={inputCls} placeholder="e.g. john.doe" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Email</label>
+                    <input value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} className={inputCls} placeholder="user@nttdata.com" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Initial Password <span className="text-red-500">*</span></label>
+                    <input type="password" value={newUserPassword} onChange={e => setNewUserPassword(e.target.value)} className={inputCls} placeholder="Set initial password" />
+                    <p className="text-xs text-gray-400 mt-1">User will be required to change it on first login.</p>
+                  </div>
+                  <button
+                    onClick={() => createUserMut.mutate()}
+                    disabled={createUserMut.isPending || !newUserName || !newUserEmail || !newUserPassword}
+                    className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-60"
+                  >
+                    <Plus size={13} />{createUserMut.isPending ? "Creating..." : "Create User"}
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>

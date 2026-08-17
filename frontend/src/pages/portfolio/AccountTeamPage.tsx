@@ -349,6 +349,11 @@ function EditPanel({ allRows, filterCompanies, filterDir, filterAm, filterCdm, f
   const [newType, setNewType] = useState("");
   const [warn, setWarn] = useState(false);
 
+  // Optimistic state: immediately reflect checkbox changes in the UI
+  // before the server responds and the query refetches.
+  // Key: accountteam_id → true/false (new desired allocated state)
+  const [optimisticAlloc, setOptimisticAlloc] = useState<Record<number, boolean>>({});
+
   // Persons already linked to this company (by accountteam_person_id)
   const existingPersonIds = useMemo(
     () => new Set(companyRows.map((r) => r.accountteam_person_id).filter((id): id is number => id != null)),
@@ -364,13 +369,29 @@ function EditPanel({ allRows, filterCompanies, filterDir, filterAm, filterCdm, f
   }, [usersQ.data, existingPersonIds]);
 
   const handleToggleAllocated = (row: AccountTeamRow, checked: boolean) => {
+    // Optimistic update: show new state immediately
+    setOptimisticAlloc((prev) => ({ ...prev, [row.accountteam_id]: checked }));
+
     const data: Record<string, unknown> = {
       accountteam_allocated: checked ? 1 : 0,
       accountteam_changed_in: today,
       accountteam_changed_by: userId,
     };
     if (!checked) data.accountteam_allocation_end_date = today;
-    updateMut.mutate({ id: row.accountteam_id, data });
+
+    updateMut.mutate(
+      { id: row.accountteam_id, data },
+      {
+        onSuccess: () => {
+          // Remove optimistic entry — the refetch will provide the real value
+          setOptimisticAlloc((prev) => { const n = { ...prev }; delete n[row.accountteam_id]; return n; });
+        },
+        onError: () => {
+          // Revert optimistic entry on failure
+          setOptimisticAlloc((prev) => { const n = { ...prev }; delete n[row.accountteam_id]; return n; });
+        },
+      }
+    );
   };
 
   const handleAddMember = () => {
@@ -420,7 +441,10 @@ function EditPanel({ allRows, filterCompanies, filterDir, filterAm, filterCdm, f
           </div>
           {companyRows.length === 0 && <p className="text-xs text-gray-400 py-2">{t("common.noData")}</p>}
           {companyRows.map((row) => {
-            const isAlloc = (row.accountteam_allocated ?? 0) !== 0;
+            // Use optimistic value if available, otherwise use the server value
+            const isAlloc = row.accountteam_id in optimisticAlloc
+              ? optimisticAlloc[row.accountteam_id]
+              : (row.accountteam_allocated ?? 0) !== 0;
             const isPending = updateMut.isPending && (updateMut.variables as { id: number })?.id === row.accountteam_id;
             return (
               <div key={row.accountteam_id} className="grid grid-cols-[3fr_2fr_1fr] gap-x-2 items-center py-1 border-b border-gray-50 dark:border-gray-800/50 last:border-0">
