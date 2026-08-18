@@ -4,7 +4,7 @@
 > **resource_key:** `portfolio.account_team`
 > **Arquivo frontend:** `frontend/src/pages/portfolio/AccountTeamPage.tsx`
 > **Migrado de:** `webapp/pages/portfolio/account_team.py` (Streamlit)
-> **Última atualização:** 2026-08-17
+> **Última atualização:** 2026-08-18 (rev2)
 
 ---
 
@@ -96,7 +96,7 @@ Botão **"✕ Clear all filters"** aparece automaticamente quando qualquer filtr
 
 ### 3.5 Edit Mode (permissão required)
 
-Habilitado para usuários ADMIN ou com role contendo "MANAGER" ou "FULL".
+Habilitado para usuários ADMIN ou com role contendo "MANAGER", "FULL" ou **"EDIT"**.
 
 **Navegação por empresa:**
 - Lista de empresas derivada dos filtros aplicados
@@ -124,7 +124,7 @@ Habilitado para usuários ADMIN ou com role contendo "MANAGER" ou "FULL".
 |-------|-----|
 | `vwAccountTeam` via `AccountTeamRepository.find_all_df()` | Dados principais (matrix + edit panel) |
 | `tbPerson WHERE person_company_id IS NULL` via `PersonRepository.get_ntt_persons()` | Lista de membros NTT para Add Member form (fonte primária) |
-| `tbUser WHERE user_company_id = 0` via `UserRepository` | Fallback quando `tbPerson` está vazia — auto-cria registros em `tbPerson` |
+| `tbPerson` já populada com ~700 colaboradores internos NTT (`person_company_id IS NULL`) | Origem exclusiva para o formulário Add Member |
 | `CiscoDomainRepository.get_domain_all()` | Cisco Domain por empresa (join no backend) |
 
 ### Tabelas envolvidas
@@ -172,6 +172,7 @@ person_enabled      TINYINT(1) DEFAULT 1  -- 1 = ativo
 | RN-10 | Cisco Domain: múltiplos domínios por empresa são concatenados com `, ` |
 | RN-11 | Nomes na mesma célula de tipo (ex: "João, Maria" em CSM) são sorted e deduplicados |
 | RN-12 | Checkbox allocated: **atualização otimista** no frontend — muda visualmente antes da resposta do servidor; reverte se houver erro |
+| RN-13 | Botão Edit Mode visível apenas para ADMIN ou role contendo "MANAGER", "FULL" ou "EDIT" |
 
 ---
 
@@ -205,9 +206,9 @@ sections_service.py
 
     get_account_team_ntt_users()
         → Tenta PersonRepository.get_ntt_persons(only_enabled=True)
-        → Se tbPerson vazia: fallback para tbUser WHERE user_company_id = 0
-          • Para cada usuário: busca ou auto-cria registro em tbPerson (por email)
-          • Garante que a FK accountteam_person_id → tbPerson.person_id seja satisfeita
+        → Se PersonRepository indisponível (não implantado no servidor): fallback SQL direto
+          SELECT person_id, person_name, ... FROM tbPerson
+          WHERE person_company_id IS NULL AND person_enabled = 1
         → Retorna sempre [{ person_id, person_name, person_email, ... }]
 
     update_account_team_row(id, data)
@@ -217,6 +218,9 @@ sections_service.py
 
     insert_account_team_row(data)
         → AccountTeamRepository.insert(data)
+        → Salva diretamente em tbAccountTeam:
+          accountteam_person_id   (FK → tbPerson.person_id)
+          accountteam_person_type (AM, CDM, CSM, DIR, etc.)
 
 Repositories
     AccountTeamRepository  → vwAccountTeam / tbAccountTeam
@@ -236,7 +240,8 @@ AccountTeamPage.tsx
 ├── hasVal(cell, vals)         — filtro multi-nome (split + includes)
 ├── colLabel(key, clientLabel) — helper: chave interna → label legível
 ├── exportTSV(...)             — export TSV client-side (respeita colunas visíveis)
-├── MultiSelect                — dropdown multi-seleção com "Clear all"
+├── SingleSelect               — dropdown single-seleção com busca por digitação + botão ✕ (usado no Add Member form)
+├── MultiSelect                — dropdown multi-seleção com "Clear all" (usado nos filtros)
 ├── PaginationBar              — paginação com janela deslizante de 5 páginas
 ├── ColumnToggle               — toggle de visibilidade de colunas
 ├── MatrixTable                — tabela de matriz com scroll horizontal
@@ -244,7 +249,7 @@ AccountTeamPage.tsx
     ├── optimisticAlloc state  — Map<accountteam_id, bool> para feedback visual imediato
     ├── company navigator      — prev/next sobre lista filtrada
     ├── allocated toggle       — PUT auto-save + atualização otimista
-    └── add member form        — select de NttPerson + select de tipo
+    └── add member form        — SingleSelect de NttPerson + SingleSelect de tipo
 ```
 
 **Queries (React Query):**
@@ -267,7 +272,7 @@ AccountTeamPage.tsx
 
 O `canEdit` é determinado no frontend:
 ```typescript
-const canEdit = isAdmin || role.includes("MANAGER") || role.includes("FULL");
+const canEdit = isAdmin || role.includes("MANAGER") || role.includes("FULL") || role.includes("EDIT");
 ```
 
 ---
@@ -279,7 +284,10 @@ const canEdit = isAdmin || role.includes("MANAGER") || role.includes("FULL");
 | 2026-08-17 | Colunas AM/CDM/CSM/DIR exibidas como "OTHER" | `vwAccountTeam` retorna `accountteam_user_type` mas frontend espera `accountteam_person_type` | `_normalize_account_team_cols()` no backend renomeia as colunas antes de retornar |
 | 2026-08-17 | Checkbox "Allocated" não salvava | `AccountTeamRepository.update()` definido sem `self` — Python passava a instância como `edit_values` | `update_account_team_row()` chama `AccountTeamRepository.update(data)` como método de classe |
 | 2026-08-17 | Checkbox parecia não responder (sem feedback visual) | Checkbox controlado pelo React não muda visualmente até o refetch completar | Estado otimista `optimisticAlloc` no `EditPanel` — muda imediatamente, reverte se erro |
-| 2026-08-17 | "Add Member" mostrava "All users already linked" | `tbPerson` estava vazia, `GET /users` retornava `[]` | `get_account_team_ntt_users()` faz fallback para `tbUser` e auto-cria registros em `tbPerson` |
+| 2026-08-17 | "Add Member" mostrava "All users already linked" | `PersonRepository` não implantado no servidor — import falhava silenciosamente | `get_account_team_ntt_users()` tem fallback SQL direto — independe de `person_repository.py` estar implantado |
+| 2026-08-18 | Botão Edit Mode não visível para role "EDIT" | Condição `canEdit` não incluía `role.includes("EDIT")` | Adicionado `role.includes("EDIT")` à condição `canEdit` |
+| 2026-08-18 | TYPE inserido não aparecia na coluna TIPO | `insert_account_team_row()` mapeava para `accountteam_user_type` (coluna errada) | Mapeamento removido; salva diretamente em `tbAccountTeam.accountteam_person_type` |
+| 2026-08-18 | MEMBER select sem busca por digitação (700 nomes) | `<select>` HTML nativo não filtra por digitação | Substituído por `SingleSelect` com input de busca + `onClick` explícito |
 
 ---
 

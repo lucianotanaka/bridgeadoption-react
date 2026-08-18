@@ -4,7 +4,7 @@
 > **Autenticação:** Bearer Token JWT (header `Authorization: Bearer <token>`)
 > **Tag FastAPI:** `portfolio`
 > **Router:** `backend/app/modules/sections_router.py` → `portfolio_router`
-> **Última atualização:** 2026-08-17
+> **Última atualização:** 2026-08-18
 > **Módulo frontend:** `AccountTeamPage.tsx` — i18n via `portfolio.accountTeam.*`
 
 ---
@@ -89,12 +89,10 @@ Usado pelo **Edit Panel** para exibir todos os membros de uma empresa — inclui
 
 Retorna a lista de **pessoas NTT internas** disponíveis para o formulário "Add Member".
 
-**Fonte primária:** `tbPerson WHERE person_company_id IS NULL AND person_enabled = 1`
+**Fonte:** `tbPerson WHERE person_company_id IS NULL AND person_enabled = 1`
 
-**Fallback automático** (quando `tbPerson` está vazia):
-- Consulta `tbUser WHERE user_company_id = 0`
-- Para cada usuário, busca ou **auto-cria** um registro em `tbPerson` (por email)
-- Isso garante que a FK `accountteam_person_id → tbPerson.person_id` seja satisfeita no INSERT
+> `tbPerson` já está populada com os colaboradores internos NTT (~700 registros).
+> O backend tenta `PersonRepository.get_ntt_persons()` primeiro; se indisponível, usa fallback SQL direto.
 
 **Sem parâmetros.**
 
@@ -277,9 +275,9 @@ const result = await apiClient.post('/portfolio/account-team', {
 
 - **Cisco Domain:** O backend faz o join com `CiscoDomainRepository` em `/matrix`. Múltiplos domínios por empresa são concatenados com `, `. Em caso de falha no join, o campo `cisco_domain` retorna `null` (não falha a requisição).
 
-- **Fonte dos membros (Add Member):** A lista vem primariamente de `tbPerson WHERE person_company_id IS NULL AND person_enabled = 1`. Se `tbPerson` estiver vazia, o fallback usa `tbUser WHERE user_company_id = 0` e **auto-cria registros em `tbPerson`** para que o FK `accountteam_person_id → tbPerson.person_id` seja satisfeito.
+- **Fonte dos membros (Add Member):** A lista vem de `tbPerson WHERE person_company_id IS NULL AND person_enabled = 1` (~700 colaboradores NTT). O backend tenta `PersonRepository` primeiro; se `person_repository.py` não estiver implantado no servidor, usa um **fallback SQL direto** sobre `tbPerson` sem dependências externas.
 
-- **`accountteam_person_id` vs `accountteam_user_id`:** As colunas antigas foram renomeadas. O schema atual usa `accountteam_person_id` (FK → `tbPerson.person_id`) e `accountteam_person_type`.
+- **`accountteam_person_id` vs `accountteam_user_id`:** As colunas antigas foram renomeadas. O schema atual usa `accountteam_person_id` (FK → `tbPerson.person_id`) e `accountteam_person_type`. O `INSERT` salva diretamente nessas colunas — sem mapeamento intermediário para `accountteam_user_type`.
 
 - **Bug do `update()` sem `self`:** `AccountTeamRepository.update()` foi definido sem parâmetro `self`, tornando-o efetivamente um método estático. O service chama `AccountTeamRepository.update(data)` (como método de classe) para passar os dados corretamente.
 

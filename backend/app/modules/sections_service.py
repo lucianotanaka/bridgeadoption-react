@@ -938,23 +938,16 @@ def insert_account_team_row(data: Dict) -> int:
     Inserts a new account team record. Returns the new accountteam_id or 0 on failure.
     Mirrors account_team_repo.insert(new_dic) from Streamlit.
 
-    Column mapping: the frontend sends 'accountteam_person_type' but tbAccountTeam
-    still has the legacy column 'accountteam_user_type'. This function normalizes
-    the keys before inserting so the SQL doesn't fail with 'Unknown column'.
+    Saves directly to tbAccountTeam columns:
+      accountteam_person_id   ← person_id from tbPerson
+      accountteam_person_type ← type selected by user (AM, CDM, CSM, DIR, etc.)
     """
     if not _AT_OK:
         return 0
     try:
-        # Map new column names → legacy DB column names for INSERT
-        db_data: Dict = {}
-        for k, v in data.items():
-            if k == "accountteam_person_type":
-                db_data["accountteam_user_type"] = v   # DB still uses old name
-            else:
-                db_data[k] = v
-
+        # accountteam_person_type is saved directly to tbAccountTeam.accountteam_person_type
         repo = AccountTeamRepository()
-        new_id = repo.insert(db_data)
+        new_id = repo.insert(data)
         return int(new_id) if new_id else 0
     except Exception as e:
         logger.error(f"insert_account_team_row: {e}\n{traceback.format_exc()}")

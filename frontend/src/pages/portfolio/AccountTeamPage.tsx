@@ -110,6 +110,87 @@ function exportTSV(matrix: MatrixRow[], visibleExtra: string[], clientLabel: str
   URL.revokeObjectURL(url);
 }
 
+// ─── SingleSelect (searchable single-value picker) ────────
+function SingleSelect({ label, options, value, onChange, placeholder }: {
+  label: string; options: string[]; value: string; onChange: (v: string) => void; placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const filtered = search.trim()
+    ? options.filter((o) => o.toLowerCase().includes(search.toLowerCase()))
+    : options;
+
+  const handleSelect = (opt: string) => {
+    onChange(opt);
+    setOpen(false);
+    setSearch("");
+  };
+
+  const handleClear = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onChange("");
+    setSearch("");
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      {label && <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{label}</label>}
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => { setOpen((o) => !o); setSearch(""); }}
+          className={`${inputCls} text-left flex items-center justify-between gap-1`}
+        >
+          <span className={`truncate ${value ? "text-gray-700 dark:text-gray-300" : "text-gray-400"}`}>
+            {value || placeholder || "Selecione..."}
+          </span>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {value && (
+              <span onClick={handleClear} className="text-gray-400 hover:text-red-500 cursor-pointer text-[10px]">✕</span>
+            )}
+            <span className="text-gray-400 text-[10px]">▾</span>
+          </div>
+        </button>
+        {open && (
+          <>
+            <div className="fixed inset-0 z-20" onClick={() => { setOpen(false); setSearch(""); }} />
+            <div className="absolute top-full mt-1 z-30 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg flex flex-col" style={{ maxHeight: "240px" }}>
+              <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+                <input
+                  autoFocus
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar…"
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-full text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div className="overflow-y-auto flex-1">
+                {filtered.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">Sem resultados</p>}
+                {filtered.map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => handleSelect(opt)}
+                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                      opt === value
+                        ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-medium"
+                        : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── MultiSelect ──────────────────────────────────────────
 function MultiSelect({ label, options, value, onChange }: { label: string; options: string[]; value: string[]; onChange: (v: string[]) => void }) {
   const [open, setOpen] = useState(false);
@@ -493,20 +574,20 @@ function EditPanel({ allRows, filterCompanies, filterDir, filterAm, filterCdm, f
           ) : (
             <>
               <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{t("portfolio.accountTeam.member")}</label>
-                  <select value={newUser} onChange={(e) => setNewUser(e.target.value)} className={selectCls + " w-full"}>
-                    <option value="">{t("common.selectOption")}</option>
-                    {availableUsers.map((u) => <option key={u.person_id} value={u.person_name}>{u.person_name}</option>)}
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{t("portfolio.accountTeam.type")}</label>
-                  <select value={newType} onChange={(e) => setNewType(e.target.value)} className={selectCls + " w-full"}>
-                    <option value="">{t("common.selectOption")}</option>
-                    {userTypeOptions.map((tp) => <option key={tp} value={tp}>{tp}</option>)}
-                  </select>
-                </div>
+                <SingleSelect
+                  label={t("portfolio.accountTeam.member")}
+                  options={availableUsers.map((u) => u.person_name)}
+                  value={newUser}
+                  onChange={setNewUser}
+                  placeholder={t("common.selectOption")}
+                />
+                <SingleSelect
+                  label={t("portfolio.accountTeam.type")}
+                  options={userTypeOptions}
+                  value={newType}
+                  onChange={setNewType}
+                  placeholder={t("common.selectOption")}
+                />
               </div>
               {warn && <p className="text-xs text-amber-500">{t("portfolio.accountTeam.warning1")}</p>}
               <div className="flex justify-end">
