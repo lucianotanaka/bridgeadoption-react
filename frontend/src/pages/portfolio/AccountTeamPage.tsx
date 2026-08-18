@@ -27,6 +27,7 @@ interface AccountTeamRow {
   cisco_domain?: string | null;
 }
 interface NttPerson { person_id: number; person_name: string; person_email?: string | null; person_job_title?: string | null; }
+interface Company { company_id: number; company_name: string; }
 interface MatrixRow {
   "#": number; company: string; companyId: number; ciscoDomain: string;
   [userType: string]: string | number;
@@ -404,6 +405,13 @@ function EditPanel({ allRows, filterCompanies, filterDir, filterAm, filterCdm, f
   const userId = user?.id ?? 0;
   const today = new Date().toISOString().slice(0, 10);
 
+  // All companies from the API (includes companies with NO tbAccountTeam rows yet)
+  const companiesQ = useQuery({
+    queryKey: ["account-team-all-companies"],
+    queryFn: () => apiClient.get<Company[]>("/portfolio/account-team/companies").then((r) => r.data),
+    staleTime: 10 * 60 * 1000,
+  });
+
   const usersQ = useQuery({
     queryKey: ["account-team-ntt-users"],
     queryFn: () => apiClient.get<NttPerson[]>("/portfolio/account-team/users").then((r) => r.data),
@@ -425,16 +433,23 @@ function EditPanel({ allRows, filterCompanies, filterDir, filterAm, filterCdm, f
     },
   });
 
-  // Filter companies for navigation (mirrors apply_account_team_row_filters)
-  const filteredRows = useMemo(() => {
-    let rows = allRows;
-    if (filterCompanies.length) rows = rows.filter((r) => filterCompanies.includes(r.accountteam_company_name));
+  // Build companies list from ALL companies (not just those with existing tbAccountTeam rows)
+  // Apply page-level filters to narrow the navigation list
+  const companies = useMemo(() => {
+    const allCompanyNames = (companiesQ.data ?? []).map((c) => c.company_name);
+    let list = allCompanyNames;
+    // CLIENT filter
+    if (filterCompanies.length) list = list.filter((n) => filterCompanies.includes(n));
+    // Person-based filters (DIR/AM/CDM/CSM/RSA): only include companies that have a matching row
     const pf = [...filterDir, ...filterAm, ...filterCdm, ...filterCsm, ...filterRsa];
-    if (pf.length) rows = rows.filter((r) => pf.includes(r.accountteam_user_name));
-    return rows;
-  }, [allRows, filterCompanies, filterDir, filterAm, filterCdm, filterCsm, filterRsa]);
-
-  const companies = useMemo(() => [...new Set(filteredRows.map((r) => r.accountteam_company_name))].sort(), [filteredRows]);
+    if (pf.length) {
+      const matchingCos = new Set(
+        allRows.filter((r) => pf.includes(r.accountteam_user_name)).map((r) => r.accountteam_company_name)
+      );
+      list = list.filter((n) => matchingCos.has(n));
+    }
+    return list.sort();
+  }, [companiesQ.data, filterCompanies, filterDir, filterAm, filterCdm, filterCsm, filterRsa, allRows]);
 
   const [navIdx, setNavIdx] = useState(0);
 
@@ -445,7 +460,13 @@ function EditPanel({ allRows, filterCompanies, filterDir, filterAm, filterCdm, f
   const safeIdx = Math.min(navIdx, Math.max(companies.length - 1, 0));
   const currentCompany = companies[safeIdx] ?? "";
   const companyRows = useMemo(() => allRows.filter((r) => r.accountteam_company_name === currentCompany), [allRows, currentCompany]);
-  const currentCompanyId = companyRows.length > 0 ? companyRows[0].accountteam_company_id : 0;
+  // Get currentCompanyId from companies API (handles companies with no tbAccountTeam rows)
+  const currentCompanyId = useMemo(() => {
+    if (companyRows.length > 0) return companyRows[0].accountteam_company_id;
+    // Company exists in tbCompany but has no tbAccountTeam rows yet
+    const found = (companiesQ.data ?? []).find((c) => c.company_name === currentCompany);
+    return found ? found.company_id : 0;
+  }, [companyRows, companiesQ.data, currentCompany]);
 
   const [newUser, setNewUser] = useState("");
   const [newType, setNewType] = useState("");
@@ -638,8 +659,18 @@ export default function AccountTeamPage() {
   const matrix = useMemo(() => buildMatrix(matrixRows), [matrixRows]);
   const dynCols = useMemo(() => getDynCols(matrix), [matrix]);
 
+  // ─── All companies for CLIENT filter (from CompanyRepository.list_available_companies)
+  const allCompaniesQ = useQuery({
+    queryKey: ["account-team-all-companies"],
+    queryFn: () => apiClient.get<Company[]>("/portfolio/account-team/companies").then((r) => r.data),
+    staleTime: 10 * 60 * 1000,
+  });
+  const companyOptions = useMemo(
+    () => (allCompaniesQ.data ?? []).map((c) => c.company_name).sort(),
+    [allCompaniesQ.data]
+  );
+
   // ─── Distinct values for filters ───────────────────────
-  const companyOptions = useMemo(() => matrix.map((r) => r.company).sort(), [matrix]);
   const amOptions = useMemo(() => getUniq(matrix, "AM"), [matrix]);
   const cdmOptions = useMemo(() => getUniq(matrix, "CDM"), [matrix]);
   const csmOptions = useMemo(() => getUniq(matrix, "CSM"), [matrix]);

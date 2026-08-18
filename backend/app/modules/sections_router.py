@@ -20,6 +20,7 @@ from app.modules.sections_service import (
     create_action, create_resource, update_resource, toggle_resource_active,
     get_team_goals, get_assets, get_account_team,
     get_account_team_matrix, get_account_team_all_rows, get_account_team_ntt_users,
+    get_account_team_companies,
     update_account_team_row, insert_account_team_row,
     get_adoption_tasks, get_cisco_sa_usage, get_cisco_true_forward,
     admin_search_companies, admin_get_company, admin_create_company,
@@ -111,6 +112,14 @@ def portfolio_assets(
     customer_id: int = Query(...),
 ):
     return get_assets(customer_id)
+
+@portfolio_router.get("/account-team/companies", response_model=List[Dict[str, Any]])
+def portfolio_account_team_companies(
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Returns all non-VAGO companies for the Account Team edit panel navigation.
+    Enables adding the first member to companies with no existing tbAccountTeam rows."""
+    return get_account_team_companies()
 
 @portfolio_router.get("/account-team/matrix", response_model=List[Dict[str, Any]])
 def portfolio_account_team_matrix(

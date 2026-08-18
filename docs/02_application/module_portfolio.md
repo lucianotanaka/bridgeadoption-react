@@ -26,24 +26,35 @@ O grupo Portfolio reúne as visões centradas no cliente — saúde do portfóli
 
 ## 3. Farol (`portfolio.farol`)
 
+> **Status:** ✅ Migrado para React — 2026-08-18  
+> **Documentação detalhada:** `docs/02_application/portfolio/farol.md`  
+> **API:** `docs/07_api/farol_endpoints.md`
+
 ### Propósito
-Semáforo visual de saúde dos clientes — indica de forma rápida quais clientes estão em situação crítica, de atenção ou saudável.
+Painel de status de cobertura contratual de soluções por cliente (*Traffic Light — Client Health Status*).
+
+Exibe um grid visual por **Architecture × Solution** com emoji de semáforo em cada célula, indicando o estado de cobertura de cada solução. Suporta Vendor CISCO (vendor_id=1); FORTINET e PALO ALTO preparados para ativação.
 
 ### Componentes
-- Grid de cards por cliente com indicador colorido (verde/amarelo/vermelho)
-- Filtros por CSM, status, período
-- Drill-down ao clicar em um cliente
+- Filtro de **Vendor** (`<select>`, padrão CISCO)
+- Filtro de **Cliente** (searchable dropdown, carregado via API)
+- Botão **Generate Farol** (dispara query de dados)
+- **Grid Architecture × Solution** — até 5 solutions por linha, rowSpan por architecture
+- **Legenda** de status acima do grid
+- **Export CSV** e botão de **Refresh**
 
-### Regras de negócio — Cores do semáforo
+### Status do Semáforo
 
-| Cor | Significado |
-|---|---|
-| 🟢 Verde | Cliente saudável — adoção em dia |
-| 🟡 Amarelo | Atenção — há pontos de melhoria |
-| 🔴 Vermelho | Crítico — intervenção necessária |
+| Emoji | Status (DB) | Significado |
+|---|---|---|
+| 🟢 | `green` | Active — cobertura ativa |
+| 🟡 | `yellow` | Signed – Pending Activation |
+| 🔴 | `red` | Expired or Never Covered |
+| ⚪ | `gray` / `null` | Non-Existent or Other Partner |
 
 ### Endpoints
-- `GET /api/portfolio/farol`
+- `GET /api/portfolio/farol/clients?vendor_id={id}` — lista de clientes por vendor
+- `GET /api/portfolio/farol?vendor_id={id}&customer_id={id}` — dados do Farol
 
 ---
 
@@ -135,7 +146,9 @@ backend/app/modules/
 
 | Problema | Causa | Solução |
 |---|---|---|
-| Farol sem dados | Sem registros de saúde no banco | Verificar job de atualização do Farol |
+| Farol — lista de clientes vazia | Sem registros em `tbClientFarol` para o vendor | Verificar tabela `tbClientFarol` no banco |
+| Farol — grid vazio após Generate | Sem registros em `tbFarol` para o cliente | Executar job de importação do Farol |
+| Farol — status ⚪ em todas as células | Coluna `status` com valores inesperados | Verificar valores em `tbFarol.status` (esperado: `green`, `yellow`, `red`, `gray`) |
 | Client Overview vazio | Cliente selecionado sem dados EA/SA | Verificar importação Cisco EA/SA para o cliente |
 | Equipe de conta incompleta | Dados desatualizados | Verificar tabela de account team no banco |
 | True Forward não aparece | Sem dados de overage | Normal se o cliente está dentro do contrato |

@@ -48,5 +48,6 @@ http://<servidor>/api
 | `opportunities_endpoints.md` | `/api/adoption/rebate` | Adoption Opportunities — SIP tasks, fiscal years |
 | `use_cases_endpoints.md` | `/api/adoption/use-cases` | Use Cases — vendors, use cases por vendor, exit criteria |
 | `account_team_endpoints.md` | `/api/portfolio/account-team` | Account Team — matrix, rows, users, PUT/POST |
+| `farol_endpoints.md` | `/api/portfolio/farol` | Farol (Traffic Light) — clients list, farol data |
 
 > **Nota:** Use `/api/docs` (Swagger UI) ou `/api/redoc` para explorar os endpoints interativamente em ambiente de desenvolvimento.

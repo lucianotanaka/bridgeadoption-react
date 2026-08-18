@@ -19,6 +19,29 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
+## GET `/companies`
+
+Retorna a lista de **todas as empresas válidas** de `tbCompany` para o filtro CLIENT e para a navegação do Edit Panel.
+
+**Fonte:** `CompanyRepository.list_available_companies()`
+
+**Critérios de exclusão:** `VAGO %`, type `PF`, nome vazio/`-`/`UNIDENTIFIED`
+
+**Sem parâmetros.**
+
+**Response:** `List[Company]`
+
+```json
+[
+  { "company_id": 5, "company_name": "ACME CORP" },
+  { "company_id": 12, "company_name": "BANCO CSF S/A" }
+]
+```
+
+> **Cache (React Query):** query `["account-team-all-companies"]` compartilhada pela página principal (filtro CLIENT) e pelo `EditPanel` (navegação) — apenas **1 requisição HTTP**.
+
+---
+
 ## GET `/matrix`
 
 Retorna todas as linhas **alocadas** do Account Team enriquecidas com o Cisco Domain por empresa.

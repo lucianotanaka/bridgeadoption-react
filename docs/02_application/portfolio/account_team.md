@@ -4,7 +4,7 @@
 > **resource_key:** `portfolio.account_team`
 > **Arquivo frontend:** `frontend/src/pages/portfolio/AccountTeamPage.tsx`
 > **Migrado de:** `webapp/pages/portfolio/account_team.py` (Streamlit)
-> **Última atualização:** 2026-08-18 (rev2)
+> **Última atualização:** 2026-08-18 (rev4)
 
 ---
 
@@ -125,6 +125,7 @@ Habilitado para usuários ADMIN ou com role contendo "MANAGER", "FULL" ou **"EDI
 | `vwAccountTeam` via `AccountTeamRepository.find_all_df()` | Dados principais (matrix + edit panel) |
 | `tbPerson WHERE person_company_id IS NULL` via `PersonRepository.get_ntt_persons()` | Lista de membros NTT para Add Member form (fonte primária) |
 | `tbPerson` já populada com ~700 colaboradores internos NTT (`person_company_id IS NULL`) | Origem exclusiva para o formulário Add Member |
+| `CompanyRepository.list_available_companies()` via `GET /account-team/companies` | Filtro CLIENT + navegação Edit Panel (todas as empresas válidas de tbCompany) |
 | `CiscoDomainRepository.get_domain_all()` | Cisco Domain por empresa (join no backend) |
 
 ### Tabelas envolvidas
@@ -173,6 +174,8 @@ person_enabled      TINYINT(1) DEFAULT 1  -- 1 = ativo
 | RN-11 | Nomes na mesma célula de tipo (ex: "João, Maria" em CSM) são sorted e deduplicados |
 | RN-12 | Checkbox allocated: **atualização otimista** no frontend — muda visualmente antes da resposta do servidor; reverte se houver erro |
 | RN-13 | Botão Edit Mode visível apenas para ADMIN ou role contendo "MANAGER", "FULL" ou "EDIT" |
+| RN-14 | Filtro CLIENT lista todas as empresas válidas de `tbCompany` (via `list_available_companies()`) — não apenas as que têm membros alocados |
+| RN-15 | Edit Panel navega por **todas** as empresas válidas — permite cadastrar o primeiro membro em empresas sem registros em `tbAccountTeam` |
 
 ---
 
@@ -180,6 +183,7 @@ person_enabled      TINYINT(1) DEFAULT 1  -- 1 = ativo
 
 ```
 sections_router.py (portfolio_router)
+    GET /api/portfolio/account-team/companies → get_account_team_companies()
     GET /api/portfolio/account-team/matrix    → get_account_team_matrix()
     GET /api/portfolio/account-team/rows      → get_account_team_all_rows()
     GET /api/portfolio/account-team/users     → get_account_team_ntt_users()
@@ -203,6 +207,11 @@ sections_service.py
     get_account_team_all_rows()
         → AccountTeamRepository.find_all_df() (sem filtro de alocação)
         → _normalize_account_team_cols(df)
+
+    get_account_team_companies()
+        → CompanyRepository.list_available_companies()
+        → tbCompany excluindo VAGO, PF, vazio, UNIDENTIFIED
+        → Usado por: filtro CLIENT (main page) + navegação Edit Panel
 
     get_account_team_ntt_users()
         → Tenta PersonRepository.get_ntt_persons(only_enabled=True)
@@ -240,7 +249,7 @@ AccountTeamPage.tsx
 ├── hasVal(cell, vals)         — filtro multi-nome (split + includes)
 ├── colLabel(key, clientLabel) — helper: chave interna → label legível
 ├── exportTSV(...)             — export TSV client-side (respeita colunas visíveis)
-├── SingleSelect               — dropdown single-seleção com busca por digitação + botão ✕ (usado no Add Member form)
+├── SingleSelect               — dropdown single-seleção com busca por digitação + botão ✕, abre para CIMA (usado no Add Member form)
 ├── MultiSelect                — dropdown multi-seleção com "Clear all" (usado nos filtros)
 ├── PaginationBar              — paginação com janela deslizante de 5 páginas
 ├── ColumnToggle               — toggle de visibilidade de colunas
@@ -255,6 +264,7 @@ AccountTeamPage.tsx
 **Queries (React Query):**
 | Query key | Endpoint | Quando |
 |-----------|----------|--------|
+| `["account-team-all-companies"]` | `GET /companies` | Sempre — compartilhado pelo filtro CLIENT e EditPanel |
 | `["account-team-matrix"]` | `GET /matrix` | Sempre (página carrega) |
 | `["account-team-rows"]` | `GET /rows` | Apenas quando `canEdit = true` |
 | `["account-team-ntt-users"]` | `GET /users` | Lazy, dentro do EditPanel |
@@ -288,6 +298,9 @@ const canEdit = isAdmin || role.includes("MANAGER") || role.includes("FULL") || 
 | 2026-08-18 | Botão Edit Mode não visível para role "EDIT" | Condição `canEdit` não incluía `role.includes("EDIT")` | Adicionado `role.includes("EDIT")` à condição `canEdit` |
 | 2026-08-18 | TYPE inserido não aparecia na coluna TIPO | `insert_account_team_row()` mapeava para `accountteam_user_type` (coluna errada) | Mapeamento removido; salva diretamente em `tbAccountTeam.accountteam_person_type` |
 | 2026-08-18 | MEMBER select sem busca por digitação (700 nomes) | `<select>` HTML nativo não filtra por digitação | Substituído por `SingleSelect` com input de busca + `onClick` explícito |
+| 2026-08-18 | Dropdown do SingleSelect ficava cortado fora da tela | Add Member form está no fundo da página — dropdown abria para baixo (`top-full`) saindo da viewport | Alterado para `bottom-full mb-1` — dropdown abre para cima, sempre visível |
+| 2026-08-18 | Não era possível cadastrar membro em empresa sem registros em tbAccountTeam | `companies` derivado de `allRows` (tbAccountTeam) — empresas novas invisíveis | `GET /companies` retorna todas as empresas; `currentCompanyId` buscado da API quando companyRows vazio |
+| 2026-08-18 | Filtro CLIENT só mostrava empresas com membros alocados | `companyOptions` derivado de `matrix` (somente registros alocados) | `companyOptions` agora via `CompanyRepository.list_available_companies()` — todas as empresas válidas |
 
 ---
 

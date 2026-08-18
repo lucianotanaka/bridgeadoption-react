@@ -886,6 +886,24 @@ def get_account_team_all_rows() -> List[Dict]:
         return []
 
 
+def get_account_team_companies() -> List[Dict]:
+    """
+    Returns the list of valid companies for Account Team selects (filter + edit panel navigation).
+    Source: CompanyRepository.list_available_companies() — excludes VAGO, PF, empty, UNIDENTIFIED.
+    Used by:
+      - CLIENT filter dropdown in the matrix view
+      - Edit Panel company navigation (allows adding first member to companies with no tbAccountTeam rows)
+    """
+    try:
+        from src.infrastructure.database.repositories.company_repository import CompanyRepository
+        repo = CompanyRepository()
+        rows = repo.list_available_companies(as_df=False)
+        return [_ser(dict(r)) for r in rows] if rows else []
+    except Exception as e:
+        logger.error(f"get_account_team_companies: {e}\n{traceback.format_exc()}")
+        return []
+
+
 def get_account_team_ntt_users() -> List[Dict]:
     """
     Returns NTT internal people available for the 'Add Member' form.
