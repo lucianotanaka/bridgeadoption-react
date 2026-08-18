@@ -869,14 +869,12 @@ def get_account_team_all_rows() -> List[Dict]:
 def get_account_team_ntt_users() -> List[Dict]:
     """
     Returns NTT internal people available for the 'Add Member' form.
+    Source: tbPerson WHERE person_company_id IS NULL AND person_enabled = 1
 
-    Primary source: tbPerson WHERE person_company_id IS NULL AND person_enabled = 1
-    Fallback: tbUser WHERE user_company_id = 0, mapped to person_id/person_name format.
-
-    The fallback auto-creates missing tbPerson records so inserts succeed with
-    the accountteam_person_id FK constraint.
+    Uses PersonRepository if available; falls back to a direct SQL query
+    so that deployment of person_repository.py is not a hard dependency.
     """
-    # ── Try tbPerson first ────────────────────────────────
+    # ── Try PersonRepository first ──────────────────────────────────────────
     try:
         from src.infrastructure.database.repositories.person_repository import PersonRepository
         repo = PersonRepository()
@@ -884,75 +882,34 @@ def get_account_team_ntt_users() -> List[Dict]:
         if df is not None and not df.empty:
             return _df(df)
     except Exception as e:
-        logger.warning(f"get_account_team_ntt_users: PersonRepository failed: {e}")
+        logger.warning(f"get_account_team_ntt_users: PersonRepository unavailable ({e}), using direct SQL")
 
-    # ── Fallback: tbUser → map to person_id/person_name schema ───────────────
-    # For each NTT user found, ensure a corresponding tbPerson record exists
-    # (creates it if missing) so accountteam_person_id FK constraint is satisfied.
-    if not _USER_OK:
-        return []
+    # ── Direct SQL fallback (does not depend on person_repository.py) ────────
     try:
         from src.infrastructure.database.connection import get_db_connection
         conn = get_db_connection()
         try:
-            # Load NTT users (user_company_id = 0)
             cursor = conn.cursor(dictionary=True)
             cursor.execute("""
-                SELECT user_id, user_name, user_full_name, user_email
-                FROM tbUser
-                WHERE user_company_id = 0
-                ORDER BY user_name
+                SELECT
+                    person_id,
+                    person_name,
+                    person_email,
+                    person_job_title,
+                    person_type,
+                    person_enabled
+                FROM tbPerson
+                WHERE person_company_id IS NULL
+                  AND person_enabled = 1
+                ORDER BY person_name
             """)
-            users = cursor.fetchall()
-
-            result = []
-            for u in users:
-                user_id = int(u["user_id"])
-                user_name = u.get("user_full_name") or u.get("user_name") or ""
-                user_email = u.get("user_email") or ""
-
-                # Look up or create a tbPerson record for this user
-                cursor.execute(
-                    "SELECT person_id, person_name FROM tbPerson WHERE person_email = %s AND person_company_id IS NULL LIMIT 1",
-                    (user_email,)
-                )
-                person_row = cursor.fetchone()
-
-                if person_row:
-                    person_id = int(person_row["person_id"])
-                    person_name = person_row["person_name"]
-                else:
-                    # Auto-create a tbPerson record so the FK constraint will pass on INSERT
-                    try:
-                        cursor.execute(
-                            """INSERT INTO tbPerson (person_name, person_email, person_company_id, person_enabled)
-                               VALUES (%s, %s, NULL, 1)""",
-                            (user_name, user_email)
-                        )
-                        conn.commit()
-                        person_id = cursor.lastrowid
-                        person_name = user_name
-                    except Exception as ie:
-                        logger.warning(f"get_account_team_ntt_users: could not create tbPerson for {user_name}: {ie}")
-                        conn.rollback()
-                        # Fall back to using user_id directly (may fail FK, but worth trying)
-                        person_id = user_id
-                        person_name = user_name
-
-                result.append({
-                    "person_id": person_id,
-                    "person_name": person_name,
-                    "person_email": user_email,
-                    "person_job_title": None,
-                    "person_type": None,
-                    "person_enabled": 1,
-                })
-            return result
+            rows = cursor.fetchall()
+            return [_ser(dict(r)) for r in rows]
         finally:
             cursor.close()
             conn.close()
     except Exception as e:
-        logger.error(f"get_account_team_ntt_users fallback: {e}\n{traceback.format_exc()}")
+        logger.error(f"get_account_team_ntt_users direct SQL: {e}\n{traceback.format_exc()}")
         return []
 
 
@@ -980,13 +937,25 @@ def insert_account_team_row(data: Dict) -> int:
     """
     Inserts a new account team record. Returns the new accountteam_id or 0 on failure.
     Mirrors account_team_repo.insert(new_dic) from Streamlit.
+
+    Column mapping: the frontend sends 'accountteam_person_type' but tbAccountTeam
+    still has the legacy column 'accountteam_user_type'. This function normalizes
+    the keys before inserting so the SQL doesn't fail with 'Unknown column'.
     """
     if not _AT_OK:
         return 0
     try:
+        # Map new column names → legacy DB column names for INSERT
+        db_data: Dict = {}
+        for k, v in data.items():
+            if k == "accountteam_person_type":
+                db_data["accountteam_user_type"] = v   # DB still uses old name
+            else:
+                db_data[k] = v
+
         repo = AccountTeamRepository()
-        new_id = repo.insert(data)
+        new_id = repo.insert(db_data)
         return int(new_id) if new_id else 0
     except Exception as e:
-        logger.error(f"insert_account_team_row: {e}")
+        logger.error(f"insert_account_team_row: {e}\n{traceback.format_exc()}")
         return 0

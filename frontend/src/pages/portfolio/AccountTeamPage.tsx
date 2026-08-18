@@ -531,7 +531,7 @@ export default function AccountTeamPage() {
   const isAdmin = user?.roles?.includes("ADMIN") ?? false;
   const canEdit = isAdmin || (() => {
     const role = (user?.role ?? "").toUpperCase();
-    return role.includes("ADMIN") || role.includes("MANAGER") || role.includes("FULL");
+    return role.includes("ADMIN") || role.includes("MANAGER") || role.includes("FULL") || role.includes("EDIT");
   })();
 
   const clientLabel = t("portfolio.accountTeam.client");
