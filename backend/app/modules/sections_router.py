@@ -9,7 +9,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from app.modules.sections_service import (
-    get_farol, get_companies, get_cisco_ea_metering, get_cisco_ea_consolidated,
+    get_farol, get_farol_clients, get_companies, get_cisco_ea_metering, get_cisco_ea_consolidated,
     get_projects, get_project_team, get_renewals,
     get_users, search_users, get_user_by_id, update_user, search_persons, create_user,
     get_csm_active, get_roles, get_admin_companies,
@@ -59,12 +59,29 @@ def _is_admin(payload: dict) -> bool:
 # ─── Portfolio ────────────────────────────────────────────
 portfolio_router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
+@portfolio_router.get("/farol/clients", response_model=List[Dict[str, Any]])
+def portfolio_farol_clients(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    vendor_id: int = Query(1),
+):
+    """
+    Returns clients available in Farol for a given vendor.
+    Source: tbClientFarol WHERE vendor_id = vendor_id
+    Returns: [{ client_id, client_name }]
+    """
+    return get_farol_clients(vendor_id=vendor_id)
+
+
 @portfolio_router.get("/farol", response_model=List[Dict[str, Any]])
 def portfolio_farol(
     current_user: Annotated[dict, Depends(get_current_user)],
     vendor_id: int = Query(1),
     customer_id: Optional[int] = Query(None),
 ):
+    """
+    Returns full Farol data for a vendor + client.
+    Source: tbFarol WHERE vendor_id = vendor_id AND customer_id = customer_id
+    """
     return get_farol(vendor_id=vendor_id, customer_id=customer_id)
 
 @portfolio_router.get("/companies", response_model=List[Dict[str, Any]])

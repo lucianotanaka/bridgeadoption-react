@@ -154,7 +154,7 @@ function SingleSelect({ label, options, value, onChange, placeholder }: {
         {open && (
           <>
             <div className="fixed inset-0 z-20" onClick={() => { setOpen(false); setSearch(""); }} />
-            <div className="absolute top-full mt-1 z-30 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg flex flex-col" style={{ maxHeight: "240px" }}>
+            <div className="absolute bottom-full mb-1 z-30 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg flex flex-col" style={{ maxHeight: "240px" }}>
               <div className="p-2 border-b border-gray-100 dark:border-gray-700">
                 <input
                   autoFocus

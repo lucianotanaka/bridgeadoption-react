@@ -38,11 +38,31 @@ try:
     _FAROL_OK = True
 except ImportError: _FAROL_OK = False
 
-def get_farol(vendor_id: int = 1, customer_id: Optional[int] = None) -> List[Dict]:
+def get_farol_clients(vendor_id: int = 1) -> List[Dict]:
+    """
+    Returns list of clients available in tbClientFarol for a vendor.
+    Mirrors get_farol_client() from Streamlit farol.py.
+    Returns: [{ client_id, client_name }]
+    """
     if not _FAROL_OK: return []
     try:
         repo = FarolRepository()
-        df = repo.load_farol(vendor_id=vendor_id, customer_id=customer_id, as_df=True)
+        rows = repo.get_farol(vendor_id=vendor_id, as_df=False)
+        return [_ser(dict(r)) for r in rows]
+    except Exception as e:
+        logger.error(f"get_farol_clients: {e}\n{traceback.format_exc()}"); return []
+
+
+def get_farol(vendor_id: int = 1, customer_id: Optional[int] = None) -> List[Dict]:
+    """
+    Returns full Farol data for a vendor + client from tbFarol.
+    Mirrors load_farol() from FarolRepository.
+    """
+    if not _FAROL_OK: return []
+    try:
+        repo = FarolRepository()
+        # FarolRepository.load_farol expects client_id (not customer_id)
+        df = repo.load_farol(vendor_id=vendor_id, client_id=customer_id, as_df=True)
         return _df(df)
     except Exception as e:
         logger.error(f"get_farol: {e}\n{traceback.format_exc()}"); return []
