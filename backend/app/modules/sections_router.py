@@ -18,7 +18,7 @@ from app.modules.sections_service import (
     add_permission_to_role, remove_permission_from_role, update_permission,
     create_role, update_role, toggle_role_active,
     create_action, create_resource, update_resource, toggle_resource_active,
-    get_team_goals, get_assets, get_account_team,
+    get_team_goals, get_assets, get_asset_clients, get_account_team,
     get_account_team_matrix, get_account_team_all_rows, get_account_team_ntt_users,
     get_account_team_companies,
     update_account_team_row, insert_account_team_row,
@@ -106,11 +106,29 @@ def portfolio_ea_consolidated(
 ):
     return get_cisco_ea_consolidated(customer_id)
 
+@portfolio_router.get("/asset-clients", response_model=List[Dict[str, Any]])
+def portfolio_asset_clients(
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """
+    Returns clients that have assets (for the client selector in AssetsPage).
+    Source: tbAssetContractSummaryByCustomer via AssetRepository.filter_asset_clients()
+    Returns: [{ client_id, client_name }]
+    Mirrors asset_repo.filter_asset_clients() from Streamlit asset.py.
+    """
+    return get_asset_clients()
+
+
 @portfolio_router.get("/assets", response_model=List[Dict[str, Any]])
 def portfolio_assets(
     current_user: Annotated[dict, Depends(get_current_user)],
     customer_id: int = Query(...),
 ):
+    """
+    Returns asset contracts for a given client.
+    Source: tbAssetContractEndMismatch via AssetRepository.get_asset_contracts()
+    Mirrors asset_repo.get_asset_contracts(client_id=...) from Streamlit asset.py.
+    """
     return get_assets(customer_id)
 
 @portfolio_router.get("/account-team/companies", response_model=List[Dict[str, Any]])

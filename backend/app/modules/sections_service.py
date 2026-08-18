@@ -712,16 +712,31 @@ try:
     _ASSET_OK = True
 except ImportError: _ASSET_OK = False
 
-def get_assets(customer_id: int) -> List[Dict]:
+def get_asset_clients() -> List[Dict]:
+    """
+    Returns list of clients that have assets.
+    Source: tbAssetContractSummaryByCustomer via AssetRepository.filter_asset_clients()
+    Returns: [{ client_id, client_name }]
+    """
     if not _ASSET_OK: return []
     try:
         repo = AssetRepository()
-        if hasattr(repo, "load_customer_assets"):
-            df = repo.load_customer_assets(customer_id=customer_id, as_df=True)
-        elif hasattr(repo, "get_assets"):
-            df = repo.get_assets(customer_id=customer_id, as_df=True)
-        else:
-            return []
+        df = repo.filter_asset_clients(as_df=True)
+        return _df(df)
+    except Exception as e:
+        logger.error(f"get_asset_clients: {e}\n{traceback.format_exc()}"); return []
+
+
+def get_assets(customer_id: int) -> List[Dict]:
+    """
+    Returns asset contracts for a given client.
+    Source: tbAssetContractEndMismatch via AssetRepository.get_asset_contracts()
+    Mirrors asset_repo.get_asset_contracts(client_id=...) from Streamlit asset.py.
+    """
+    if not _ASSET_OK: return []
+    try:
+        repo = AssetRepository()
+        df = repo.get_asset_contracts(client_id=customer_id, as_df=True)
         return _df(df)
     except Exception as e:
         logger.error(f"get_assets: {e}\n{traceback.format_exc()}"); return []
