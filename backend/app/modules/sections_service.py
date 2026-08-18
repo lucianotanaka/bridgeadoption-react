@@ -868,17 +868,91 @@ def get_account_team_all_rows() -> List[Dict]:
 
 def get_account_team_ntt_users() -> List[Dict]:
     """
-    Returns NTT internal persons (person_company_id IS NULL, person_enabled=1)
-    for the 'Add Member' form in the Account Team page.
-    Source: tbPerson via PersonRepository.get_ntt_persons().
+    Returns NTT internal people available for the 'Add Member' form.
+
+    Primary source: tbPerson WHERE person_company_id IS NULL AND person_enabled = 1
+    Fallback: tbUser WHERE user_company_id = 0, mapped to person_id/person_name format.
+
+    The fallback auto-creates missing tbPerson records so inserts succeed with
+    the accountteam_person_id FK constraint.
     """
+    # ── Try tbPerson first ────────────────────────────────
     try:
         from src.infrastructure.database.repositories.person_repository import PersonRepository
         repo = PersonRepository()
         df = repo.get_ntt_persons(only_enabled=True, as_df=True)
-        return _df(df)
+        if df is not None and not df.empty:
+            return _df(df)
     except Exception as e:
-        logger.error(f"get_account_team_ntt_users: {e}\n{traceback.format_exc()}")
+        logger.warning(f"get_account_team_ntt_users: PersonRepository failed: {e}")
+
+    # ── Fallback: tbUser → map to person_id/person_name schema ───────────────
+    # For each NTT user found, ensure a corresponding tbPerson record exists
+    # (creates it if missing) so accountteam_person_id FK constraint is satisfied.
+    if not _USER_OK:
+        return []
+    try:
+        from src.infrastructure.database.connection import get_db_connection
+        conn = get_db_connection()
+        try:
+            # Load NTT users (user_company_id = 0)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT user_id, user_name, user_full_name, user_email
+                FROM tbUser
+                WHERE user_company_id = 0
+                ORDER BY user_name
+            """)
+            users = cursor.fetchall()
+
+            result = []
+            for u in users:
+                user_id = int(u["user_id"])
+                user_name = u.get("user_full_name") or u.get("user_name") or ""
+                user_email = u.get("user_email") or ""
+
+                # Look up or create a tbPerson record for this user
+                cursor.execute(
+                    "SELECT person_id, person_name FROM tbPerson WHERE person_email = %s AND person_company_id IS NULL LIMIT 1",
+                    (user_email,)
+                )
+                person_row = cursor.fetchone()
+
+                if person_row:
+                    person_id = int(person_row["person_id"])
+                    person_name = person_row["person_name"]
+                else:
+                    # Auto-create a tbPerson record so the FK constraint will pass on INSERT
+                    try:
+                        cursor.execute(
+                            """INSERT INTO tbPerson (person_name, person_email, person_company_id, person_enabled)
+                               VALUES (%s, %s, NULL, 1)""",
+                            (user_name, user_email)
+                        )
+                        conn.commit()
+                        person_id = cursor.lastrowid
+                        person_name = user_name
+                    except Exception as ie:
+                        logger.warning(f"get_account_team_ntt_users: could not create tbPerson for {user_name}: {ie}")
+                        conn.rollback()
+                        # Fall back to using user_id directly (may fail FK, but worth trying)
+                        person_id = user_id
+                        person_name = user_name
+
+                result.append({
+                    "person_id": person_id,
+                    "person_name": person_name,
+                    "person_email": user_email,
+                    "person_job_title": None,
+                    "person_type": None,
+                    "person_enabled": 1,
+                })
+            return result
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"get_account_team_ntt_users fallback: {e}\n{traceback.format_exc()}")
         return []
 
 

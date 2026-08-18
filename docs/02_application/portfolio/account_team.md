@@ -4,7 +4,7 @@
 > **resource_key:** `portfolio.account_team`
 > **Arquivo frontend:** `frontend/src/pages/portfolio/AccountTeamPage.tsx`
 > **Migrado de:** `webapp/pages/portfolio/account_team.py` (Streamlit)
-> **Última atualização:** 2026-08-16
+> **Última atualização:** 2026-08-17
 
 ---
 
@@ -13,7 +13,7 @@
 Exibe a **matriz de Account Team** por empresa cliente — todos os profissionais NTT Data alocados na relação com cada cliente, agrupados por tipo (AM, CDM, CSM, DIR, etc.), incluindo o **Cisco Domain** associado a cada empresa.
 
 Usuários com permissão de edição podem:
-- Ativar / desativar a alocação de membros por empresa
+- Ativar / desativar a alocação de membros por empresa (checkbox com auto-save)
 - Adicionar novos membros ao Account Team de uma empresa
 
 ---
@@ -22,16 +22,16 @@ Usuários com permissão de edição podem:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  Portfolio — Account Team            [Edit Mode] [Export] [↺] │
+│  Portfolio — Account Team  [Edit Mode] [⊟ Columns] [Export]  │
 ├──────────────────────────────────────────────────────────────┤
-│  Filters: [Client ▾] [DIR ▾] [AM ▾] [CDM ▾] [CSM ▾]        │
+│  [Client ▾] [DIR ▾] [AM ▾] [CDM ▾] [CSM ▾]  [✕ Clear all]  │
 ├──────────────────────────────────────────────────────────────┤
 │  42 record(s) found                                           │
-│  ┌─────┬──────────────────┬──────────────┬────┬────┬────┐   │
-│  │  #  │ Client           │ Cisco Domain │ AM │CDM │CSM │   │
-│  ├─────┼──────────────────┼──────────────┼────┼────┼────┤   │
-│  │  1  │ Acme Corp        │ acme.com     │...│... │... │   │
-│  └─────┴──────────────────┴──────────────┴────┴────┴────┘   │
+│  ┌────┬──────────────────┬──────────────┬────┬────┬────┐    │
+│  │ #  │ Client           │ Cisco Domain │ AM │CDM │CSM │    │
+│  ├────┼──────────────────┼──────────────┼────┼────┼────┤    │
+│  │  1 │ Acme Corp        │ acme.com     │... │... │... │    │
+│  └────┴──────────────────┴──────────────┴────┴────┴────┘    │
 │  [Showing 1–10 of 42]  [Per page: 10▾]  [« ‹ 1 2 3 4 5 › »] │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -42,13 +42,13 @@ Usuários com permissão de edição podem:
 ┌──────────────────────────────────────────────────────────────┐
 │  [< Anterior]    Acme Corp (1/42)    [Próximo >]             │
 │                                                               │
-│  Edit Allocations                                             │
+│  EDIT ALLOCATIONS                                            │
 │  Member              Type    Allocated                       │
-│  João Silva          CSM     ☑                               │
+│  João Silva          CSM     ☑  (auto-salva imediatamente)   │
 │  Maria Lima          AM      ☑                               │
 │  Pedro Costa         CDM     ☐                               │
 │                                                               │
-│  Add Member                                                   │
+│  ADD MEMBER                                                   │
 │  [Select member ▾]  [Select type ▾]  [Save]                  │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -59,10 +59,11 @@ Usuários com permissão de edição podem:
 
 ### 3.1 Matriz (View)
 
-- **Pivot client-side**: constrói a matriz empresa × user_type a partir dos dados brutos da API
+- **Pivot client-side**: constrói a matriz empresa × `accountteam_person_type` a partir dos dados brutos da API
 - **Colunas dinâmicas**: AM, CDM, CSM, DIR (preferidas) + outros tipos ordenados alfabeticamente
 - **Cisco Domain**: coluna adicional, preenchida via join com `CiscoDomainRepository` no backend
 - **Numeração `#`**: sequencial sobre o resultado filtrado
+- **Toggle de colunas**: botão "Columns" (ícone `SlidersHorizontal`) permite ocultar/exibir colunas individuais — incluindo Cisco Domain e tipos específicos
 
 ### 3.2 Filtros
 
@@ -78,6 +79,8 @@ Todos os filtros são **multi-select** com dropdown:
 
 > **Nota**: AM/CDM/CSM/DIR podem conter múltiplos nomes separados por vírgula na mesma célula. O filtro usa split + includes (mais preciso que o regex do Streamlit original).
 
+Botão **"✕ Clear all filters"** aparece automaticamente quando qualquer filtro estiver ativo.
+
 ### 3.3 Paginação
 
 - **Default**: 10 registros por página
@@ -89,7 +92,7 @@ Todos os filtros são **multi-select** com dropdown:
 
 - Formato: Tab-Separated Values (`.tsv`) — abre no Excel
 - Nome do arquivo: `YYYYMMDD_account_team.tsv`
-- Inclui colunas: `#`, `Client`, `Cisco Domain`, + tipos dinâmicos
+- Inclui apenas as colunas visíveis (respeitando a configuração do toggle de colunas)
 
 ### 3.5 Edit Mode (permissão required)
 
@@ -102,15 +105,16 @@ Habilitado para usuários ADMIN ou com role contendo "MANAGER" ou "FULL".
 
 **Edit Allocations:**
 - Mostra **todos** os membros da empresa (incluindo não alocados)
-- Checkbox `allocated` — auto-salva ao mudar (PUT imediato)
+- Checkbox `allocated` — auto-salva ao mudar (PUT imediato) com **feedback visual otimista**: o checkbox muda visualmente de imediato, antes da confirmação do servidor
 - Ao desalocar: define `accountteam_allocation_end_date = hoje`
 - Registra `accountteam_changed_in` e `accountteam_changed_by`
+- Se o servidor retornar erro: a mudança visual é revertida automaticamente
 
 **Add Member:**
 - Lista de pessoas NTT (`tbPerson WHERE person_company_id IS NULL AND person_enabled = 1`)
-- Exclui pessoas já vinculadas à empresa atual (`accountteam_person_id` existente)
-- Ambos os campos (membro + tipo) são obrigatórios
-- Ao inserir: sets `accountteam_allocated = 1`, `accountteam_allocation_start_date = hoje`
+- Exclui pessoas já vinculadas à empresa atual (por `accountteam_person_id`)
+- Ambos os campos (membro + tipo) são obrigatórios — validação client-side
+- Ao inserir: salva em `accountteam_person_id` e `accountteam_person_type`, com `accountteam_allocated = 1` e `accountteam_allocation_start_date = hoje`
 
 ---
 
@@ -119,7 +123,8 @@ Habilitado para usuários ADMIN ou com role contendo "MANAGER" ou "FULL".
 | Fonte | Uso |
 |-------|-----|
 | `vwAccountTeam` via `AccountTeamRepository.find_all_df()` | Dados principais (matrix + edit panel) |
-| `tbPerson WHERE person_company_id IS NULL` via `PersonRepository.get_ntt_persons()` | Lista de membros NTT para Add Member form |
+| `tbPerson WHERE person_company_id IS NULL` via `PersonRepository.get_ntt_persons()` | Lista de membros NTT para Add Member form (fonte primária) |
+| `tbUser WHERE user_company_id = 0` via `UserRepository` | Fallback quando `tbPerson` está vazia — auto-cria registros em `tbPerson` |
 | `CiscoDomainRepository.get_domain_all()` | Cisco Domain por empresa (join no backend) |
 
 ### Tabelas envolvidas
@@ -128,25 +133,25 @@ Habilitado para usuários ADMIN ou com role contendo "MANAGER" ou "FULL".
 ```sql
 accountteam_id           INT  PK AUTO_INCREMENT
 accountteam_company_id   INT  FK tbCompany.company_id
-accountteam_person_id    INT  FK tbPerson.person_id
-accountteam_person_type  VARCHAR(15)   -- AM, CDM, CSM, DIR, etc.
+accountteam_person_id    INT  FK tbPerson.person_id          -- novo (era accountteam_user_id)
+accountteam_person_type  VARCHAR(15)   -- AM, CDM, CSM, DIR, etc. (era accountteam_user_type)
 accountteam_allocation_start_date  DATE
 accountteam_allocation_end_date    DATE
-accountteam_allocated    TINYINT(1)   -- 1=alocado, 0=desalocado
+accountteam_allocated    TINYINT(1) DEFAULT -1  -- 1=alocado, 0=desalocado, -1=não definido
 accountteam_changed_in   DATE
 accountteam_changed_by   INT          -- user_id do solicitante
 ```
 
 **`tbPerson`** (fonte para Add Member)
 ```sql
-person_id           INT  PK
+person_id           INT  PK AUTO_INCREMENT
 person_name         VARCHAR(150)
 person_email        VARCHAR(150)
 person_company_id   INT NULL    -- NULL = interno NTT
 person_department_id INT
 person_job_title    VARCHAR(150)
 person_type         VARCHAR(30)
-person_enabled      TINYINT(1)  -- 1 = ativo
+person_enabled      TINYINT(1) DEFAULT 1  -- 1 = ativo
 ```
 
 ---
@@ -162,10 +167,11 @@ person_enabled      TINYINT(1)  -- 1 = ativo
 | RN-05 | Add Member: só lista pessoas com `person_company_id IS NULL AND person_enabled = 1` |
 | RN-06 | Add Member: exclui pessoas já vinculadas à empresa (por `accountteam_person_id`) |
 | RN-07 | Add Member: validação client-side — ambos membro E tipo são obrigatórios |
-| RN-08 | Ao inserir: `accountteam_person_type = tipo`, `accountteam_allocated = 1`, `accountteam_allocation_start_date = hoje` |
+| RN-08 | Ao inserir: salva `accountteam_person_id`, `accountteam_person_type`, `accountteam_allocated = 1`, `accountteam_allocation_start_date = hoje` |
 | RN-09 | O índice de navegação do edit panel reinicia ao `0` quando os filtros mudam |
 | RN-10 | Cisco Domain: múltiplos domínios por empresa são concatenados com `, ` |
 | RN-11 | Nomes na mesma célula de tipo (ex: "João, Maria" em CSM) são sorted e deduplicados |
+| RN-12 | Checkbox allocated: **atualização otimista** no frontend — muda visualmente antes da resposta do servidor; reverte se houver erro |
 
 ---
 
@@ -181,20 +187,33 @@ sections_router.py (portfolio_router)
     POST /api/portfolio/account-team          → insert_account_team_row()
 
 sections_service.py
+    _normalize_account_team_cols(df)
+        → Renomeia colunas legadas da vwAccountTeam:
+          accountteam_user_type → accountteam_person_type
+          accountteam_user_id   → accountteam_person_id
+        → Chamado em get_account_team_matrix() e get_account_team_all_rows()
+
     get_account_team_matrix()
         → AccountTeamRepository.find_all_df()
+        → _normalize_account_team_cols(df)
         → filtro: accountteam_allocated != 0
         → CiscoDomainRepository.get_domain_all() + merge por company_id
 
     get_account_team_all_rows()
         → AccountTeamRepository.find_all_df() (sem filtro de alocação)
+        → _normalize_account_team_cols(df)
 
     get_account_team_ntt_users()
-        → PersonRepository.get_ntt_persons(only_enabled=True)
-        → tbPerson WHERE person_company_id IS NULL AND person_enabled = 1
+        → Tenta PersonRepository.get_ntt_persons(only_enabled=True)
+        → Se tbPerson vazia: fallback para tbUser WHERE user_company_id = 0
+          • Para cada usuário: busca ou auto-cria registro em tbPerson (por email)
+          • Garante que a FK accountteam_person_id → tbPerson.person_id seja satisfeita
+        → Retorna sempre [{ person_id, person_name, person_email, ... }]
 
     update_account_team_row(id, data)
-        → AccountTeamRepository.update(data)
+        → AccountTeamRepository.update(data)   ← chamado como MÉTODO DE CLASSE
+        → ATENÇÃO: AccountTeamRepository.update() não tem 'self' no código original
+          (definido sem self, deve ser chamado como AccountTeamRepository.update(data))
 
     insert_account_team_row(data)
         → AccountTeamRepository.insert(data)
@@ -211,17 +230,20 @@ Repositories
 
 ```
 AccountTeamPage.tsx
-├── buildMatrix(rows)          — pivot client-side
+├── buildMatrix(rows)          — pivot client-side (usa accountteam_person_type)
 ├── getDynCols(matrix)         — colunas dinâmicas (AM/CDM/CSM/DIR + outros)
 ├── getUniq(matrix, col)       — valores únicos para filtros
 ├── hasVal(cell, vals)         — filtro multi-nome (split + includes)
-├── exportTSV(...)             — export TSV client-side
+├── colLabel(key, clientLabel) — helper: chave interna → label legível
+├── exportTSV(...)             — export TSV client-side (respeita colunas visíveis)
 ├── MultiSelect                — dropdown multi-seleção com "Clear all"
 ├── PaginationBar              — paginação com janela deslizante de 5 páginas
+├── ColumnToggle               — toggle de visibilidade de colunas
 ├── MatrixTable                — tabela de matriz com scroll horizontal
 └── EditPanel
+    ├── optimisticAlloc state  — Map<accountteam_id, bool> para feedback visual imediato
     ├── company navigator      — prev/next sobre lista filtrada
-    ├── allocated toggle       — PUT auto-save por checkbox
+    ├── allocated toggle       — PUT auto-save + atualização otimista
     └── add member form        — select de NttPerson + select de tipo
 ```
 
@@ -250,7 +272,18 @@ const canEdit = isAdmin || role.includes("MANAGER") || role.includes("FULL");
 
 ---
 
-## 9. Internacionalização (i18n)
+## 9. Bugs Corrigidos (histórico)
+
+| Data | Bug | Causa Raiz | Correção |
+|------|-----|------------|----------|
+| 2026-08-17 | Colunas AM/CDM/CSM/DIR exibidas como "OTHER" | `vwAccountTeam` retorna `accountteam_user_type` mas frontend espera `accountteam_person_type` | `_normalize_account_team_cols()` no backend renomeia as colunas antes de retornar |
+| 2026-08-17 | Checkbox "Allocated" não salvava | `AccountTeamRepository.update()` definido sem `self` — Python passava a instância como `edit_values` | `update_account_team_row()` chama `AccountTeamRepository.update(data)` como método de classe |
+| 2026-08-17 | Checkbox parecia não responder (sem feedback visual) | Checkbox controlado pelo React não muda visualmente até o refetch completar | Estado otimista `optimisticAlloc` no `EditPanel` — muda imediatamente, reverte se erro |
+| 2026-08-17 | "Add Member" mostrava "All users already linked" | `tbPerson` estava vazia, `GET /users` retornava `[]` | `get_account_team_ntt_users()` faz fallback para `tbUser` e auto-cria registros em `tbPerson` |
+
+---
+
+## 10. Internacionalização (i18n)
 
 Namespace: `portfolio.accountTeam`
 
@@ -272,7 +305,7 @@ Namespace: `portfolio.accountTeam`
 
 ---
 
-## 10. Referências
+## 11. Referências
 
 - **API:** `docs/07_api/account_team_endpoints.md`
 - **PersonRepository:** `src/infrastructure/database/repositories/person_repository.py`

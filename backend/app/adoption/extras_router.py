@@ -14,8 +14,10 @@ Endpoints:
   GET /api/adoption/rebate/cisco-ea
   GET /api/adoption/rebate/lci-approved
   GET /api/adoption/rebate/lci-journey
-  GET /api/adoption/use-cases
-  GET /api/adoption/use-cases/companies
+  GET /api/adoption/use-cases/vendors
+  GET /api/adoption/use-cases?vendor_id=341
+  GET /api/adoption/use-cases/exit-criteria?uc_ids=1,2,3
+  GET /api/adoption/use-cases/companies  (legacy)
 """
 import logging
 from typing import Annotated, Any, Dict, List, Optional
@@ -32,6 +34,7 @@ from app.adoption.extras_service import (
     get_rebate_lci_approved, get_rebate_lci_journey,
     get_rebate_sip_opportunities, get_rebate_summary,
     get_use_cases, get_use_case_companies,
+    get_use_case_vendors, get_use_cases_by_vendor, get_exit_criteria_by_uc_ids,
 )
 from app.core.security import decode_access_token
 
@@ -132,10 +135,36 @@ def rebate_lci_journey(current_user: Annotated[dict, Depends(get_current_user)],
 # ─── Use Cases ────────────────────────────────────────────
 usecase_router = APIRouter(prefix="/api/adoption/use-cases", tags=["adoption-use-cases"])
 
+@usecase_router.get("/vendors", response_model=List[Dict[str, Any]])
+def use_case_vendors(current_user: Annotated[dict, Depends(get_current_user)]):
+    """Returns vendor list for the cascading filter (role=vendor + ADOPTION special entry)."""
+    return get_use_case_vendors()
+
+@usecase_router.get("/exit-criteria", response_model=List[Dict[str, Any]])
+def use_case_exit_criteria(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    uc_ids: str = Query(..., description="Comma-separated list of uc_id values"),
+):
+    """Returns exit criteria for the given uc_ids (comma-separated)."""
+    try:
+        id_list = [int(x.strip()) for x in uc_ids.split(",") if x.strip().isdigit()]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="uc_ids must be comma-separated integers")
+    return get_exit_criteria_by_uc_ids(id_list)
+
 @usecase_router.get("", response_model=List[Dict[str, Any]])
-def use_cases(current_user: Annotated[dict, Depends(get_current_user)], company_id: Optional[int] = Query(None)):
-    return get_use_cases(company_id)
+def use_cases(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    vendor_id: Optional[int] = Query(None, description="Filter by vendor_id (uc_vendor_id)"),
+    company_id: Optional[int] = Query(None, description="Alias for vendor_id (legacy)"),
+):
+    """Returns use cases filtered by vendor_id. Requires at least one filter."""
+    effective_id = vendor_id or company_id
+    if not effective_id:
+        return []
+    return get_use_cases_by_vendor(effective_id)
 
 @usecase_router.get("/companies", response_model=List[Dict[str, Any]])
 def use_case_companies(current_user: Annotated[dict, Depends(get_current_user)]):
+    """Legacy — returns vendor list. Use /vendors instead."""
     return get_use_case_companies()

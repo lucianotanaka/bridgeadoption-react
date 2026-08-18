@@ -45,6 +45,8 @@ http://<servidor>/api
 | `cisco_lci_endpoints.md` | `/api/adoption` | Cisco LCI — relatório, forecast, elegível |
 | `csm_account_endpoints.md` | `/api/adoption/csm-account` | CSM Account — accounts, summary/KPIs |
 | `team_target_endpoints.md` | `/api/adoption/team-target` | Metas de equipe — FY, targets, medições |
+| `opportunities_endpoints.md` | `/api/adoption/rebate` | Adoption Opportunities — SIP tasks, fiscal years |
+| `use_cases_endpoints.md` | `/api/adoption/use-cases` | Use Cases — vendors, use cases por vendor, exit criteria |
 | `account_team_endpoints.md` | `/api/portfolio/account-team` | Account Team — matrix, rows, users, PUT/POST |
 
 > **Nota:** Use `/api/docs` (Swagger UI) ou `/api/redoc` para explorar os endpoints interativamente em ambiente de desenvolvimento.

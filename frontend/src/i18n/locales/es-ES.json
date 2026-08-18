@@ -150,6 +150,33 @@
       "noMeasureData": "Sin datos de medición para esta meta.",
       "methodNotDetermined": "Método de medición no determinado.",
       "selectTargetHint": "Seleccione una Meta arriba para ver sus detalles y gráficos de progreso."
+    },
+    "useCases": {
+      "title": "Casos de Uso",
+      "subtitle": "Aplicabilidad y Criterios de Salida de Casos de Uso",
+      "vendor": "Proveedor",
+      "selectVendor": "-- Seleccione el Proveedor --",
+      "architecture": "Arquitectura",
+      "allArchitectures": "Todas las Arquitecturas",
+      "primaryProduct": "Producto Principal",
+      "allProducts": "Todos los Productos",
+      "useCase": "Caso de Uso",
+      "allUseCases": "Todos los Casos de Uso",
+      "stage": "Etapa",
+      "descriptionSection": "Descripción",
+      "applicabilitySection": "Aplicabilidad",
+      "exitCriteriaSection": "Criterios de Salida",
+      "keyProducts": "Productos de Soporte Clave",
+      "keyCapabilities": "Capacidades Clave",
+      "itBenefits": "Beneficios para Operaciones de TI",
+      "bizBenefits": "Beneficios para el Negocio",
+      "successMetrics": "Métricas de Éxito",
+      "bizOutcomes": "Resultados de Negocio",
+      "criteriaName": "Nombre",
+      "taskType": "Tipo de Tarea",
+      "objective": "Objetivo",
+      "scope": "Alcance",
+      "expectedResults": "Resultados Esperados"
     }
   }
 }

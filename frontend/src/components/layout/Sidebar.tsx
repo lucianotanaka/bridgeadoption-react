@@ -18,7 +18,7 @@ import {
   Shield,
   Activity,
   LayoutDashboard,
-  DollarSign,
+  Zap,
   Lightbulb,
   Briefcase,
 } from "lucide-react";
@@ -53,7 +53,7 @@ const NAV_ITEMS: NavItem[] = [
       },
       { key: "csmAccount", label: "CSM Account", icon: <Users size={16} />, path: "/adoption/csm-account", resourceKey: "adoption.report_csm_account" },
       { key: "teamTarget", label: "Team Target", icon: <Target size={16} />, path: "/adoption/team-target", resourceKey: "adoption.report_team_target" },
-      { key: "rebate", label: "Rebate", icon: <DollarSign size={16} />, path: "/adoption/rebate", resourceKey: "adoption.report_rebate_and_opportunities" },
+      { key: "opportunities", label: "Opportunities", icon: <Zap size={16} />, path: "/adoption/rebate", resourceKey: "adoption.opportunities" },
       { key: "useCases", label: "Use Cases", icon: <Lightbulb size={16} />, path: "/adoption/use-cases", resourceKey: "adoption.use_case" },
     ],
   },

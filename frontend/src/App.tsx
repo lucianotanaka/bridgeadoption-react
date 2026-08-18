@@ -106,7 +106,7 @@ export default function App() {
                 <Route element={<PermissionRoute resourceKey="adoption.report_team_target" />}>
                   <Route path="/adoption/team-target" element={<TeamTargetPage />} />
                 </Route>
-                <Route element={<PermissionRoute resourceKey="adoption.report_rebate_and_opportunities" />}>
+                <Route element={<PermissionRoute resourceKey="adoption.opportunities" />}>
                   <Route path="/adoption/rebate" element={<RebatePage />} />
                 </Route>
                 <Route element={<PermissionRoute resourceKey="adoption.use_case" />}>

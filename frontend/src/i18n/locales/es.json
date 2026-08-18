@@ -65,7 +65,7 @@
     "csmAccount": "CSM Account",
     "teamTarget": "Meta del Equipo",
     "lciStatus": "LCI Status",
-    "rebate": "Rebate",
+    "rebate": "Oportunidades",
     "useCases": "Casos de Uso",
     "portfolio": "Portafolio",
     "farol": "Semáforo",
@@ -402,7 +402,7 @@
       "solutionVsProject": "Solución vs Proyecto"
     },
     "rebate": {
-      "title": "Rebate & Oportunidades",
+      "title": "Oportunidades",
       "subtitle": "Seguimiento de Incentivos Cisco SIP / LCI",
       "lciApproved": "LCI Aprobados",
       "lciJourney": "Jornada LCI",
@@ -421,7 +421,30 @@
     },
     "useCases": {
       "title": "Casos de Uso",
-      "subtitle": "Aplicabilidad y Criterios de Salida de Casos de Uso"
+      "subtitle": "Aplicabilidad y Criterios de Salida de Casos de Uso",
+      "vendor": "Proveedor",
+      "selectVendor": "-- Seleccione el Proveedor --",
+      "architecture": "Arquitectura",
+      "allArchitectures": "Todas las Arquitecturas",
+      "primaryProduct": "Producto Principal",
+      "allProducts": "Todos los Productos",
+      "useCase": "Caso de Uso",
+      "allUseCases": "Todos los Casos de Uso",
+      "stage": "Etapa",
+      "descriptionSection": "Descripción",
+      "applicabilitySection": "Aplicabilidad",
+      "exitCriteriaSection": "Criterios de Salida",
+      "keyProducts": "Productos de Soporte Clave",
+      "keyCapabilities": "Capacidades Clave",
+      "itBenefits": "Beneficios para Operaciones de TI",
+      "bizBenefits": "Beneficios para el Negocio",
+      "successMetrics": "Métricas de Éxito",
+      "bizOutcomes": "Resultados de Negocio",
+      "criteriaName": "Nombre",
+      "taskType": "Tipo de Tarea",
+      "objective": "Objetivo",
+      "scope": "Alcance",
+      "expectedResults": "Resultados Esperados"
     }
   },
   "portfolio": {

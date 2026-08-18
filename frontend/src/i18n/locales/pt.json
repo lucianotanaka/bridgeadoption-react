@@ -421,7 +421,30 @@
     },
     "useCases": {
       "title": "Casos de Uso",
-      "subtitle": "Aplicabilidade e Critérios de Saída dos Casos de Uso"
+      "subtitle": "Aplicabilidade e Critérios de Saída dos Casos de Uso",
+      "vendor": "Fornecedor",
+      "selectVendor": "-- Selecione o Fornecedor --",
+      "architecture": "Arquitetura",
+      "allArchitectures": "Todas as Arquiteturas",
+      "primaryProduct": "Produto Principal",
+      "allProducts": "Todos os Produtos",
+      "useCase": "Caso de Uso",
+      "allUseCases": "Todos os Casos de Uso",
+      "stage": "Estágio",
+      "descriptionSection": "Descrição",
+      "applicabilitySection": "Aplicabilidade",
+      "exitCriteriaSection": "Critérios de Saída",
+      "keyProducts": "Produtos de Suporte Chave",
+      "keyCapabilities": "Capacidades Chave",
+      "itBenefits": "Benefícios para Operações de TI",
+      "bizBenefits": "Benefícios para o Negócio",
+      "successMetrics": "Métricas de Sucesso",
+      "bizOutcomes": "Resultados de Negócio",
+      "criteriaName": "Nome",
+      "taskType": "Tipo de Tarefa",
+      "objective": "Objetivo",
+      "scope": "Escopo",
+      "expectedResults": "Resultados Esperados"
     }
   },
   "portfolio": {

@@ -30,7 +30,12 @@
     "date": "Date",
     "type": "Type",
     "active": "Active",
-    "inactive": "Inactive"
+    "inactive": "Inactive",
+    "of": "of",
+    "noData": "No data available.",
+    "showing": "Showing",
+    "perPage": "per page",
+    "clearFilters": "Clear filters"
   },
   "auth": {
     "login": "Login",
@@ -110,6 +115,33 @@
     }
   },
   "adoption": {
+    "useCases": {
+      "title": "Use Cases",
+      "subtitle": "Customer Use Case Applicability & Exit Criteria",
+      "vendor": "Vendor",
+      "selectVendor": "-- Select Vendor --",
+      "architecture": "Architecture",
+      "allArchitectures": "All Architectures",
+      "primaryProduct": "Primary Product",
+      "allProducts": "All Products",
+      "useCase": "Use Case",
+      "allUseCases": "All Use Cases",
+      "stage": "Stage",
+      "descriptionSection": "Description",
+      "applicabilitySection": "Applicability",
+      "exitCriteriaSection": "Exit Criteria",
+      "keyProducts": "Key Supporting Products",
+      "keyCapabilities": "Key Capabilities",
+      "itBenefits": "IT Operations Benefits",
+      "bizBenefits": "Business Benefits",
+      "successMetrics": "Success Metrics",
+      "bizOutcomes": "Business Outcomes",
+      "criteriaName": "Name",
+      "taskType": "Task Type",
+      "objective": "Objective",
+      "scope": "Scope",
+      "expectedResults": "Expected Results"
+    },
     "csmAccount": {
       "title": "CSM Account",
       "subtitle": "Customer Success Manager — Account Portfolio",

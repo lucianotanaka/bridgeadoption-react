@@ -414,35 +414,91 @@ def get_rebate_summary(fy: int) -> Dict[str, Any]:
 
 # ─── USE CASES ────────────────────────────────────────────
 
-def get_use_cases(company_id: Optional[int] = None) -> List[Dict[str, Any]]:
-    if not _UC_OK: return []
+def get_use_case_vendors() -> List[Dict[str, Any]]:
+    """
+    Returns the list of vendors (role='vendor') for the Use Cases filter,
+    plus a special ADOPTION entry (id=341) — mirrors the Streamlit logic.
+    """
+    if not _UC_OK:
+        return []
     try:
-        repo = UseCaseRepository()
-        if hasattr(repo, "get_all"):
-            rows = repo.get_all(as_df=False) or []
-        elif hasattr(repo, "load_use_cases"):
-            df = repo.load_use_cases(as_df=True)
-            rows = df.to_dict("records") if df is not None and not df.empty else []
-        else:
-            return []
-        result = [_ser(dict(r)) for r in rows]
-        if company_id:
-            result = [r for r in result if r.get("company_id") == company_id or r.get("customer_id") == company_id]
+        import pandas as pd
+        repo = CompanyRepository()
+        df = repo.list_companies_by_role("vendor", as_df=True)
+        if df is None or df.empty:
+            df = pd.DataFrame(columns=["vendor_id", "vendor_name"])
+
+        # Ensure ADOPTION special entry exists
+        if "vendor_id" in df.columns and not (df["vendor_id"] == 341).any():
+            new_row = pd.DataFrame([{"vendor_id": 341, "vendor_name": "ADOPTION"}])
+            df = pd.concat([df, new_row], ignore_index=True)
+
+        # Normalise column names (some repos return company_id/company_name)
+        if "vendor_id" not in df.columns and "company_id" in df.columns:
+            df = df.rename(columns={"company_id": "vendor_id", "company_name": "vendor_name"})
+
+        result = []
+        for _, row in df.iterrows():
+            vid = row.get("vendor_id") or row.get("id")
+            vname = row.get("vendor_name") or row.get("name", "")
+            if vname:
+                result.append({"vendor_id": int(vid) if vid is not None else 0, "vendor_name": str(vname)})
+        result.sort(key=lambda x: x["vendor_name"])
         return result
     except Exception as e:
-        logger.error(f"get_use_cases: {e}\n{traceback.format_exc()}"); return []
+        logger.error(f"get_use_case_vendors: {e}\n{traceback.format_exc()}")
+        return []
+
+
+def get_use_cases_by_vendor(vendor_id: int) -> List[Dict[str, Any]]:
+    """
+    Returns use cases filtered by vendor_id (uc_vendor_id).
+    Mirrors: case_repo.select_use_case_df(company_id=vendor_id)
+    Fields: uc_id, uc_vendor_id, uc_vendor_name, uc_architecture,
+            uc_solution_domain, uc_use_case, uc_primary_product_id,
+            uc_primary_product_name, uc_description, uc_key_supporting_products,
+            uc_key_capabilities, uc_it_operations_benefits, uc_business_benefits,
+            uc_success_metrics, uc_business_outcomes
+    """
+    if not _UC_OK or not vendor_id:
+        return []
+    try:
+        repo = UseCaseRepository()
+        df = repo.select_use_case_df(company_id=vendor_id)
+        return _df_to_list(df)
+    except Exception as e:
+        logger.error(f"get_use_cases_by_vendor: {e}\n{traceback.format_exc()}")
+        return []
+
+
+def get_exit_criteria_by_uc_ids(uc_ids: List[int]) -> List[Dict[str, Any]]:
+    """
+    Returns exit criteria for a list of uc_ids.
+    Mirrors: case_repo.select_exit_criteria_df(uc_id_list)
+    Fields: ucec_id, ucec_uc_id, ucec_tasktype_id, ucec_tasktype_name,
+            ucec_seq, ucec_name, ucec_objective, ucec_scope,
+            ucec_expected_results, ucec_update_date
+    """
+    if not _UC_OK or not uc_ids:
+        return []
+    try:
+        repo = UseCaseRepository()
+        df = repo.select_exit_criteria_df(uc_ids)
+        return _df_to_list(df)
+    except Exception as e:
+        logger.error(f"get_exit_criteria_by_uc_ids: {e}\n{traceback.format_exc()}")
+        return []
+
+
+def get_use_cases(company_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Legacy endpoint — kept for compatibility."""
+    if not _UC_OK:
+        return []
+    if company_id:
+        return get_use_cases_by_vendor(company_id)
+    return []
 
 
 def get_use_case_companies() -> List[Dict[str, Any]]:
-    if not _UC_OK: return []
-    try:
-        repo = CompanyRepository()
-        if hasattr(repo, "get_all"):
-            rows = repo.get_all(as_df=False) or []
-            return [_ser(dict(r)) for r in rows]
-        elif hasattr(repo, "load_companies"):
-            df = repo.load_companies(as_df=True)
-            return _df_to_list(df)
-        return []
-    except Exception as e:
-        logger.error(f"get_use_case_companies: {e}\n{traceback.format_exc()}"); return []
+    """Legacy endpoint — kept for compatibility. Use get_use_case_vendors() instead."""
+    return get_use_case_vendors()

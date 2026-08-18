@@ -1,12 +1,11 @@
 /**
- * RebatePage — Adoption: Rebate & Opportunities
- * Migração completa do Streamlit report_rebate_and_opportunities.py
- * Tabs: LCI Approved | LCI Journey | Task Incentive | SIP Opportunities | Cisco EA
+ * RebatePage — Adoption Opportunities
+ * Source: vwTaskSIPNewOpportunity (squad_id=30)
  */
 import { useState, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { RefreshCw, Download } from "lucide-react";
+import { Download, X } from "lucide-react";
 import * as XLSX from "xlsx";
 import apiClient from "@/api/client";
 
@@ -21,6 +20,7 @@ interface Summary {
 type Row = Record<string, unknown>;
 
 const card = "bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4";
+const selCls = "text-xs px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors w-full";
 
 // ─── Formatters ───────────────────────────────────────────
 const fmtD = (v: unknown): string => {
@@ -146,12 +146,17 @@ function doExport(rows: Row[], cols: CD[], fn: string) {
 
 // ─── Column definitions ───────────────────────────────────
 const COLS_SIP: CD[] = [
-  { key: "task_id", label: "ID" }, { key: "task_tasktype_name", label: "Type" },
-  { key: "task_owner_name", label: "Owner" }, { key: "task_client_name", label: "Client" },
+  { key: "task_id", label: "ID" },
+  { key: "task_tasktype_name", label: "Type" },
+  { key: "task_owner_name", label: "CSM" },
+  { key: "task_client_name", label: "Client" },
   { key: "task_reference", label: "Reference" },
-  { key: "task_start", label: "Start", fmt: fmtD }, { key: "task_end", label: "End", fmt: fmtD },
-  { key: "task_days", label: "Days" }, { key: "task_end_fy", label: "FY" },
-  { key: "task_status_name", label: "Status" }, { key: "task_currency", label: "Cur" },
+  { key: "task_start", label: "Start", fmt: fmtD },
+  { key: "task_end", label: "End", fmt: fmtD },
+  { key: "task_days", label: "Days" },
+  { key: "task_end_fy", label: "FY" },
+  { key: "task_status_name", label: "Status" },
+  { key: "task_currency", label: "Cur" },
   { key: "task_deal_value", label: "Deal Value", fmt: v => fmtN(v), r: true },
   { key: "task_note", label: "Note" },
 ];
@@ -159,9 +164,11 @@ const COLS_SIP: CD[] = [
 // ─── Main Page ────────────────────────────────────────────
 export default function RebatePage() {
   const { t } = useTranslation();
-  const qc = useQueryClient();
   const today = new Date();
+
   const [selectedFy, setSelectedFy] = useState<number | null>(null);
+  const [filterCsm, setFilterCsm] = useState("");
+  const [filterClient, setFilterClient] = useState("");
 
   // ── Fiscal years ──────────────────────────────────────
   const fyQ = useQuery({
@@ -180,77 +187,123 @@ export default function RebatePage() {
     return fyOptions.includes(curFy) ? curFy : fyOptions[fyOptions.length - 1];
   }, [selectedFy, fyOptions]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Summary (KPI cards) ───────────────────────────────
-  const sumQ = useQuery({
-    queryKey: ["rebate-summary", fy],
-    queryFn: () => apiClient.get<Summary>("/adoption/rebate/summary", { params: { fy } }).then(r => r.data),
-    enabled: fy !== null,
-    staleTime: 5 * 60 * 1000,
-  });
 
-  // ── SIP Opportunities query ────────────────────────────
+  // ── SIP Opportunities query (all data, filter client-side) ─
   const sipQ = useQuery({
     queryKey: ["rebate-sip"],
     queryFn: () => apiClient.get<Row[]>("/adoption/rebate/sip-opportunities").then(r => r.data),
     staleTime: 5 * 60 * 1000,
   });
 
-  // ── Refresh ────────────────────────────────────────────
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: ["rebate-fiscal-years"] });
-    qc.invalidateQueries({ queryKey: ["rebate-summary", fy] });
-    qc.invalidateQueries({ queryKey: ["rebate-sip"] });
-  };
+  // ── Filter SIP rows by FY (task_end_fy), CSM and Client ───
+  const filteredSip = useMemo(() => {
+    const rows = sipQ.data ?? [];
+    return rows.filter(r => {
+      if (fy !== null && Number(r.task_end_fy) !== fy) return false;
+      if (filterCsm && String(r.task_owner_name ?? "") !== filterCsm) return false;
+      if (filterClient && String(r.task_client_name ?? "") !== filterClient) return false;
+      return true;
+    });
+  }, [sipQ.data, fy, filterCsm, filterClient]);
 
-  const sum = sumQ.data;
+  // ── Filter options (from FY-filtered data, before cascading) ─
+  const fyFilteredSip = useMemo(() => {
+    const rows = sipQ.data ?? [];
+    return rows.filter(r => fy === null || Number(r.task_end_fy) === fy);
+  }, [sipQ.data, fy]);
+
+  const csmOptions = useMemo(() =>
+    [...new Set(fyFilteredSip.map(r => String(r.task_owner_name ?? "")).filter(Boolean))].sort(),
+    [fyFilteredSip]
+  );
+
+  const clientOptions = useMemo(() => {
+    const base = filterCsm
+      ? fyFilteredSip.filter(r => String(r.task_owner_name ?? "") === filterCsm)
+      : fyFilteredSip;
+    return [...new Set(base.map(r => String(r.task_client_name ?? "")).filter(Boolean))].sort();
+  }, [fyFilteredSip, filterCsm]);
+
+  // ── KPIs computed from filtered rows ──────────────────
+  const kpiInProgress = useMemo(() =>
+    filteredSip.filter(r => [1, 2, 3, 7, 8].includes(Number(r.task_status_id))).length,
+    [filteredSip]
+  );
+  const kpiApproved = useMemo(() =>
+    filteredSip.filter(r => [9, 10].includes(Number(r.task_status_id))).length,
+    [filteredSip]
+  );
+
+  const hasActiveFilters = !!(filterCsm || filterClient);
+  const clearFilters = () => { setFilterCsm(""); setFilterClient(""); };
+
   const spin = <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />;
 
   return (
     <div className="space-y-4">
-      {/* Header */}
+      {/* Header with inline NTT FY selector */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("adoption.rebate.title")}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{t("adoption.rebate.subtitle")}</p>
         </div>
-        <button onClick={refresh} className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-          <RefreshCw size={14} /> {t("common.refresh")}
-        </button>
+        <div className="flex items-center gap-2">
+          <label className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap">NTT FISCAL YEAR</label>
+          <select
+            value={fy ?? ""}
+            onChange={e => { setSelectedFy(Number(e.target.value)); setFilterCsm(""); setFilterClient(""); }}
+            className="text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {fyOptions.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+          {fyQ.isLoading && <div className="flex items-center">{spin}</div>}
+        </div>
       </div>
 
-      {/* FY Selector */}
+      {/* KPI Cards — computed from filtered data */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <KPI label={t("adoption.rebate.sipInProgress")} value={kpiInProgress} />
+        <KPI label={t("adoption.rebate.sipApproved")} value={kpiApproved} />
+      </div>
+
+      {/* CSM + Client filters */}
       <div className={card}>
-        <div className="flex items-center gap-4 flex-wrap">
-          <div>
-            <label className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1 block">{t("adoption.teamTarget.fiscalYear")}</label>
-            <select
-              value={fy ?? ""}
-              onChange={e => setSelectedFy(Number(e.target.value))}
-              className="text-xs px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              {fyOptions.map(y => <option key={y} value={y}>{y}</option>)}
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="flex-1 min-w-[160px]">
+            <label className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1 block">CSM</label>
+            <select value={filterCsm} onChange={e => { setFilterCsm(e.target.value); setFilterClient(""); }} className={selCls}>
+              <option value="">All CSMs</option>
+              {csmOptions.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-          {sumQ.isLoading && <div className="flex items-center gap-2 pt-4">{spin} <span className="text-xs text-gray-400">{t("common.loading")}</span></div>}
+          <div className="flex-[2] min-w-[200px]">
+            <label className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1 block">Client</label>
+            <select value={filterClient} onChange={e => setFilterClient(e.target.value)} className={selCls}>
+              <option value="">All Clients</option>
+              {clientOptions.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          {hasActiveFilters && (
+            <div className="flex flex-col justify-end">
+              <button
+                onClick={clearFilters}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg transition-colors"
+              >
+                <X size={12} /> {t("common.clearFilters")}
+              </button>
+            </div>
+          )}
         </div>
       </div>
-
-      {/* KPI Cards */}
-      {sum && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <KPI label={t("adoption.rebate.sipInProgress")} value={sum.count_sip_in_progress} />
-          <KPI label={t("adoption.rebate.sipApproved")} value={sum.count_sip_approved} />
-        </div>
-      )}
 
       {/* SIP Opportunities Table */}
       <div className={card}>
         <Tbl
-          rows={sipQ.data ?? []}
+          rows={filteredSip}
           cols={COLS_SIP}
           loading={sipQ.isLoading}
           title={t("adoption.rebate.sipOpportunities")}
-          onExp={() => doExport(sipQ.data ?? [], COLS_SIP, new Date().toISOString().split("T")[0] + "_task_sip.xlsx")}
+          onExp={() => doExport(filteredSip, COLS_SIP, new Date().toISOString().split("T")[0] + "_task_sip.xlsx")}
         />
       </div>
     </div>
