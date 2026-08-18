@@ -73,7 +73,38 @@ export interface LCIStageRow {
   stage_amount_usd?: number;
 }
 
+export interface LCIReportData {
+  summary: LCISummary | null;
+  total_eligibles: {
+    fy: number | null;
+    total_eligibles: number;
+    n_eligibles: number;
+    total_potential: number;
+    n_potential: number;
+    total_opt_in: number;
+    n_opt_in: number;
+    by_solution: {
+      solution: string;
+      eligible_count: number;
+      eligible_value: number;
+      potential_count: number;
+      potential_value: number;
+      opt_in_count: number;
+      opt_in_value: number;
+    }[];
+  } | null;
+  by_stage_status: LCIStageStatus[];
+  termination_status: LCITerminationStatus[];
+  burnup: LCIBurnup | null;
+  yoy: LCIYoY[];
+  lost_justification: { justification: string; count: number; value: number }[];
+}
+
 export const ciscoLciApi = {
+  // Unified endpoint — replaces 8 parallel requests for CiscoLCIReportPage
+  getReportData: (fy?: number) =>
+    apiClient.get<LCIReportData>(`/adoption/cisco-lci/report-data${fy ? `?fy=${fy}` : ""}`),
+
   getFiscalYears: () =>
     apiClient.get<number[]>("/adoption/cisco-lci/fiscal-years"),
   getSummary: (fy?: number) =>

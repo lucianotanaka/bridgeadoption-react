@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { DollarSign, BarChart3, Download, HelpCircle } from "lucide-react";
 import Plot from "react-plotly.js";
 import { ciscoLciApi } from "@/api/ciscoLci";
-import type { LCIStageRow } from "@/api/ciscoLci";
+import type { LCIStageRow, LCIReportData } from "@/api/ciscoLci";
 import { forecastApi } from "@/api/forecast";
 import type { IncentiveByFY, EffortItem } from "@/api/forecast";
 import Pagination from "@/components/ui/Pagination";
@@ -294,33 +294,36 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
   const [tablePageSize, setTablePageSize] = useState(25);
   const [isExporting, setIsExporting] = useState(false);
 
-  const summaryQuery = useQuery({ queryKey: ["lci", "summary", selectedFY], queryFn: () => ciscoLciApi.getSummary(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
-  const totalEligiblesQuery = useQuery({ queryKey: ["lci", "total-eligibles", selectedFY], queryFn: () => ciscoLciApi.getTotalEligibles(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
-  const stageStatusQuery = useQuery({ queryKey: ["lci", "stage-status", selectedFY], queryFn: () => ciscoLciApi.getByStageStatus(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
+  // Single unified query — replaces 7 parallel LCI calls (backend caches 5 min)
+  const lciReportQuery = useQuery({
+    queryKey: ["lci", "report-data", selectedFY],
+    queryFn: () => ciscoLciApi.getReportData(selectedFY).then((r) => r.data),
+    staleTime: 5 * 60 * 1000,
+  });
+  // Forecast — separate API, kept independent
   const forecastClientQuery = useQuery({ queryKey: ["forecast", "client", selectedFY], queryFn: () => forecastApi.getByClient(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
   const incentiveFYQuery = useQuery({ queryKey: ["forecast", "incentive-fy"], queryFn: () => forecastApi.getIncentiveByFY().then((r) => r.data), staleTime: 10 * 60 * 1000 });
   const effortClientQuery = useQuery({ queryKey: ["forecast", "effort-client"], queryFn: () => forecastApi.getEffortClient().then((r) => r.data), staleTime: 10 * 60 * 1000 });
   const effortUCQuery = useQuery({ queryKey: ["forecast", "effort-uc"], queryFn: () => forecastApi.getEffortUseCase().then((r) => r.data), staleTime: 10 * 60 * 1000 });
-  const lostJustQuery = useQuery({ queryKey: ["lci", "lost-justification", selectedFY], queryFn: () => ciscoLciApi.getLostJustification(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
+  // Journey — lazy (operational tab only)
   const lciJourneyQuery = useQuery({
     queryKey: ["lci", "journey", selectedFY],
     queryFn: () => apiClient.get<LciJourneyRow[]>("/adoption/rebate/lci-journey", { params: { fy: selectedFY } }).then(r => r.data),
     enabled: overviewTab === "operational",
     staleTime: 5 * 60 * 1000,
   });
-  const termQuery = useQuery({ queryKey: ["lci", "term", selectedFY], queryFn: () => ciscoLciApi.getTerminationStatus(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
-  const burnupQuery = useQuery({ queryKey: ["lci", "burnup", selectedFY], queryFn: () => ciscoLciApi.getBurnup(selectedFY).then((r) => r.data), staleTime: 5 * 60 * 1000 });
-  const yoyQuery = useQuery({ queryKey: ["lci", "yoy"], queryFn: () => ciscoLciApi.getYoY().then((r) => r.data), staleTime: 10 * 60 * 1000 });
+  // Stages table — changes per activeTab, kept separate
   const stagesQuery = useQuery({ queryKey: ["lci", "stages", selectedFY, activeTab], queryFn: () => ciscoLciApi.getStages(selectedFY, activeTab).then((r) => r.data), staleTime: 5 * 60 * 1000 });
 
-  const s = summaryQuery.data;
-  const totalEligibles = totalEligiblesQuery.data?.total_eligibles ?? 0;
-  const totalPotentialNew = totalEligiblesQuery.data?.total_potential ?? 0;
-  const stageStatus = stageStatusQuery.data ?? [];
-  const lostJust = lostJustQuery.data ?? [];
-  const termStatus = termQuery.data ?? [];
-  const burnup = burnupQuery.data;
-  const yoy = yoyQuery.data ?? [];
+  const reportData: LCIReportData | undefined = lciReportQuery.data;
+  const s = reportData?.summary;
+  const totalEligibles = reportData?.total_eligibles?.total_eligibles ?? 0;
+  const totalPotentialNew = reportData?.total_eligibles?.total_potential ?? 0;
+  const stageStatus = reportData?.by_stage_status ?? [];
+  const lostJust = reportData?.lost_justification ?? [];
+  const termStatus = reportData?.termination_status ?? [];
+  const burnup = reportData?.burnup ?? null;
+  const yoy = reportData?.yoy ?? [];
   const stages = stagesQuery.data ?? [];
 
   const burnupMonths = burnup?.months ?? [];
@@ -464,7 +467,7 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
                 />
                 <KPICard
                   label={t("adoption.ciscoLci.totalOptIn")}
-                  value={fmtUSD(totalEligiblesQuery.data?.total_opt_in ?? s.fin_potential)}
+                  value={fmtUSD(reportData?.total_eligibles?.total_opt_in ?? s.fin_potential)}
                   accent="blue"
                   tooltip={t("adoption.ciscoLci.tooltipTotalOptIn")}
                 />
@@ -488,8 +491,8 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
                 />
               </div>
               {/* Executive Overview: Eligible → Potential → Opt In */}
-              {totalEligiblesQuery.data?.by_solution && totalEligiblesQuery.data.by_solution.length > 0 && (() => {
-                const bd = totalEligiblesQuery.data!;
+              {reportData?.total_eligibles?.by_solution && reportData.total_eligibles.by_solution.length > 0 && (() => {
+                const bd = reportData.total_eligibles!;
                 const sortedSolutions = [...bd.by_solution].sort((a, b) => a.eligible_value - b.eligible_value);
                 const tracks = sortedSolutions.map((r) => r.solution);
                 const waterfall = [
@@ -653,7 +656,7 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div className="lg:col-span-2 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
                   <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-3">{t("adoption.ciscoLci.valueCountByStageStatus")}</p>
-                  {stageStatusQuery.isLoading ? (
+                  {lciReportQuery.isLoading ? (
                     <div className="flex justify-center py-8"><div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
                   ) : stageStatus.length > 0 ? (
                     <Plot
@@ -668,7 +671,7 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
                 </div>
                 <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
                   <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-3">{t("adoption.ciscoLci.lciApprovedTermination")}</p>
-                  {termQuery.isLoading ? (
+                  {lciReportQuery.isLoading ? (
                     <div className="flex justify-center py-8"><div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
                   ) : termStatus.length > 0 ? (
                     <Plot

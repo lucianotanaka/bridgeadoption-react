@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { BarChart3, Filter, Plus, Activity, RefreshCw, ArrowUp } from "lucide-react";
 import { tasksApi } from "@/api/tasks";
-import type { TaskItem } from "@/api/tasks";
+import type { TaskItem, TaskKPI } from "@/api/tasks";
 import { useAuthStore } from "@/store/authStore";
 import {
   MonitoringPanel,
@@ -53,28 +53,18 @@ export default function TaskPage() {
     });
   };
 
-  const kpiQuery = useQuery({
-    queryKey: ["tasks", "kpi"],
-    queryFn: () => tasksApi.getKPI().then((res) => res.data),
-    staleTime: 2 * 60 * 1000,
-  });
-
-  const actionQueueQuery = useQuery({
-    queryKey: ["tasks", "action-queue"],
-    queryFn: (): Promise<TaskItem[]> => tasksApi.getActionQueue(10).then((res) => res.data),
-    staleTime: 2 * 60 * 1000,
-  });
-
-  const overviewQuery = useQuery({
-    queryKey: ["tasks", "overview"],
-    queryFn: () => tasksApi.getOverview().then((res) => res.data),
+  // Single unified query — replaces 3 parallel requests (kpi + overview + action-queue)
+  // Backend executes vwTaskDashboard once and caches for 2 min per user.
+  const dashboardQuery = useQuery({
+    queryKey: ["tasks", "dashboard"],
+    queryFn: () => tasksApi.getDashboard(10).then((res) => res.data),
     staleTime: 2 * 60 * 1000,
     enabled: activeTab === "overview",
   });
 
-  const kpi = kpiQuery.data;
-  const actionQueue: TaskItem[] = actionQueueQuery.data ?? [];
-  const activeTasks: TaskItem[] = (overviewQuery.data?.tasks ?? []).filter(
+  const kpi: TaskKPI | undefined = dashboardQuery.data?.kpi;
+  const actionQueue: TaskItem[] = dashboardQuery.data?.action_queue ?? [];
+  const activeTasks: TaskItem[] = (dashboardQuery.data?.overview?.tasks ?? []).filter(
     (task: TaskItem) => !CLOSED.has(task.task_status_id ?? 0)
   );
 
@@ -110,12 +100,10 @@ export default function TaskPage() {
     }
   }, [activeTab, canViewLciViability]);
 
-  const isLoading = kpiQuery.isLoading || actionQueueQuery.isLoading;
+  const isLoading = dashboardQuery.isLoading;
 
   const refetch = () => {
-    void kpiQuery.refetch();
-    void actionQueueQuery.refetch();
-    void overviewQuery.refetch();
+    void dashboardQuery.refetch();
   };
 
   const handleTaskSelectFromFilter = (task: TaskItem) => {
@@ -174,12 +162,12 @@ export default function TaskPage() {
       {/* Overview Tab */}
       {activeTab === "overview" && (
         <>
-          {kpi ? (
-            <MonitoringPanel kpi={kpi} />
-          ) : isLoading ? (
+          {isLoading ? (
             <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-8 flex items-center justify-center">
               <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
             </div>
+          ) : kpi ? (
+            <MonitoringPanel kpi={kpi} />
           ) : null}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -238,10 +226,10 @@ export default function TaskPage() {
               <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-1">{t("task.actionQueue")}</h3>
               <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">{t("task.actionQueueSubtitle")}</p>
               <div className="space-y-3 overflow-y-auto max-h-[600px]">
-                {actionQueueQuery.isLoading && (
+                {isLoading && (
                   <div className="flex justify-center py-8"><div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
                 )}
-                {!actionQueueQuery.isLoading && actionQueue.length === 0 && (
+                {!isLoading && actionQueue.length === 0 && (
                   <p className="text-xs text-green-600 dark:text-green-400 text-center py-4">{t("task.noCriticalActions")}</p>
                 )}
                 {actionQueue.map((task) => (

@@ -25,6 +25,7 @@ from app.adoption.cisco_lci_service import (
     get_lci_total_eligibles,
     get_lci_lost_justification,
     get_lci_wallet_burndown,
+    get_lci_report_data,
 )
 from app.core.security import decode_access_token
 
@@ -46,6 +47,20 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return payload
+
+
+@router.get("/report-data", response_model=Dict[str, Any])
+def lci_report_data(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    fy: Optional[int] = Query(None),
+):
+    """
+    Endpoint unificado para CiscoLCIReportPage.
+    Retorna summary + total_eligibles + by_stage_status + termination_status
+            + burnup + yoy + lost_justification em 1 request.
+    Substitui 8 chamadas paralelas. Usa cache TTL de 5 min.
+    """
+    return get_lci_report_data(fy)
 
 
 @router.get("/fiscal-years", response_model=List[int])

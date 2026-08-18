@@ -1,10 +1,19 @@
 """
 Cisco LCI Service — espelha report_cisco_lci.py do Streamlit.
 Usa CiscoLCIRepository de /opt/bridgeadoption/src/.
+
+Performance:
+  - _load_all_enriched() e _load_cisco_lci_all() usam TTL cache de 5 minutos.
+    Chamadas repetidas dentro do TTL retornam dados em memória (sem DB).
+  - _load_all_enriched() usa pandas vetorizado ao invés de loop por linha.
+  - get_lci_report_data(fy) carrega os dados UMA VEZ e retorna todos os
+    agregados necessários para o Report Page, substituindo ~8 chamadas paralelas.
 """
 import sys
 import os
 import logging
+import math
+import threading
 import traceback
 from datetime import date
 from typing import Any, Dict, List, Optional
@@ -21,6 +30,21 @@ try:
 except ImportError as e:
     logger.warning(f"CiscoLCIRepository não disponível: {e}")
     _REPO_OK = False
+
+# ─────────────────────────────────────────
+# TTL CACHE — 5 minutos para dados LCI
+# LCI data muda raramente — cache elimina queries duplicadas entre endpoints
+# ─────────────────────────────────────────
+try:
+    from cachetools import TTLCache
+    _CACHE_OK = True
+except ImportError:
+    _CACHE_OK = False
+
+_LCI_CACHE_TTL = 300  # 5 minutos
+_lci_all_cache: Any = TTLCache(maxsize=4, ttl=_LCI_CACHE_TTL) if _CACHE_OK else {}
+_lci_task_cache: Any = TTLCache(maxsize=16, ttl=_LCI_CACHE_TTL) if _CACHE_OK else {}
+_lci_cache_lock = threading.RLock()
 
 # Status IDs
 STATUS_APPROVED = {9, 10}
@@ -122,14 +146,124 @@ def _enrich_row(r: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _load_all_enriched() -> List[Dict[str, Any]]:
+    """
+    Carrega e enriquece todos os registros LCI com task_eligible='Y'.
+    Resultado cacheado por 5 minutos — chamadas repetidas retornam cache em memória.
+    Usa pandas vetorizado ao invés de loop por linha (_enrich_row).
+    """
+    cache_key = "lci_all_enriched"
+    with _lci_cache_lock:
+        if cache_key in _lci_all_cache:
+            return _lci_all_cache[cache_key]
+
     if not _REPO_OK:
         return []
+
     try:
+        import pandas as pd
         repo = CiscoLCIRepository()
-        rows = repo.find_all(task_eligible="Y", as_df=False) or []
-        return [_enrich_row(dict(r)) for r in rows]
+
+        # Tentar modo DataFrame para vetorização
+        try:
+            df = repo.find_all(task_eligible="Y", as_df=True)
+            if df is None or df.empty:
+                result: List[Dict[str, Any]] = []
+                with _lci_cache_lock:
+                    _lci_all_cache[cache_key] = result
+                return result
+
+            # Datas efetivas — vetorizado (evita loop por linha)
+            start_col = "lci_stage_performed_start" if "lci_stage_performed_start" in df.columns else None
+            est_start  = "lci_stage_estimated_start" if "lci_stage_estimated_start" in df.columns else None
+            end_col    = "lci_stage_performed_end" if "lci_stage_performed_end" in df.columns else None
+            est_end    = "lci_stage_estimated_end" if "lci_stage_estimated_end" in df.columns else None
+
+            if start_col and est_start:
+                df["stage_start_date"] = pd.to_datetime(
+                    df[start_col].fillna(df[est_start]), errors="coerce"
+                ).dt.strftime("%Y-%m-%d").where(df[start_col].notna() | df[est_start].notna(), None)
+            else:
+                df["stage_start_date"] = None
+
+            if end_col and est_end:
+                df["stage_end_date"] = pd.to_datetime(
+                    df[end_col].fillna(df[est_end]), errors="coerce"
+                ).dt.strftime("%Y-%m-%d").where(df[end_col].notna() | df[est_end].notna(), None)
+            else:
+                df["stage_end_date"] = None
+
+            # stage_amount_usd — vetorizado
+            if "lci_stage_status_id" in df.columns and "lci_stage_approval_value" in df.columns and "lci_stage_value" in df.columns:
+                df["stage_amount_usd"] = df.apply(
+                    lambda r: _safe_float(r.get("lci_stage_approval_value"))
+                    if _safe_int(r.get("lci_stage_status_id")) == 10
+                    else _safe_float(r.get("lci_stage_value")),
+                    axis=1,
+                )
+            elif "lci_stage_value" in df.columns:
+                df["stage_amount_usd"] = df["lci_stage_value"].fillna(0.0).astype(float)
+            else:
+                df["stage_amount_usd"] = 0.0
+
+            # Fiscal year — vetorizado
+            end_ts = pd.to_datetime(df["stage_end_date"], errors="coerce")
+            df["lci_stage_end_fy"] = end_ts.apply(_calculate_fy)
+
+            appr_fy_col = "lci_stage_approval_fy" if "lci_stage_approval_fy" in df.columns else None
+            task_fy_col = "lci_task_end_fy" if "lci_task_end_fy" in df.columns else None
+
+            def _eff_fy(r: Any) -> Any:
+                appr = _safe_int(r.get("lci_stage_approval_fy")) if appr_fy_col else None
+                task_fy = _safe_int(r.get("lci_task_end_fy")) if task_fy_col else None
+                return appr or r.get("lci_stage_end_fy") or task_fy
+
+            df["lci_effective_fy"] = df.apply(_eff_fy, axis=1)
+
+            # Serializar datas restantes para string ISO
+            for col in df.select_dtypes(include=["datetime64[ns]", "datetime64[ns, UTC]"]).columns:
+                df[col] = df[col].dt.strftime("%Y-%m-%d").where(df[col].notna(), None)
+
+            # NaN → None
+            df = df.where(pd.notna(df), None)
+
+            enriched = df.to_dict("records")
+
+        except Exception as df_err:
+            logger.warning(f"_load_all_enriched vectorized fallback: {df_err}")
+            rows = repo.find_all(task_eligible="Y", as_df=False) or []
+            enriched = [_enrich_row(dict(r)) for r in rows]
+
+        with _lci_cache_lock:
+            _lci_all_cache[cache_key] = enriched
+
+        return enriched
+
     except Exception as e:
         logger.error(f"_load_all_enriched: {e}\n{traceback.format_exc()}")
+        return []
+
+
+def _load_cisco_lci_all_cached(fy: Optional[int] = None) -> List[Dict[str, Any]]:
+    """
+    Carrega load_cisco_lci_all com cache TTL de 5 minutos por fy.
+    """
+    cache_key = f"lci_task:{fy}"
+    with _lci_cache_lock:
+        if cache_key in _lci_task_cache:
+            return _lci_task_cache[cache_key]
+
+    if not _REPO_OK:
+        return []
+
+    try:
+        repo = CiscoLCIRepository()
+        rows = repo.load_cisco_lci_all(fy=fy, as_df=False) or []
+        data = [dict(r) for r in rows]
+        with _lci_cache_lock:
+            _lci_task_cache[cache_key] = data
+        return data
+    except Exception as e:
+        logger.error(f"_load_cisco_lci_all_cached fy={fy}: {e}")
         return []
 
 
@@ -792,3 +926,189 @@ def get_lci_stage_rows(fy: Optional[int], stage_status_filter: str) -> List[Dict
         })
 
     return sorted(result, key=lambda x: (_safe_str(x.get("lci_client_name")), _safe_str(x.get("lci_deal_id"))))
+
+
+# ─────────────────────────────────────────
+# ENDPOINT UNIFICADO — Report Page
+# Substitui 8 chamadas paralelas por 1 request
+# ─────────────────────────────────────────
+
+def get_lci_report_data(fy: Optional[int]) -> Dict[str, Any]:
+    """
+    Carrega dados UMA ÚNICA VEZ e retorna tudo que CiscoLCIReportPage precisa:
+      summary, total_eligibles, by_stage_status, termination_status,
+      burnup, yoy, lost_justification
+
+    Substitui as chamadas paralelas:
+      GET /summary + /total-eligibles + /by-stage-status + /termination-status
+          + /burnup + /yoy + /lost-justification
+    """
+    try:
+        all_rows = _load_all_enriched()
+        task_rows = _load_cisco_lci_all_cached(fy)
+
+        fy_rows = [r for r in all_rows if r.get("lci_effective_fy") == fy] if fy else all_rows
+
+        # ── Dedup stages ────────────────────────────────────────────────────
+        seen_stage: Dict[int, Dict] = {}
+        for r in fy_rows:
+            sid = _safe_int(r.get("lci_stage_id"))
+            if sid and sid not in seen_stage:
+                seen_stage[sid] = r
+        stage_dedup = list(seen_stage.values())
+
+        # ── Summary ─────────────────────────────────────────────────────────
+        total_tasks = len({_safe_int(r.get("lci_task_id")) for r in fy_rows if r.get("lci_task_id")})
+        total_stages = len(seen_stage)
+        total_approved = sum(1 for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_APPROVED)
+        total_awaiting = sum(1 for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_AWAITING)
+        total_ongoing  = sum(1 for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_ONGOING)
+        total_lost     = sum(1 for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_LOST)
+
+        tasks_awaiting_opt_in = len({
+            _safe_int(r.get("lci_task_id")) for r in fy_rows
+            if _safe_int(r.get("lci_task_status")) in {1, 3} and not r.get("lci_stage_ws")
+        })
+        tasks_lost_pending = len({
+            _safe_int(r.get("lci_task_id")) for r in fy_rows
+            if _safe_int(r.get("lci_task_status")) in {4, 5, 6} and not r.get("lci_stage_ws")
+        })
+
+        fin_approved = sum(_safe_float(r.get("stage_amount_usd")) for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_APPROVED)
+        fin_lost_val = sum(_safe_float(r.get("stage_amount_usd")) for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_LOST)
+
+        CANCELLED = {4, 5}
+        opted_in_task_ids = {_safe_int(r.get("lci_task_id")) for r in fy_rows if _safe_int(r.get("lci_task_status")) not in CANCELLED}
+        seen_opt_in: set = set()
+        fin_potential = 0.0
+        for r in task_rows:
+            tid = _safe_int(r.get("task_id"))
+            if tid in opted_in_task_ids and tid not in seen_opt_in and _safe_int(r.get("task_status_id")) not in CANCELLED:
+                fin_potential += _safe_float(r.get("task_value"))
+                seen_opt_in.add(tid)
+
+        fin_conversion = fin_approved / fin_potential if fin_potential > 0 else 0.0
+
+        summary = {
+            "fy": fy, "total_tasks": total_tasks, "total_stages": total_stages,
+            "total_approved_stages": total_approved, "total_awaiting_stages": total_awaiting,
+            "total_ongoing_stages": total_ongoing, "total_lost_stages": total_lost,
+            "tasks_awaiting_opt_in": tasks_awaiting_opt_in,
+            "tasks_lost_opt_in_pending": tasks_lost_pending,
+            "fin_potential": round(fin_potential, 2),
+            "fin_approved": round(fin_approved, 2),
+            "fin_lost": round(fin_lost_val, 2),
+            "fin_conversion_rate": round(fin_conversion, 4),
+        }
+
+        # ── Total Eligibles ──────────────────────────────────────────────────
+        opt_in_all_rows = [r for r in all_rows if not fy or r.get("lci_effective_fy") == fy]
+        seen_stage_elig: Dict[int, Dict] = {}
+        for r in opt_in_all_rows:
+            sid = _safe_int(r.get("lci_stage_id"))
+            if sid and sid not in seen_stage_elig:
+                seen_stage_elig[sid] = r
+        opted_in_ids = {_safe_int(r.get("lci_task_id")) for r in seen_stage_elig.values()}
+
+        total_eligibles = sum(_safe_float(r.get("task_value")) for r in task_rows)
+        n_eligibles = len(task_rows)
+        potential_rows = _build_potential_rows(task_rows)
+        total_potential = sum(_safe_float(r.get("task_value")) for r in potential_rows)
+        n_potential = len(potential_rows)
+        opt_in_rows = [r for r in task_rows if _safe_int(r.get("task_id")) in opted_in_ids and _safe_int(r.get("task_status_id")) not in CANCELLED]
+        total_opt_in = sum(_safe_float(r.get("task_value")) for r in opt_in_rows)
+        n_opt_in = len(opt_in_rows)
+
+        elig_by_track: Dict[str, Dict] = {}
+        pot_by_track:  Dict[str, Dict] = {}
+        opt_by_track:  Dict[str, Dict] = {}
+        for r in task_rows:
+            t = _safe_str(r.get("task_track")) or "Unknown"
+            elig_by_track.setdefault(t, {"count": 0, "value": 0.0})
+            elig_by_track[t]["count"] += 1
+            elig_by_track[t]["value"] += _safe_float(r.get("task_value"))
+        for r in potential_rows:
+            t = _safe_str(r.get("task_track")) or "Unknown"
+            pot_by_track.setdefault(t, {"count": 0, "value": 0.0})
+            pot_by_track[t]["count"] += 1
+            pot_by_track[t]["value"] += _safe_float(r.get("task_value"))
+        for r in opt_in_rows:
+            t = _safe_str(r.get("task_track")) or "Unknown"
+            opt_by_track.setdefault(t, {"count": 0, "value": 0.0})
+            opt_by_track[t]["count"] += 1
+            opt_by_track[t]["value"] += _safe_float(r.get("task_value"))
+
+        all_tracks = sorted(set(list(elig_by_track.keys()) + list(pot_by_track.keys()) + list(opt_by_track.keys())))
+        by_solution = [{
+            "solution": t,
+            "eligible_count":  elig_by_track.get(t, {}).get("count", 0),
+            "eligible_value":  round(elig_by_track.get(t, {}).get("value", 0.0), 2),
+            "potential_count": pot_by_track.get(t, {}).get("count", 0),
+            "potential_value": round(pot_by_track.get(t, {}).get("value", 0.0), 2),
+            "opt_in_count":    opt_by_track.get(t, {}).get("count", 0),
+            "opt_in_value":    round(opt_by_track.get(t, {}).get("value", 0.0), 2),
+        } for t in all_tracks]
+
+        total_eligibles_data = {
+            "fy": fy, "total_eligibles": round(total_eligibles, 2), "n_eligibles": n_eligibles,
+            "total_potential": round(total_potential, 2), "n_potential": n_potential,
+            "total_opt_in": round(total_opt_in, 2), "n_opt_in": n_opt_in,
+            "by_solution": by_solution,
+        }
+
+        # ── By Stage Status ──────────────────────────────────────────────────
+        agg_status: Dict[str, Dict] = {}
+        for r in stage_dedup:
+            sname = _safe_str(r.get("lci_stage_status_name")) or "Unknown"
+            agg_status.setdefault(sname, {"total_value": 0.0, "count": 0})
+            agg_status[sname]["total_value"] += _safe_float(r.get("stage_amount_usd"))
+            agg_status[sname]["count"] += 1
+        by_stage_status = sorted(
+            [{"status": k, "total_value": round(v["total_value"], 2), "count": v["count"]} for k, v in agg_status.items()],
+            key=lambda x: x["total_value"], reverse=True
+        )
+
+        # ── Termination Status ───────────────────────────────────────────────
+        approved_stages = {sid: r for sid, r in seen_stage.items() if _safe_int(r.get("lci_stage_status_id")) in STATUS_APPROVED}
+        term_counts: Dict[str, int] = {}
+        for r in approved_stages.values():
+            ts = _safe_str(r.get("termination_status")) or "Unknown"
+            term_counts[ts] = term_counts.get(ts, 0) + 1
+        termination_status = [{"termination_status": k, "count": v} for k, v in sorted(term_counts.items(), key=lambda x: x[1], reverse=True)]
+
+        # ── Burnup ───────────────────────────────────────────────────────────
+        burnup = get_lci_burnup(fy) if fy else {"months": [], "fy": fy}
+
+        # ── YoY ──────────────────────────────────────────────────────────────
+        yoy = get_lci_yoy()
+
+        # ── Lost Justification ───────────────────────────────────────────────
+        cancelled_rows = [r for r in task_rows if _safe_int(r.get("task_status_id")) in CANCELLED]
+        agg_just: Dict[str, Dict] = {}
+        for r in cancelled_rows:
+            j = _safe_str(r.get("task_status_justification")).strip() or "Not Specified"
+            agg_just.setdefault(j, {"count": 0, "value": 0.0})
+            agg_just[j]["count"] += 1
+            agg_just[j]["value"] += _safe_float(r.get("task_value"))
+        lost_justification = sorted(
+            [{"justification": k, "count": v["count"], "value": round(v["value"], 2)} for k, v in agg_just.items()],
+            key=lambda x: x["count"], reverse=True
+        )
+
+        return {
+            "summary": summary,
+            "total_eligibles": total_eligibles_data,
+            "by_stage_status": by_stage_status,
+            "termination_status": termination_status,
+            "burnup": burnup,
+            "yoy": yoy,
+            "lost_justification": lost_justification,
+        }
+
+    except Exception as e:
+        logger.error(f"get_lci_report_data fy={fy}: {e}\n{traceback.format_exc()}")
+        return {
+            "summary": None, "total_eligibles": None, "by_stage_status": [],
+            "termination_status": [], "burnup": {"months": [], "fy": fy},
+            "yoy": [], "lost_justification": [],
+        }

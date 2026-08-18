@@ -28,6 +28,7 @@ from app.tasks.service import (
     get_task_action_queue,
     get_task_kpi_summary,
     get_task_overview,
+    get_task_dashboard_unified,
 )
 from app.tasks.filter_service import (
     get_filter_options,
@@ -157,7 +158,24 @@ class AddHistoryRequest(BaseModel):
     taskrecord_updated_by: Optional[str] = None
 
 
-# ─── Overview & KPI (existing) ────────────────────────────────────────────────
+# ─── Dashboard unificado (novo) ───────────────────────────────────────────────
+
+@router.get("/dashboard", response_model=Dict[str, Any])
+def task_dashboard_unified(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    limit: int = 10,
+):
+    """
+    Retorna KPI + overview + action_queue em um único request.
+    Executa vwTaskDashboard e vwTaskValueRollup uma única vez (com cache TTL 2min).
+    Substitui as 3 chamadas paralelas: GET /kpi + /action-queue + /overview.
+    """
+    user_id = int(current_user.get("sub", 0))
+    is_mgr = _is_manager(current_user)
+    return get_task_dashboard_unified(user_id=user_id, is_manager=is_mgr, action_queue_limit=limit)
+
+
+# ─── Overview & KPI (mantidos para compatibilidade) ──────────────────────────
 
 @router.get("/overview", response_model=TaskOverviewResponse)
 def task_overview(current_user: Annotated[dict, Depends(get_current_user)]):

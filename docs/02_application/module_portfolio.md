@@ -60,31 +60,50 @@ Exibe um grid visual por **Architecture × Solution** com emoji de semáforo em 
 
 ## 4. Assets (`portfolio.asset`)
 
+> **Status:** ✅ Migrado para React — 2026-08-18
+> **Documentação detalhada:** `docs/02_application/portfolio/asset.md`
+> **API:** `docs/07_api/asset_endpoints.md`
+
 ### Propósito
-Portfólio de ativos (produtos/licenças) de cada cliente. Permite visualizar quais produtos o cliente possui e seu status de adoção.
+Portfólio de ativos (hardware/software/licenças) de cada cliente. Exibe contratos do Vendor (SmartNet/fabricante) e da NTT por asset, com status consolidado e alertas de EoS/LDOS.
 
 ### Componentes
-- Seletor de cliente
-- Tabela de ativos com: produto, quantidade, tipo, validade, status de uso
-- Filtros por categoria de produto, status
+- **Seletor de cliente** searchable (populado de clientes que têm assets)
+- **4 Summary Cards**: Total Assets, Vendor Only, NTT Only, Vendor+NTT
+- **11 filtros MultiSelect**: Vendor, Product Name, NTT Contract, Subscription ID, Serial Number, Instance Number, Major/Minor, Status Consolidated, Alert Reason, EOS Status, LDOS Status
+- **Tabela paginada** com 29 colunas (scroll horizontal)
+- **Export CSV** (dataset filtrado, BOM UTF-8)
+- **Refresh** do cliente ativo
 
 ### Endpoints
-- `GET /api/portfolio/assets?client_id=XXX`
+- `GET /api/portfolio/asset-clients` — lista de clientes com assets
+- `GET /api/portfolio/assets?customer_id={id}` — assets completos por cliente
 
 ---
 
 ## 5. Account Team (`portfolio.account_team`)
 
+> **Status:** ✅ Migrado para React — 2026-08-18
+> **Documentação detalhada:** `docs/02_application/portfolio/account_team.md`
+> **API:** `docs/07_api/account_team_endpoints.md`
+
 ### Propósito
-Membros da equipe de conta de cada cliente — mostra todos os profissionais envolvidos (CSM, AM, SE, etc.).
+Matriz de Account Team por empresa cliente — todos os profissionais NTT Data alocados (AM, CDM, CSM, DIR, etc.) com Cisco Domain associado. Inclui painel de edição para ativar/desativar alocações e adicionar membros.
 
 ### Componentes
-- Seletor de cliente
-- Cards de membros da equipe com nome, cargo e contato
-- Filtro por empresa/cliente
+- **Matriz pivot** empresa × tipo de profissional (construída client-side)
+- **5 filtros MultiSelect**: Client, DIR, AM, CDM, CSM
+- **Toggle de colunas** (Cisco Domain + tipos dinâmicos)
+- **Export TSV**
+- **Edit Mode** (ADMIN/MANAGER): toggle de alocação com auto-save + formulário Add Member
 
 ### Endpoints
-- `GET /api/portfolio/account-team?client_id=XXX`
+- `GET /api/portfolio/account-team/matrix` — linhas alocadas com Cisco Domain
+- `GET /api/portfolio/account-team/rows` — todas as linhas (edit panel)
+- `GET /api/portfolio/account-team/users` — pessoas NTT para Add Member
+- `GET /api/portfolio/account-team/companies` — empresas para filtro + navegação
+- `PUT /api/portfolio/account-team/{id}` — atualizar alocação
+- `POST /api/portfolio/account-team` — inserir novo membro
 
 ---
 
@@ -150,5 +169,10 @@ backend/app/modules/
 | Farol — grid vazio após Generate | Sem registros em `tbFarol` para o cliente | Executar job de importação do Farol |
 | Farol — status ⚪ em todas as células | Coluna `status` com valores inesperados | Verificar valores em `tbFarol.status` (esperado: `green`, `yellow`, `red`, `gray`) |
 | Client Overview vazio | Cliente selecionado sem dados EA/SA | Verificar importação Cisco EA/SA para o cliente |
+| Assets — seletor de clientes vazio | Sem registros em `tbAssetContractSummaryByCustomer` | Verificar importação de contratos de assets |
+| Assets — tabela vazia após Load | Cliente sem assets na view `tbAssetContractEndMismatch` | Verificar `tbContractVendorAsset` e `tbContractNTTAsset` para o cliente |
+| Assets — erro 422 ao carregar | `customer_id` inválido ou ausente | Bug no frontend — verificar `activeClient.client_id` |
+| Account Team — colunas AM/CDM/CSM todas "OTHER" | View `vwAccountTeam` retorna `accountteam_user_type` (coluna legada) | `_normalize_account_team_cols()` no service trata isso automaticamente |
+| Account Team — checkbox não salva | `AccountTeamRepository.update()` definido sem `self` | Service chama como método de classe: `AccountTeamRepository.update(data)` |
 | Equipe de conta incompleta | Dados desatualizados | Verificar tabela de account team no banco |
 | True Forward não aparece | Sem dados de overage | Normal se o cliente está dentro do contrato |

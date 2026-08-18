@@ -1,0 +1,18 @@
+○ bridgeadoption-backend.service - Bridge Adoption Backend Service (FastAPI)
+     Loaded: loaded (]8;;file://centos/etc/systemd/system/bridgeadoption-backend.service/etc/systemd/system/bridgeadoption-backend.service]8;;; [0;1;32menabled[0m; preset: [0;1;38;5;185mdisabled[0m)
+     Active: inactive (dead) since Tue 2026-08-18 17:52:40 -03; 1min 52s ago
+   Duration: 37.251s
+    Process: 7642 ExecStart=/opt/bridgeadoption/backend/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8001 (code=killed, signal=TERM)
+   Main PID: 7642 (code=killed, signal=TERM)
+        CPU: 1.224s
+
+Aug 18 17:52:03 centos python[7642]: INFO:     Application startup complete.
+Aug 18 17:52:03 centos python[7642]: INFO:     Uvicorn running on http://127.0.0.1:8001 (Press CTRL+C to quit)
+Aug 18 17:52:39 centos systemd[1]: Stopping Bridge Adoption Backend Service (FastAPI)...
+Aug 18 17:52:39 centos python[7642]: INFO:     Shutting down
+Aug 18 17:52:40 centos python[7642]: INFO:     Waiting for application shutdown.
+Aug 18 17:52:40 centos python[7642]: INFO:     Application shutdown complete.
+Aug 18 17:52:40 centos python[7642]: INFO:     Finished server process [7642]
+Aug 18 17:52:40 centos systemd[1]: bridgeadoption-backend.service: Deactivated successfully.
+Aug 18 17:52:40 centos systemd[1]: Stopped Bridge Adoption Backend Service (FastAPI).
+Aug 18 17:52:40 centos systemd[1]: bridgeadoption-backend.service: Consumed 1.224s CPU time, 157.8M memory peak.

@@ -317,8 +317,18 @@ export interface ReportTaskDetail {
   activity_status_summary: ReportActivitySummary[];
 }
 
+export interface TaskDashboard {
+  kpi: TaskKPI;
+  overview: TaskOverview;
+  action_queue: TaskItem[];
+}
+
 export const tasksApi = {
-  // Overview & KPI
+  // Unified dashboard — replaces /kpi + /overview + /action-queue (1 request instead of 3)
+  getDashboard: (limit = 10) =>
+    apiClient.get<TaskDashboard>(`/tasks/dashboard?limit=${limit}`),
+
+  // Overview & KPI (kept for compatibility)
   getKPI: () => apiClient.get<TaskKPI>("/tasks/kpi"),
   getOverview: () => apiClient.get<TaskOverview>("/tasks/overview"),
   getActionQueue: (limit = 10) =>

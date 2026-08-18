@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 import os
 import mysql.connector
-from mysql.connector import Error
+from mysql.connector import Error, pooling
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 import hashlib
@@ -18,57 +18,85 @@ DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_NAME = os.getenv("DB_NAME")
 
+# CONNECTION POOL (singleton) — reutiliza conexões TCP ao invés de criar/destruir
+# pool_size=10 cobre bem cenários com múltiplos usuários simultâneos
 # ---------------------------------------------------------
-# CONEXÃO MYSQL (CRUD direto)
+_connection_pool: "pooling.MySQLConnectionPool | None" = None
+
+
+def _get_pool() -> pooling.MySQLConnectionPool:
+    global _connection_pool
+    if _connection_pool is None:
+        try:
+            _connection_pool = pooling.MySQLConnectionPool(
+                pool_name="bridge_streamlit_pool",
+                pool_size=10,
+                pool_reset_session=True,
+                host=DB_HOST,
+                port=DB_PORT,
+                user=DB_USER,
+                password=DB_PASSWORD,
+                database=DB_NAME,
+                charset="utf8mb4",
+                use_unicode=True,
+            )
+            logging.info("MySQL connection pool criado (streamlit, pool_size=10)")
+        except Error as e:
+            logging.error(f"Erro ao criar pool MySQL: {e}")
+            raise
+    return _connection_pool
+
+
+# ---------------------------------------------------------
+# CONEXÃO MYSQL — usa pool (CRUD direto)
 # ---------------------------------------------------------
 def get_db_connection():
     """
-    Retorna conexão mysql.connector
-    Usar para INSERT, UPDATE, DELETE.
+    Retorna conexão do pool MySQL.
+    Usar para SELECT, INSERT, UPDATE, DELETE.
+    connection.close() devolve ao pool (não fecha fisicamente).
     """
     try:
-        return mysql.connector.connect(
-            host=DB_HOST,
-            port=DB_PORT,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            database=DB_NAME,
-        )
+        return _get_pool().get_connection()
     except Error as e:
         logging.error(f"erro_conexao_banco: {e}")
         raise
 
 
 # ---------------------------------------------------------
-# SQLALCHEMY ENGINE (usar com pandas)
+# SQLALCHEMY ENGINE — singleton com pool (usar com pandas)
 # ---------------------------------------------------------
+_sqlalchemy_engine = None
+
+
 def get_sqlalchemy_engine():
     """
-    Retorna engine SQLAlchemy.
+    Retorna engine SQLAlchemy singleton.
     Seguro para senhas com caracteres especiais (@, #, :, /).
     """
-
-    try:
-        url = URL.create(
-            drivername="mysql+mysqlconnector",
-            username=DB_USER,
-            password=DB_PASSWORD,  # pode conter @ sem problema
-            host=DB_HOST,
-            port=int(DB_PORT),
-            database=DB_NAME,
-        )
-
-        engine = create_engine(
-            url,
-            pool_pre_ping=True,
-            pool_recycle=3600,
-        )
-
-        return engine
-
-    except Exception as e:
-        logging.error(f"erro_engine_sqlalchemy: {e}")
-        raise
+    global _sqlalchemy_engine
+    if _sqlalchemy_engine is None:
+        try:
+            url = URL.create(
+                drivername="mysql+mysqlconnector",
+                username=DB_USER,
+                password=DB_PASSWORD,
+                host=DB_HOST,
+                port=int(DB_PORT),
+                database=DB_NAME,
+            )
+            _sqlalchemy_engine = create_engine(
+                url,
+                pool_pre_ping=True,
+                pool_recycle=1800,
+                pool_size=5,
+                max_overflow=10,
+            )
+            logging.info("SQLAlchemy engine singleton criado")
+        except Exception as e:
+            logging.error(f"erro_engine_sqlalchemy: {e}")
+            raise
+    return _sqlalchemy_engine
 
 
 # ---------------------------------------------------------
@@ -100,6 +128,6 @@ def verify_credential(email: str, senha: str) -> bool:
     finally:
         try:
             cursor.close()
-            connection.close()
+            connection.close()  # devolve ao pool
         except Exception:
             pass
