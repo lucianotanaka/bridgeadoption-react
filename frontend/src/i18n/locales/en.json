@@ -572,7 +572,28 @@
   },
   "projects": {
     "title": "Projects",
-    "subtitle": "Customer Projects Portfolio"
+    "subtitle": "Customer Projects Portfolio",
+    "searchPlaceholder": "Search by project_ov_name...",
+    "exportCsv": "Export CSV",
+    "recordsFound": "{{count}} RECORDS",
+    "allStatuses": "— All statuses —",
+    "accountTeamTitle": "Account Team",
+    "noAccountTeam": "No account team members found for this customer.",
+    "selectCustomerHint": "Select a customer to view their projects.",
+    "projectDetail": "Project Detail",
+    "projectTeam": "Project Team",
+    "clickRowHint": "Click a row to view the project team →",
+    "selectProjectHint": "Select a project from the left to view its team.",
+    "noProjects": "No projects found for this customer.",
+    "noProjectsWithStatus": "No projects with status \"{{status}}\".",
+    "noTeamMembers": "No team members found for this project.",
+    "colOv": "OV",
+    "colProjectName": "Project Name",
+    "colStart": "Start",
+    "colEnd": "End",
+    "colName": "Name",
+    "colType": "Type",
+    "colDept": "Dept"
   },
   "public": {
     "csmAccount": {

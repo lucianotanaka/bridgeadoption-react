@@ -19,7 +19,7 @@ O grupo Portfolio reúne as visões centradas no cliente — saúde do portfóli
 | Farol | `/portfolio/farol` | `portfolio.farol` | `FarolPage.tsx` |
 | Assets | `/portfolio/asset` | `portfolio.asset` | `AssetPage.tsx` |
 | Account Team | `/portfolio/account-team` | `portfolio.account_team` | `AccountTeamPage.tsx` |
-| Adoption Tasks | `/portfolio/adoption-tasks` | `portfolio.adoption_tasks` | `AdoptionTasksPage.tsx` |
+| Adoption Initiatives | `/portfolio/adoption-tasks` | `portfolio.adoption_initiatives` | `AdoptionInitiativesPage.tsx` |
 | Client Overview | `/portfolio/client-overview` | `portfolio.client_overview` | `ClientOverviewPage.tsx` |
 | **Cisco EA** | `/portfolio/cisco-ea` | `portfolio.cisco_enterprise_agreement` | `CiscoEAPage.tsx` |
 
@@ -108,18 +108,29 @@ Matriz de Account Team por empresa cliente — todos os profissionais NTT Data a
 
 ---
 
-## 6. Adoption Tasks (`portfolio.adoption_tasks`)
+## 6. Adoption Initiatives (`portfolio.adoption_initiatives`)
+
+> **Status:** ✅ Migrado para React — 2026-08-22 (renomeado de Adoption Tasks)  
+> **Documentação detalhada:** `docs/02_application/portfolio/adoption_initiatives.md`  
+> **API:** `docs/07_api/adoption_initiatives_endpoints.md`
 
 ### Propósito
-Visão das tarefas de adoção tecnológica filtradas por cliente — permite ao time ver o estado das tarefas de um cliente específico.
+Relatório de iniciativas de adoção tecnológica realizadas pelos CSMs nas contas dos clientes. Permite acompanhar o progresso das iniciativas em andamento, concluídas e não concluídas, com identificação automática de tarefas atrasadas.
 
 ### Componentes
-- Filtros: cliente, CSM, status, prioridade
-- Tabela de tarefas com paginação
-- Acesso rápido ao detalhe da tarefa
+- **Filtros cascateados** (2 linhas 2:1): CLIENT + CSM / SOLUTION + STATUS
+- **3 gráficos de barras** lado a lado: Em Andamento | Concluídas | Não Concluídas
+- **Tabela paginada** com badge `⚠ Atrasada` para tarefas com prazo vencido
+- **Export Excel** do dataset filtrado
+- **Task Detail Panel inline** (somente usuários com `task.task`)
+
+### Regras de negócio
+- `IS_DELAYED = task_status_id NOT IN {4,5,6,10} AND task_end < hoje`
+- Gráfico Em Andamento: status `1,2,3,7,8,9` | Concluídas: `10` | Não Concluídas: `4,5,6`
 
 ### Endpoints
-- `GET /api/portfolio/adoption-tasks?client_id=XXX`
+- `GET /api/portfolio/adoption-tasks` — todas as iniciativas via `vwTaskTechnologyAdoptionReport`
+- `GET /api/tasks/detail/{id}` — detalhe inline da tarefa (Task Detail Panel)
 
 ---
 
@@ -213,3 +224,7 @@ Painel de gestão de licenças **Cisco Enterprise Agreement (EA)**. Fornece visi
 | Account Team — checkbox não salva | `AccountTeamRepository.update()` definido sem `self` | Service chama como método de classe: `AccountTeamRepository.update(data)` |
 | Equipe de conta incompleta | Dados desatualizados | Verificar tabela de account team no banco |
 | True Forward não aparece | Sem dados de overage | Normal se o cliente está dentro do contrato |
+| Adoption Initiatives — sem dados / filtros vazios | `get_adoption_tasks()` tentava métodos inexistentes, retornando `[]` | Corrigido (chama `find_all_df()`). Reiniciar Gunicorn: `sudo systemctl restart bridgeadoption-api` |
+| Adoption Initiatives — badge Atrasada incorreto | `task_status_id` retornado como `null` ou string pela view | Verificar `vwTaskTechnologyAdoptionReport` — campo deve ser numérico |
+| Adoption Initiatives — Task Detail não abre | Usuário sem permissão `task.task` | Verificar roles em Admin → Roles & Auth |
+| Adoption Initiatives — módulo não aparece no menu | `resource_key` desatualizado no banco | Verificar `tbAuthResource` → `resource_key = 'portfolio.adoption_initiatives'` |

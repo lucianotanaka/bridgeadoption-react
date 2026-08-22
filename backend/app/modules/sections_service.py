@@ -131,11 +131,81 @@ try:
     _PROJ_OK = True
 except ImportError: _PROJ_OK = False
 
+def get_account_team_allocated(customer_id: int) -> List[Dict]:
+    """
+    Returns account team members that are ALLOCATED (accountteam_allocated != 0)
+    for a specific customer. Used by the Projects page Account Team panel.
+
+    Mirrors the allocated filter used in get_account_team_matrix():
+      accountteam_allocated != 0 AND accountteam_allocated IS NOT NULL
+
+    Column names are normalized (accountteam_user_type → accountteam_person_type).
+    """
+    if not _AT_OK:
+        return []
+    try:
+        import pandas as pd
+        repo = AccountTeamRepository()
+        df = repo.find_all_df()
+        if df is None or df.empty:
+            return []
+        # Normalize legacy column names
+        df = _normalize_account_team_cols(df)
+        # Filter by customer
+        if "accountteam_company_id" in df.columns:
+            df = df[df["accountteam_company_id"] == customer_id]
+        # Filter only allocated (mirrors Streamlit / AccountTeamPage logic)
+        if "accountteam_allocated" in df.columns:
+            df = df[
+                (df["accountteam_allocated"] != 0) &
+                (df["accountteam_allocated"].notna())
+            ]
+        return _df(df)
+    except Exception as e:
+        logger.error(f"get_account_team_allocated: {e}\n{traceback.format_exc()}")
+        return []
+
+
+def get_project_customers() -> List[Dict]:
+    """
+    Returns unique customers that have projects (all statuses).
+    Used to populate the CUSTOMER dropdown in ProjectsPage.
+    Returns: [{ project_customer_id, project_customer_name }]
+    """
+    try:
+        from src.infrastructure.database.connection import get_sqlalchemy_engine
+        import pandas as pd
+        engine = get_sqlalchemy_engine()
+        sql = """
+            SELECT DISTINCT
+                project_customer_id,
+                project_customer_name
+            FROM vwProject
+            WHERE project_customer_id > 0
+              AND project_customer_name IS NOT NULL
+              AND project_ov NOT LIKE 'VAGO%%'
+            ORDER BY project_customer_name
+        """
+        df = pd.read_sql(sql, engine)
+        return _df(df)
+    except Exception as e:
+        logger.error(f"get_project_customers: {e}\n{traceback.format_exc()}"); return []
+
+
 def get_projects(customer_id: Optional[int] = None, status: Optional[List[str]] = None) -> List[Dict]:
+    """
+    Returns projects from vwProject.
+    - When customer_id is provided: returns ALL statuses (no default filter).
+    - When no customer_id: applies default active-status filter.
+    """
     if not _PROJ_OK: return []
     try:
         repo = ProjectRepository()
-        status_list = status or ["Business Model", "In progress", "Not started", "Unidentified"]
+        if customer_id is not None:
+            # Return ALL statuses for a specific customer
+            status_list = status  # None = no status filter
+        else:
+            status_list = status or ["Business Model", "In progress", "Not started", "Unidentified"]
         df = repo.get_project(customer_id=customer_id, project_status=status_list, as_df=True)
         return _df(df)
     except Exception as e:

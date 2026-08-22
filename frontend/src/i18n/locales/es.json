@@ -572,7 +572,28 @@
   },
   "projects": {
     "title": "Proyectos",
-    "subtitle": "Portafolio de Proyectos de Clientes"
+    "subtitle": "Portafolio de Proyectos de Clientes",
+    "searchPlaceholder": "Buscar por project_ov_name...",
+    "exportCsv": "Exportar CSV",
+    "recordsFound": "{{count}} REGISTROS",
+    "allStatuses": "— Todos los estados —",
+    "accountTeamTitle": "Equipo de Cuenta",
+    "noAccountTeam": "No se encontraron miembros del equipo de cuenta para este cliente.",
+    "selectCustomerHint": "Seleccione un cliente para ver sus proyectos.",
+    "projectDetail": "Detalle del Proyecto",
+    "projectTeam": "Equipo del Proyecto",
+    "clickRowHint": "Haz clic en una fila para ver el equipo del proyecto →",
+    "selectProjectHint": "Selecciona un proyecto a la izquierda para ver su equipo.",
+    "noProjects": "No se encontraron proyectos para este cliente.",
+    "noProjectsWithStatus": "No hay proyectos con estado \"{{status}}\".",
+    "noTeamMembers": "No se encontraron miembros del equipo para este proyecto.",
+    "colOv": "OV",
+    "colProjectName": "Nombre del Proyecto",
+    "colStart": "Inicio",
+    "colEnd": "Fin",
+    "colName": "Nombre",
+    "colType": "Tipo",
+    "colDept": "Depto"
   },
   "public": {
     "csmAccount": {

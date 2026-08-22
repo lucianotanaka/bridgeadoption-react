@@ -32,6 +32,7 @@ http://<servidor>/api
 | Adoption | `/api/adoption` | Forecast, Cisco LCI, CSM Account, Team Target, etc. |
 | Portfolio | `/api/portfolio` | Farol, Assets, Account Team, Client Overview |
 | Tasks | `/api/tasks` | Tarefas, atividades, follow-ups |
+| **Projects** | `/api/projects` | Portfólio de projetos de clientes |
 | Admin | `/api/admin` | Usuários, roles, permissões, recursos |
 | Public | `/api/public` | CSM Account público, Importador |
 
@@ -49,5 +50,9 @@ http://<servidor>/api
 | `use_cases_endpoints.md` | `/api/adoption/use-cases` | Use Cases — vendors, use cases por vendor, exit criteria |
 | `account_team_endpoints.md` | `/api/portfolio/account-team` | Account Team — matrix, rows, users, PUT/POST |
 | `farol_endpoints.md` | `/api/portfolio/farol` | Farol (Traffic Light) — clients list, farol data |
+| `asset_endpoints.md` | `/api/portfolio/assets` | Assets — clientes com assets, contratos por cliente |
+| `adoption_initiatives_endpoints.md` | `/api/portfolio/adoption-tasks` | Adoption Initiatives — relatório via `vwTaskTechnologyAdoptionReport` |
+| `cisco_ea_endpoints.md` | `/api/portfolio/cisco-ea` | Cisco EA — metering, consolidated, True Forward |
+| `projects_endpoints.md` | `/api/projects` | Projects — listagem `vwProject`, equipe `vwProjectTeam` |
 
 > **Nota:** Use `/api/docs` (Swagger UI) ou `/api/redoc` para explorar os endpoints interativamente em ambiente de desenvolvimento.

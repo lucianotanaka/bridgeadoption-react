@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from app.modules.sections_service import (
     get_farol, get_farol_clients, get_companies, get_cisco_ea_metering, get_cisco_ea_consolidated,
-    get_projects, get_project_team, get_renewals,
+    get_projects, get_project_customers, get_project_team, get_account_team_allocated, get_renewals,
     get_users, search_users, get_user_by_id, update_user, search_persons, create_user,
     get_csm_active, get_roles, get_admin_companies,
     get_user_roles, assign_role_to_user, remove_role_from_user,
@@ -219,11 +219,40 @@ def portfolio_cisco_true_forward(current_user: Annotated[dict, Depends(get_curre
 # ─── Projects ─────────────────────────────────────────────
 projects_router = APIRouter(prefix="/api/projects", tags=["projects"])
 
+@projects_router.get("/customers", response_model=List[Dict[str, Any]])
+def list_project_customers(
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """
+    Returns unique customers that have projects (all statuses).
+    Used to populate the CUSTOMER dropdown in ProjectsPage.
+    Returns: [{ project_customer_id, project_customer_name }]
+    """
+    return get_project_customers()
+
+@projects_router.get("/account-team", response_model=List[Dict[str, Any]])
+def project_account_team(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    customer_id: int = Query(...),
+):
+    """
+    Returns ALLOCATED account team members for a customer (accountteam_allocated != 0).
+    Uses find_all_df() + allocated filter — same logic as AccountTeamPage matrix.
+    Used by ProjectsPage Account Team panel.
+    Returns: [{ accountteam_person_type, accountteam_person_name, ... }]
+    """
+    return get_account_team_allocated(customer_id)
+
 @projects_router.get("", response_model=List[Dict[str, Any]])
 def list_projects(
     current_user: Annotated[dict, Depends(get_current_user)],
     customer_id: Optional[int] = Query(None),
 ):
+    """
+    Returns projects from vwProject.
+    When customer_id is provided, returns ALL statuses (including Closed/Canceled).
+    When no customer_id, applies default active-status filter.
+    """
     return get_projects(customer_id=customer_id)
 
 @projects_router.get("/{project_id}/team", response_model=List[Dict[str, Any]])
@@ -231,6 +260,10 @@ def project_team(
     project_id: int,
     current_user: Annotated[dict, Depends(get_current_user)],
 ):
+    """
+    Returns the project team from vwProjectTeam for a specific project.
+    Columns: projteam_member_name (NAME), projteam_level_name (TYPE), etc.
+    """
     return get_project_team(project_id)
 
 
