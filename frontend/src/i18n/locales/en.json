@@ -72,6 +72,7 @@
     "asset": "Assets",
     "accountTeam": "Account Team",
     "adoptionTasks": "Adoption Tasks",
+    "adoptionInitiatives": "Adoption Initiatives",
     "clientOverview": "Client Overview",
     "projects": "Projects",
     "public": "Public",
@@ -477,6 +478,24 @@
     "adoptionTasks": {
       "title": "Portfolio — Adoption Tasks",
       "subtitle": "Technology Adoption Task Report"
+    },
+    "adoptionInitiatives": {
+      "title": "Portfolio — Adoption Initiatives",
+      "subtitle": "Report of technology adoption initiatives by CSM across client accounts",
+      "chartTitle": "Initiatives by Solution",
+      "chartYAxis": "Quantity",
+      "exportExcel": "Export Excel",
+      "recordsFound": "{{count}} record(s) found",
+      "colClient": "Client",
+      "colSolution": "Solution",
+      "colCsm": "CSM",
+      "colStatus": "Status",
+      "colStartDate": "Start Date",
+      "colEndDate": "End Date",
+      "statusDelayed": "Delayed",
+      "chartInProgress": "Initiatives In Progress",
+      "chartCompleted": "Completed Initiatives",
+      "chartNotCompleted": "Not Completed"
     },
     "clientOverview": {
       "title": "Portfolio — Client Overview",

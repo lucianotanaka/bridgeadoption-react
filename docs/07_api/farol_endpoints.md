@@ -235,6 +235,23 @@ const farolQ = useQuery({
 
 ---
 
+## Atualização dos Dados (Data Freshness)
+
+Os dados retornados pelos endpoints refletem o estado do banco no momento da requisição. **`tbFarol` e `tbClientFarol` são recriadas uma vez por dia** pelo MariaDB Event Scheduler:
+
+| Evento | Frequência | Horário |
+|---|---|---|
+| `ev_refresh_asset_snapshots` | Diário | ~02:00 AM |
+
+**Sequência de execução:**
+1. `sp_refresh_tbFarol()` — TRUNCATE `tbFarol`
+2. `sp_refresh_tbFarol_forCisco()` — INSERT dados CISCO em `tbFarol`
+3. `sp_refresh_tbClientFarol()` — TRUNCATE + INSERT em `tbClientFarol`
+
+> Se os dados estiverem desatualizados ou ausentes, verificar `MAX(refreshed_at)` nas tabelas e o status do evento em `information_schema.EVENTS`. Para detalhes completos, ver `docs/02_application/portfolio/farol.md` — Seção 10.
+
+---
+
 ## Notas de Implementação
 
 ### Ordem dos endpoints no router

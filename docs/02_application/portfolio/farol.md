@@ -145,26 +145,46 @@ FarolPage
 
 ### 6.1 Tabela `tbClientFarol`
 
-Registra quais clientes têm Farol configurado para cada vendor.
+Registra quais clientes possuem dados no Farol (populada automaticamente a partir de `tbFarol`).
 
 | Coluna | Tipo | Descrição |
 |---|---|---|
-| `customer_id` | int | FK para a empresa do cliente |
-| `customer_name` | string | Nome do cliente |
+| `id` | int AUTO_INCREMENT | PK |
 | `vendor_id` | int | ID do vendor (1=CISCO, 5=FORTINET, 35=PALO ALTO) |
+| `customer_id` | int | FK para a empresa do cliente |
+| `customer_name` | varchar(255) | Nome do cliente (copiado de `tbFarol`) |
+| `refreshed_at` | datetime | Data/hora da última atualização |
+
+> Índices: `idx_vendor_customer (vendor_id, customer_id)`, `idx_customer_name (customer_name)`
 
 ### 6.2 Tabela `tbFarol`
 
-Contém os dados do Farol por vendor, cliente, architecture e solution.
+Contém os dados completos do Farol por vendor, cliente, architecture e solution.  
+**Recriada diariamente** via stored procedure (TRUNCATE + INSERT).
 
 | Coluna | Tipo | Descrição |
 |---|---|---|
+| `id` | int AUTO_INCREMENT | PK |
 | `vendor_id` | int | ID do vendor |
+| `architecture` | varchar(100) | Grupo de arquitetura — derivado de `tbProduct.product_business_entity` (UPPER) |
+| `solution` | varchar(100) | Sub-grupo — derivado de `tbProduct.product_subbusiness_entity` (UPPER) |
+| `product_name` | varchar(200) | Nome completo do produto (`tbProduct.product_name`) |
 | `customer_id` | int | FK para a empresa |
-| `architecture` | string | Grupo de arquitetura (ex: "Networking", "Security") |
-| `solution` | string | Nome da solução (ex: "Catalyst 9000", "Firepower") |
-| `status` | string | `green`, `yellow`, `red`, `gray` ou `null` |
-| `farol` | string | Descrição textual (ex: "Active", "Signed – Pending Activation") |
+| `customer_name` | varchar(255) | Nome do cliente (`tbCompany.company_name`) |
+| `status` | varchar(20) | `green`, `yellow`, `red`, `gray` — veja lógica abaixo |
+| `farol` | varchar(255) | Descrição textual do status |
+| `refreshed_at` | datetime | Data/hora da última atualização (NOW() do momento do INSERT) |
+
+> Índices: `idx_customer_name (customer_name)`, `idx_status (status)`
+
+**Lógica de status (CISCO):**
+
+| Condição | `status` | `farol` |
+|---|---|---|
+| `MAX(vendorasset_end) >= CURRENT_DATE` | `green` | Active |
+| `MAX(vendorasset_end) < CURRENT_DATE` | `red` | Expired or Never Covered |
+| `MAX(vendorasset_end) IS NULL` | `yellow` | Signed – Pending Activation |
+| Cliente não possui o produto | `gray` | Non-Existent or Other Partner |
 
 ### 6.3 FarolRow (frontend)
 
@@ -237,20 +257,141 @@ O acesso ao Farol é controlado pelo RBAC da aplicação:
 
 ---
 
-## 10. Troubleshooting
+## 10. Atualização de Dados — Stored Procedures e Agendamento
 
-| Problema | Causa Provável | Solução |
-|---|---|---|
-| Lista de clientes vazia | Nenhum registro em `tbClientFarol` para o vendor selecionado | Verificar tabela `tbClientFarol` no banco |
-| Grid vazio após Generate | Nenhum registro em `tbFarol` para o cliente selecionado | Verificar tabela `tbFarol`; executar job de importação |
-| Erro "Failed to load clients" | Backend indisponível ou falha na query | Verificar logs do backend |
-| Status ⚪ em todas as células | Coluna `status` com valores não mapeados | Verificar valores em `tbFarol.status` (esperado: `green`, `yellow`, `red`, `gray`) |
-| `FarolRepository` não encontrado | `ImportError` na inicialização do service | Verificar `sys.path` e localização de `farol_repository.py` |
-| Bug `load_farol` sem dados | Argumento `client_id` sendo passado como `customer_id` | Verificar `sections_service.py` — deve usar `client_id=customer_id` |
+### 10.1 Visão Geral do Processo
+
+`tbFarol` **não é atualizada em tempo real** — é **recriada integralmente uma vez por dia** pelo Event Scheduler do MariaDB. O processo envolve 3 stored procedures chamadas em sequência:
+
+```
+02:00 AM (diário)
+    │
+    ├─ sp_refresh_tbFarol()              → TRUNCATE tbFarol  (limpa tudo)
+    │
+    ├─ sp_refresh_tbFarol_forCisco()     → INSERT dados CISCO em tbFarol
+    │   ├─ Fonte: tbProduct (vendor_id=1, com business_entity e subbusiness_entity)
+    │   ├─ × tbContractVendorAsset (clientes com contratos vendor)
+    │   ├─ LEFT JOIN tbAsset            (asset → product_id)
+    │   └─ LEFT JOIN tbCompany          (company_name)
+    │
+    └─ sp_refresh_tbClientFarol()        → TRUNCATE + INSERT em tbClientFarol
+        └─ Fonte: SELECT DISTINCT de tbFarol (gerada no passo anterior)
+```
+
+### 10.2 Event Scheduler
+
+**Nome do evento:** `ev_refresh_asset_snapshots`
+
+```sql
+CREATE EVENT ev_refresh_asset_snapshots
+ON SCHEDULE EVERY 1 DAY
+STARTS '2026-02-17 02:00:00'
+ON COMPLETION NOT PRESERVE
+ENABLE
+DO BEGIN
+    CALL sp_refresh_tbAssetContractSummaryByCustomer();
+    CALL sp_refresh_tbAssetContractEndMismatch();
+    CALL sp_refresh_tbFarol();              -- 1. TRUNCATE tbFarol
+    CALL sp_refresh_tbFarol_forCisco();     -- 2. INSERT Cisco em tbFarol
+    CALL sp_refresh_tbClientFarol();        -- 3. TRUNCATE + INSERT tbClientFarol
+    CALL sp_SyncCiscoWebOrders;
+END
+```
+
+| Atributo | Valor |
+|---|---|
+| **Frequência** | A cada 1 dia |
+| **Horário** | 02:00 AM (baseado em `STARTS '2026-02-17 02:00:00'`) |
+| **Completion** | `NOT PRESERVE` — o evento permanece ativo continuamente |
+| **Status** | `ENABLE` |
+| **Database** | `pegasus` |
+
+### 10.3 Stored Procedures
+
+#### `sp_refresh_tbFarol()`
+- **Ação:** `TRUNCATE TABLE tbFarol`
+- **Efeito:** Apaga todos os registros existentes antes da reinserção
+- Também contém `CREATE TABLE IF NOT EXISTS tbFarol` (garante existência da tabela na primeira execução)
+
+#### `sp_refresh_tbFarol_forCisco()`
+- **Ação:** `INSERT INTO tbFarol ...`
+- **Lógica:** Cross join de todos os produtos CISCO (`tbProduct WHERE vendor_id=1 AND business_entity IS NOT NULL`) com todos os clientes que aparecem em contratos vendor (`tbContractVendorAsset`)
+- **Join para status:** Agrega `MAX(vendorasset_end)` por cliente + produto via `tbContractVendorAsset JOIN tbAsset`
+- **Derivação dos campos:**
+  - `architecture` = `UPPER(product_business_entity)`
+  - `solution` = `UPPER(product_subbusiness_entity)`
+  - `customer_name` = `tbCompany.company_name`
+
+#### `sp_refresh_tbClientFarol()`
+- **Ação:** `TRUNCATE TABLE tbClientFarol` + `INSERT ... SELECT DISTINCT vendor_id, customer_id, customer_name FROM tbFarol`
+- **Efeito:** Recria a lista de clientes disponíveis no Farol com base nos dados recém-inseridos em `tbFarol`
+- Esta procedure deve ser chamada **sempre após** `sp_refresh_tbFarol_forCisco()`
+
+### 10.4 Fontes de Dados (CISCO)
+
+| Tabela Fonte | Papel |
+|---|---|
+| `tbProduct` | Lista de produtos Cisco (`vendor_id=1`) com `product_business_entity` e `product_subbusiness_entity` |
+| `tbContractVendorAsset` | Contratos vendor por cliente (`vendorasset_customer_id`, `vendorasset_end`) |
+| `tbAsset` | Mapeamento asset → produto (`asset_product_id`) |
+| `tbCompany` | Nome do cliente (`company_name`) |
+
+### 10.5 Execução Manual
+
+Para recriar `tbFarol` manualmente (fora do agendamento), executar na ordem:
+
+```sql
+-- Conectado ao banco pegasus
+CALL sp_refresh_tbFarol();              -- Trunca tbFarol
+CALL sp_refresh_tbFarol_forCisco();     -- Popula com dados CISCO
+CALL sp_refresh_tbClientFarol();        -- Atualiza lista de clientes
+```
+
+### 10.6 Verificar última atualização
+
+```sql
+-- Quando tbFarol foi atualizada pela última vez?
+SELECT MAX(refreshed_at) AS ultima_atualizacao FROM tbFarol;
+
+-- Quantos registros existem por vendor?
+SELECT vendor_id, COUNT(*) AS total FROM tbFarol GROUP BY vendor_id;
+
+-- Quando tbClientFarol foi atualizada?
+SELECT vendor_id, COUNT(*) AS clientes, MAX(refreshed_at) AS ultima_atualizacao
+FROM tbClientFarol
+GROUP BY vendor_id;
+```
 
 ---
 
-## 11. Referências
+## 11. Troubleshooting
+
+| Problema | Causa Provável | Solução |
+|---|---|---|
+| Lista de clientes vazia | Event ainda não executou hoje ou falhou | Verificar `MAX(refreshed_at)` em `tbClientFarol`; executar `sp_refresh_tbClientFarol()` manualmente |
+| Grid vazio após Generate | `tbFarol` vazia ou sem dados para o cliente | Verificar `MAX(refreshed_at)` em `tbFarol`; executar o ciclo de refresh manualmente |
+| Dados desatualizados | Event falhou à noite | Verificar `information_schema.EVENTS` para status do `ev_refresh_asset_snapshots` |
+| Erro "Failed to load clients" | Backend indisponível ou falha na query | Verificar logs do backend |
+| Status ⚪ em todas as células | Produto sem contratos para o cliente OU status não mapeado | Verificar `tbContractVendorAsset` para o cliente; verificar valores em `tbFarol.status` |
+| `tbFarol` crescendo sem parar | `sp_refresh_tbFarol()` não foi chamada antes de `sp_refresh_tbFarol_forCisco()` | Verificar ordem de chamada no event; executar TRUNCATE manual se necessário |
+| `FarolRepository` não encontrado | `ImportError` na inicialização do service | Verificar `sys.path` e localização de `farol_repository.py` em `/opt/bridgeadoption/src/` |
+| Event não executa | MariaDB Event Scheduler desabilitado | Executar `SET GLOBAL event_scheduler = ON;` e verificar `SHOW VARIABLES LIKE 'event_scheduler'` |
+
+Para verificar o status do event scheduler:
+
+```sql
+-- Status do event scheduler
+SHOW VARIABLES LIKE 'event_scheduler';
+
+-- Status e próxima execução do evento
+SELECT EVENT_NAME, STATUS, LAST_EXECUTED, INTERVAL_VALUE, INTERVAL_FIELD
+FROM information_schema.EVENTS
+WHERE EVENT_NAME = 'ev_refresh_asset_snapshots';
+```
+
+---
+
+## 12. Referências
 
 - **API endpoints:** `docs/07_api/farol_endpoints.md`
 - **Módulo Portfolio (visão geral):** `docs/02_application/module_portfolio.md`

@@ -744,21 +744,38 @@ def get_assets(customer_id: int) -> List[Dict]:
 
 # ─── Portfolio: Adoption Tasks ───────────────────────────
 def get_adoption_tasks(customer_id: Optional[int] = None) -> List[Dict]:
+    """
+    Returns adoption task report data from TaskTechnologyAdoptionReportRepository.
+    Mirrors tasks_repo.find_all_df() from Streamlit adoption_initiatives.py.
+    Tries multiple known method names for compatibility.
+    """
     try:
         from src.infrastructure.database.repositories.task_technology_adoption_report_repository import TaskTechnologyAdoptionReportRepository
         repo = TaskTechnologyAdoptionReportRepository()
-        # Try common method names
-        if hasattr(repo, "load_report"):
+        # Priority order: find_all_df (used by Streamlit), then fallbacks
+        if hasattr(repo, "find_all_df"):
+            df = repo.find_all_df()
+        elif hasattr(repo, "load_report"):
             df = repo.load_report(as_df=True)
         elif hasattr(repo, "get_all"):
             df = repo.get_all(as_df=True)
         elif hasattr(repo, "load"):
             df = repo.load(as_df=True)
         else:
+            logger.warning("get_adoption_tasks: no known method found on TaskTechnologyAdoptionReportRepository")
             return []
-        if df is not None and not df.empty and customer_id:
+        if df is None:
+            return []
+        try:
+            import pandas as pd
+            if isinstance(df, pd.DataFrame) and df.empty:
+                return []
+        except Exception:
+            pass
+        if customer_id:
             id_col = [c for c in df.columns if "customer_id" in c.lower() or "client_id" in c.lower()]
-            if id_col: df = df[df[id_col[0]] == customer_id]
+            if id_col:
+                df = df[df[id_col[0]] == customer_id]
         return _df(df)
     except Exception as e:
         logger.error(f"get_adoption_tasks: {e}\n{traceback.format_exc()}"); return []

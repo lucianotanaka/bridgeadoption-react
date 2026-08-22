@@ -72,6 +72,7 @@
     "asset": "Activos",
     "accountTeam": "Equipo de Cuenta",
     "adoptionTasks": "Tareas de Adopción",
+    "adoptionInitiatives": "Iniciativas de Adopción",
     "clientOverview": "Vista del Cliente",
     "projects": "Proyectos",
     "public": "Público",
@@ -477,6 +478,24 @@
     "adoptionTasks": {
       "title": "Portafolio — Tareas de Adopción",
       "subtitle": "Informe de Tareas de Adopción Tecnológica"
+    },
+    "adoptionInitiatives": {
+      "title": "Portafolio — Iniciativas de Adopción",
+      "subtitle": "Informe de iniciativas de adopción tecnológica realizadas por los CSMs en las cuentas de clientes",
+      "chartTitle": "Iniciativas por Solución",
+      "chartYAxis": "Cantidad",
+      "exportExcel": "Exportar Excel",
+      "recordsFound": "{{count}} registro(s) encontrado(s)",
+      "colClient": "Cliente",
+      "colSolution": "Solución",
+      "colCsm": "CSM",
+      "colStatus": "Estado",
+      "colStartDate": "Fecha Inicio",
+      "colEndDate": "Fecha Fin",
+      "statusDelayed": "Atrasada",
+      "chartInProgress": "Iniciativas En Progreso",
+      "chartCompleted": "Iniciativas Completadas",
+      "chartNotCompleted": "No Completadas"
     },
     "clientOverview": {
       "title": "Portafolio — Vista del Cliente",

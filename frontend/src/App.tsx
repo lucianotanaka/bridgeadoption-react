@@ -23,7 +23,7 @@ import PortfolioPage from "@/pages/portfolio/PortfolioPage";
 import FarolPage from "@/pages/portfolio/FarolPage";
 import AssetPage from "@/pages/portfolio/AssetPage";
 import AccountTeamPage from "@/pages/portfolio/AccountTeamPage";
-import AdoptionTasksPage from "@/pages/portfolio/AdoptionTasksPage";
+import AdoptionInitiativesPage from "@/pages/portfolio/AdoptionInitiativesPage";
 import ClientOverviewPage from "@/pages/portfolio/ClientOverviewPage";
 import CiscoEAPage from "@/pages/portfolio/CiscoEAPage";
 
@@ -124,8 +124,8 @@ export default function App() {
                 <Route element={<PermissionRoute resourceKey="portfolio.account_team" />}>
                   <Route path="/portfolio/account-team" element={<AccountTeamPage />} />
                 </Route>
-                <Route element={<PermissionRoute resourceKey="portfolio.adoption_tasks" />}>
-                  <Route path="/portfolio/adoption-tasks" element={<AdoptionTasksPage />} />
+                <Route element={<PermissionRoute resourceKey="portfolio.adoption_initiatives" />}>
+                  <Route path="/portfolio/adoption-tasks" element={<AdoptionInitiativesPage />} />
                 </Route>
                 <Route element={<PermissionRoute resourceKey="portfolio.client_overview" />}>
                   <Route path="/portfolio/client-overview" element={<ClientOverviewPage />} />
