@@ -27,15 +27,19 @@ CREATE TABLE `tbAccountTeam` (
   `accountteam_id` int(11) NOT NULL AUTO_INCREMENT,
   `accountteam_company_id` int(11) DEFAULT NULL COMMENT 'tbCompany.company_id',
   `accountteam_user_id` int(11) DEFAULT NULL,
+  `accountteam_person_id` int(11) DEFAULT NULL,
   `accountteam_user_type` varchar(15) DEFAULT NULL,
+  `accountteam_person_type` varchar(15) DEFAULT NULL,
   `accountteam_allocation_start_date` date DEFAULT curdate(),
   `accountteam_allocation_end_date` date DEFAULT NULL,
   `accountteam_allocated` tinyint(1) DEFAULT -1,
   `accountteam_changed_in` date DEFAULT NULL,
   `accountteam_changed_by` int(11) DEFAULT NULL,
   PRIMARY KEY (`accountteam_id`),
-  KEY `idx_tbAccountTeam_company_type_alloc_user_dates` (`accountteam_company_id`,`accountteam_user_type`,`accountteam_allocated`,`accountteam_user_id`,`accountteam_allocation_start_date`,`accountteam_allocation_end_date`)
-) ENGINE=InnoDB AUTO_INCREMENT=2282 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+  KEY `idx_tbAccountTeam_company_type_alloc_user_dates` (`accountteam_company_id`,`accountteam_user_type`,`accountteam_allocated`,`accountteam_user_id`,`accountteam_allocation_start_date`,`accountteam_allocation_end_date`),
+  KEY `fk_accountteam_person` (`accountteam_person_id`),
+  CONSTRAINT `fk_accountteam_person` FOREIGN KEY (`accountteam_person_id`) REFERENCES `tbPerson` (`person_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2315 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -302,7 +306,7 @@ CREATE TABLE `tbAuthPermission` (
   CONSTRAINT `fk_auth_permission_action` FOREIGN KEY (`action_id`) REFERENCES `tbAuthAction` (`action_id`) ON DELETE CASCADE,
   CONSTRAINT `fk_auth_permission_resource` FOREIGN KEY (`resource_id`) REFERENCES `tbAuthResource` (`resource_id`) ON DELETE CASCADE,
   CONSTRAINT `fk_auth_permission_userrole` FOREIGN KEY (`user_role_id`) REFERENCES `tbAuthUserRole` (`user_role_id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=135 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='Tabela de permissões granulares do módulo de autorização.';
+) ENGINE=InnoDB AUTO_INCREMENT=148 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='Tabela de permissões granulares do módulo de autorização.';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -323,7 +327,7 @@ CREATE TABLE `tbAuthResource` (
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp() COMMENT 'Data da última atualização.',
   PRIMARY KEY (`resource_id`),
   UNIQUE KEY `resource_key` (`resource_key`)
-) ENGINE=InnoDB AUTO_INCREMENT=44 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci COMMENT='Tabela de recursos protegidos pelo módulo de autorização.';
+) ENGINE=InnoDB AUTO_INCREMENT=45 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci COMMENT='Tabela de recursos protegidos pelo módulo de autorização.';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -363,7 +367,7 @@ CREATE TABLE `tbAuthUserRole` (
   KEY `fk_auth_userrole_role` (`role_id`),
   CONSTRAINT `fk_auth_userrole_role` FOREIGN KEY (`role_id`) REFERENCES `tbAuthRole` (`role_id`) ON DELETE CASCADE,
   CONSTRAINT `fk_auth_userrole_user` FOREIGN KEY (`user_id`) REFERENCES `tbUser` (`user_id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=47 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci COMMENT='Tabela de relacionamento entre usuários e roles no módulo de autorização.';
+) ENGINE=InnoDB AUTO_INCREMENT=57 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci COMMENT='Tabela de relacionamento entre usuários e roles no módulo de autorização.';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -613,7 +617,7 @@ CREATE TABLE `tbCiscoEA` (
   PRIMARY KEY (`ea_id`),
   KEY `tbCiscoEA_ea_web_order_id_IDX` (`ea_web_order_id`,`ea_product_id`,`ea_subscription_id`,`ea_service_customer_id`,`ea_end_customer_id`,`ea_magic_key`) USING BTREE,
   KEY `idx_tbCiscoEA_prod_cust_sub_dates` (`ea_product_id`,`ea_end_customer_id`,`ea_subscription_id`,`ea_end_date`,`ea_start_date`)
-) ENGINE=InnoDB AUTO_INCREMENT=11749 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=11900 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -651,7 +655,7 @@ CREATE TABLE `tbCiscoEnterpriseAgreementMetering` (
   KEY `tbMeasureCiscoEA_mcea_client_id_IDX` (`mcea_client_id`,`mcea_domain`,`mcea_virtual_account`,`mcea_subscription`,`mcea_start_date`,`mcea_end_date`,`mcea_suite_name`,`mcea_calculation_method`,`mcea_product_id`,`mcea_sku`,`mcea_purchased`,`mcea_growth_allowance`,`mcea_total_purchased`,`mcea_generated`,`mcea_balance`,`mcea_pre_ea`,`mcea_license_migrated`) USING BTREE,
   KEY `idx_mcea_latest` (`mcea_client_id`,`mcea_domain`,`mcea_virtual_account`,`mcea_subscription`,`mcea_start_date`,`mcea_end_date`,`mcea_suite_name`,`mcea_sku`,`mcea_update`,`mcea_id`),
   KEY `idx_tbMeasureCiscoEA_cust_sub_prod_suite_dates` (`mcea_client_id`,`mcea_subscription`,`mcea_product_id`,`mcea_suite_name`,`mcea_end_date`,`mcea_start_date`)
-) ENGINE=InnoDB AUTO_INCREMENT=5339 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5495 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -823,7 +827,7 @@ CREATE TABLE `tbCiscoSmartAccountMetering` (
   `mcsa_track` tinyint(4) DEFAULT 0,
   PRIMARY KEY (`mcsa_id`),
   UNIQUE KEY `tbMeasureCiscoSA_mcsa_row_type_IDX` (`mcsa_row_type`,`mcsa_client_id`,`mcsa_domain`,`mcsa_license`,`mcsa_virtual_account`,`mcsa_billing`,`mcsa_available_to_use`,`mcsa_in_use`,`mcsa_balance`,`mcsa_compliance`,`mcsa_license_type`,`mcsa_quantity`,`mcsa_subscription`,`mcsa_start_date`,`mcsa_end_date`) USING BTREE
-) ENGINE=InnoDB AUTO_INCREMENT=101175 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=103754 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -839,7 +843,7 @@ CREATE TABLE `tbCiscoWebOrder` (
   `weborder_customer_id` int(11) DEFAULT 0,
   PRIMARY KEY (`weborder_id`),
   UNIQUE KEY `tbCiscoWebOrder_weborder_IDX` (`weborder_number`,`weborder_customer_id`) USING BTREE
-) ENGINE=InnoDB AUTO_INCREMENT=8453 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=8485 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1037,7 +1041,7 @@ CREATE TABLE `tbCompanyNameSuggestion` (
   `suggestion_created_at` datetime DEFAULT NULL,
   `suggestion_created_by` varchar(100) CHARACTER SET utf8 COLLATE utf8_general_ci DEFAULT NULL,
   PRIMARY KEY (`suggestion_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=96 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=97 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1345,7 +1349,7 @@ CREATE TABLE `tbError` (
   `error_datetime` datetime DEFAULT current_timestamp(),
   `error_traceback` text DEFAULT NULL,
   PRIMARY KEY (`error_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=12 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=22 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1443,7 +1447,7 @@ CREATE TABLE `tbImportControl` (
   PRIMARY KEY (`importctrl_id`),
   KEY `idx_importctrl_source_file` (`importctrl_source`,`importctrl_file`),
   KEY `idx_importctrl_status` (`importctrl_status`)
-) ENGINE=InnoDB AUTO_INCREMENT=35 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci COMMENT='Tabela de controle de execução de importações por arquivo (status global do processamento)';
+) ENGINE=InnoDB AUTO_INCREMENT=61 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci COMMENT='Tabela de controle de execução de importações por arquivo (status global do processamento)';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1470,7 +1474,7 @@ CREATE TABLE `tbImportLog` (
   KEY `idx_importlog_source_file_row` (`importlog_source`,`importlog_file`,`importlog_row`),
   KEY `idx_importlog_column` (`importlog_column`),
   KEY `idx_importlog_resolved` (`importlog_resolved`)
-) ENGINE=InnoDB AUTO_INCREMENT=697 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci COMMENT='Log de erros/ocorrências por linha e coluna em processos de importação, com referência ao valor da célula.';
+) ENGINE=InnoDB AUTO_INCREMENT=1123 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci COMMENT='Log de erros/ocorrências por linha e coluna em processos de importação, com referência ao valor da célula.';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1725,6 +1729,56 @@ CREATE TABLE `tbOpportunity` (
   PRIMARY KEY (`opportunity_id`),
   KEY `tbOpportunity_opportunity_num_IDX` (`opportunity_num`,`opportunity_name`,`opportunity_customer_id`,`opportunity_product_family`,`opportunity_global_vendor_id`) USING BTREE
 ) ENGINE=InnoDB AUTO_INCREMENT=17402 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `tbPerson`
+--
+
+DROP TABLE IF EXISTS `tbPerson`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tbPerson` (
+  `person_id` int(11) NOT NULL AUTO_INCREMENT,
+  `person_name` varchar(150) NOT NULL,
+  `person_email` varchar(150) DEFAULT NULL,
+  `person_telephone` varchar(25) DEFAULT NULL,
+  `person_cellphone` varchar(25) DEFAULT NULL,
+  `person_company_id` int(11) DEFAULT NULL,
+  `person_department_id` int(11) DEFAULT NULL,
+  `person_job_title` varchar(150) DEFAULT NULL,
+  `person_type` varchar(30) DEFAULT NULL,
+  `person_enabled` tinyint(1) NOT NULL DEFAULT 1,
+  `person_created_date` datetime NOT NULL DEFAULT current_timestamp(),
+  `person_updated_date` datetime DEFAULT NULL,
+  PRIMARY KEY (`person_id`),
+  KEY `idx_person_company` (`person_company_id`),
+  KEY `idx_person_department` (`person_department_id`),
+  KEY `idx_person_email` (`person_email`)
+) ENGINE=InnoDB AUTO_INCREMENT=914 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `tbPerson_backup_migration`
+--
+
+DROP TABLE IF EXISTS `tbPerson_backup_migration`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tbPerson_backup_migration` (
+  `person_id` int(11) NOT NULL DEFAULT 0,
+  `person_name` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `person_email` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `person_telephone` varchar(25) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `person_cellphone` varchar(25) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `person_company_id` int(11) DEFAULT NULL,
+  `person_department_id` int(11) DEFAULT NULL,
+  `person_job_title` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `person_type` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `person_enabled` tinyint(1) NOT NULL DEFAULT 1,
+  `person_created_date` datetime NOT NULL DEFAULT current_timestamp(),
+  `person_updated_date` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2039,6 +2093,7 @@ CREATE TABLE `tbProjectTeam` (
   `projteam_id` int(11) NOT NULL AUTO_INCREMENT,
   `projteam_project_id` int(11) DEFAULT NULL,
   `projteam_user_id` int(11) DEFAULT NULL,
+  `projteam_person_id` int(11) DEFAULT NULL,
   `projteam_department_id` int(11) DEFAULT NULL,
   `projteam_level_id` int(11) DEFAULT NULL,
   `projteam_technical_lead` tinyint(1) DEFAULT 0,
@@ -2046,8 +2101,32 @@ CREATE TABLE `tbProjectTeam` (
   `projteam_allocation_start` date DEFAULT NULL,
   `projteam_allocation_end` date DEFAULT NULL,
   PRIMARY KEY (`projteam_id`),
-  KEY `tbProjectTeam_projteam_project_id_IDX` (`projteam_project_id`,`projteam_user_id`,`projteam_department_id`,`projteam_level_id`) USING BTREE
+  KEY `tbProjectTeam_projteam_project_id_IDX` (`projteam_project_id`,`projteam_user_id`,`projteam_department_id`,`projteam_level_id`) USING BTREE,
+  KEY `idx_projteam_project_person` (`projteam_project_id`,`projteam_person_id`),
+  KEY `fk_projteam_person` (`projteam_person_id`),
+  CONSTRAINT `fk_projteam_person` FOREIGN KEY (`projteam_person_id`) REFERENCES `tbPerson` (`person_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=12484 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `tbProjectTeam_backup_migration`
+--
+
+DROP TABLE IF EXISTS `tbProjectTeam_backup_migration`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tbProjectTeam_backup_migration` (
+  `projteam_id` int(11) NOT NULL DEFAULT 0,
+  `projteam_project_id` int(11) DEFAULT NULL,
+  `projteam_user_id` int(11) DEFAULT NULL,
+  `projteam_person_id` int(11) DEFAULT NULL,
+  `projteam_department_id` int(11) DEFAULT NULL,
+  `projteam_level_id` int(11) DEFAULT NULL,
+  `projteam_technical_lead` tinyint(1) DEFAULT 0,
+  `projteam_working_time` int(11) DEFAULT NULL,
+  `projteam_allocation_start` date DEFAULT NULL,
+  `projteam_allocation_end` date DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2173,11 +2252,31 @@ DROP TABLE IF EXISTS `tbSquad`;
 CREATE TABLE `tbSquad` (
   `squad_id` int(11) NOT NULL AUTO_INCREMENT,
   `squad_user_id` int(11) DEFAULT NULL,
+  `squad_person_id` int(11) DEFAULT NULL,
   `squad_department_id` int(11) DEFAULT NULL,
   `squad_level_id` int(11) DEFAULT NULL,
   `squad_upgrade` date DEFAULT NULL,
-  PRIMARY KEY (`squad_id`)
+  PRIMARY KEY (`squad_id`),
+  KEY `idx_squad_person` (`squad_person_id`),
+  CONSTRAINT `fk_squad_person` FOREIGN KEY (`squad_person_id`) REFERENCES `tbPerson` (`person_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=725 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `tbSquad_backup_migration`
+--
+
+DROP TABLE IF EXISTS `tbSquad_backup_migration`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tbSquad_backup_migration` (
+  `squad_id` int(11) NOT NULL DEFAULT 0,
+  `squad_user_id` int(11) DEFAULT NULL,
+  `squad_person_id` int(11) DEFAULT NULL,
+  `squad_department_id` int(11) DEFAULT NULL,
+  `squad_level_id` int(11) DEFAULT NULL,
+  `squad_upgrade` date DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2280,7 +2379,7 @@ CREATE TABLE `tbSubscriptionIgnored` (
   `subscriptionignored_add_in` date DEFAULT curdate(),
   PRIMARY KEY (`subscriptionignored_id`),
   UNIQUE KEY `tbSubscriptionIgnored_subscriptionignored_customer_id_IDX` (`subscriptionignored_customer_id`,`subscriptionignored_number`) USING BTREE
-) ENGINE=InnoDB AUTO_INCREMENT=405 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=347 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2340,7 +2439,7 @@ CREATE TABLE `tbTask` (
   KEY `idx_task_project_id` (`task_project_id`),
   KEY `idx_task_status` (`task_status`),
   KEY `idx_tbTask_type_id_customer_ws` (`task_tasktype_id`,`task_id`,`task_customer_id`,`task_ws`)
-) ENGINE=InnoDB AUTO_INCREMENT=6056 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6064 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2386,7 +2485,7 @@ CREATE TABLE `tbTaskActivity` (
   KEY `idx_activity_status` (`activity_status`),
   KEY `idx_activity_task_currency_value` (`activity_task_id`,`activity_currency`,`activity_value`),
   KEY `idx_tbTaskActivity_task_status_endperf_id` (`activity_task_id`,`activity_status`,`activity_end_performed`,`activity_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=26306 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=43996 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2480,17 +2579,40 @@ DROP TABLE IF EXISTS `tbTaskRACI`;
 /*!40101 SET character_set_client = utf8mb4 */;
 CREATE TABLE `tbTaskRACI` (
   `taskraci_id` int(11) NOT NULL AUTO_INCREMENT,
+  `taskraci_task_id` int(11) DEFAULT NULL,
+  `taskraci_activity_id` int(11) DEFAULT NULL,
   `taskraci_subtask_id` int(11) NOT NULL,
-  `taskraci_stakeholder_id` int(11) NOT NULL DEFAULT 0,
-  `taskraci_stakeholder_type` varchar(8) DEFAULT NULL,
-  `taskraci_stakeholder_name` varchar(50) NOT NULL,
+  `taskraci_person_id` int(11) DEFAULT NULL,
+  `taskraci_person_type` varchar(8) DEFAULT NULL,
   `taskraci_responsibility` varchar(1) NOT NULL,
-  `taskraci_enabled` tinyint(1) NOT NULL DEFAULT -1,
+  `taskraci_enabled` tinyint(1) NOT NULL DEFAULT 1,
   `taskraci_disabled_by` varchar(25) DEFAULT NULL,
   `taskraci_disabled_date` date DEFAULT NULL,
   PRIMARY KEY (`taskraci_id`),
-  KEY `tbTaskRACI_taskraci_subtask_id_IDX` (`taskraci_subtask_id`,`taskraci_stakeholder_id`,`taskraci_responsibility`) USING BTREE
+  KEY `idx_taskraci_person` (`taskraci_person_id`),
+  CONSTRAINT `fk_taskraci_person` FOREIGN KEY (`taskraci_person_id`) REFERENCES `tbPerson` (`person_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=580 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `tbTaskRACI_backup_migration`
+--
+
+DROP TABLE IF EXISTS `tbTaskRACI_backup_migration`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tbTaskRACI_backup_migration` (
+  `taskraci_id` int(11) NOT NULL DEFAULT 0,
+  `taskraci_subtask_id` int(11) NOT NULL,
+  `taskraci_stakeholder_id` int(11) NOT NULL DEFAULT 0,
+  `taskraci_person_id` int(11) DEFAULT NULL,
+  `taskraci_stakeholder_type` varchar(8) CHARACTER SET utf8 COLLATE utf8_general_ci DEFAULT NULL,
+  `taskraci_stakeholder_name` varchar(50) CHARACTER SET utf8 COLLATE utf8_general_ci NOT NULL,
+  `taskraci_responsibility` varchar(1) CHARACTER SET utf8 COLLATE utf8_general_ci NOT NULL,
+  `taskraci_enabled` tinyint(1) NOT NULL DEFAULT -1,
+  `taskraci_disabled_by` varchar(25) CHARACTER SET utf8 COLLATE utf8_general_ci DEFAULT NULL,
+  `taskraci_disabled_date` date DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2515,7 +2637,7 @@ CREATE TABLE `tbTaskRecord` (
   PRIMARY KEY (`taskrecord_id`),
   KEY `idx_taskrecord_task_followup` (`taskrecord_task_id`,`taskrecord_activity_id`,`taskrecord_next_followup`),
   KEY `idx_taskrecord_activity_followup` (`taskrecord_activity_id`,`taskrecord_next_followup`)
-) ENGINE=InnoDB AUTO_INCREMENT=24544 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=24558 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2701,9 +2823,13 @@ CREATE TABLE `tbUser` (
   `user_allow_panorama_dash` tinyint(1) NOT NULL DEFAULT 0,
   `user_allow_vision_dash` tinyint(1) NOT NULL DEFAULT 0,
   `user_allow_renewal_dash` tinyint(1) NOT NULL DEFAULT 0,
+  `user_theme` varchar(10) NOT NULL DEFAULT 'dark',
+  `user_person_id` int(11) DEFAULT NULL,
   PRIMARY KEY (`user_id`),
-  UNIQUE KEY `tbUser_user_name_IDX` (`user_name`,`user_email`,`user_company_id`) USING BTREE
-) ENGINE=InnoDB AUTO_INCREMENT=910 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+  UNIQUE KEY `tbUser_user_name_IDX` (`user_name`,`user_email`,`user_company_id`) USING BTREE,
+  UNIQUE KEY `uk_user_person_id` (`user_person_id`),
+  CONSTRAINT `fk_user_person` FOREIGN KEY (`user_person_id`) REFERENCES `tbPerson` (`person_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=914 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2723,7 +2849,7 @@ CREATE TABLE `tbUserGridPreferences` (
   `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_user_page_grid` (`user_id`,`page_name`,`grid_name`)
-) ENGINE=InnoDB AUTO_INCREMENT=31 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=32 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2738,7 +2864,7 @@ CREATE TABLE `tbUserListName` (
   `userlistname_user_name` varchar(150) DEFAULT NULL,
   `userlistname_id` int(11) NOT NULL AUTO_INCREMENT,
   PRIMARY KEY (`userlistname_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=1288 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=1289 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2755,6 +2881,49 @@ CREATE TABLE `tbUserLogin` (
   `checkout` datetime DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2035 DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `tbUser_backup_migration`
+--
+
+DROP TABLE IF EXISTS `tbUser_backup_migration`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tbUser_backup_migration` (
+  `user_id` int(11) NOT NULL DEFAULT 0,
+  `user_name` varchar(150) DEFAULT NULL,
+  `user_full_name` varchar(150) DEFAULT NULL,
+  `user_alternative_name` varchar(150) DEFAULT NULL,
+  `user_telephone` varchar(25) CHARACTER SET utf8 COLLATE utf8_general_ci DEFAULT NULL,
+  `user_cellphone` varchar(15) CHARACTER SET utf8 COLLATE utf8_general_ci DEFAULT NULL,
+  `user_email` varchar(50) DEFAULT NULL,
+  `user_type` varchar(255) DEFAULT NULL,
+  `user_company_id` int(11) DEFAULT 0,
+  `user_department` varchar(150) DEFAULT NULL,
+  `user_job_title` varchar(150) DEFAULT NULL,
+  `user_admin` tinyint(1) NOT NULL DEFAULT 0,
+  `user_manager` tinyint(4) NOT NULL DEFAULT 0,
+  `user_language` varchar(5) CHARACTER SET utf8 COLLATE utf8_general_ci NOT NULL DEFAULT 'en-US',
+  `user_password` varchar(255) CHARACTER SET utf8 COLLATE utf8_general_ci DEFAULT NULL,
+  `user_change_passwd` tinyint(4) NOT NULL DEFAULT 0,
+  `user_hiring` date DEFAULT NULL,
+  `user_termination` date DEFAULT NULL,
+  `user_allow_import_xls` tinyint(1) NOT NULL DEFAULT 0,
+  `user_allow_adoption_dash` tinyint(1) NOT NULL DEFAULT 0,
+  `user_allow_capacity_dash` tinyint(1) NOT NULL DEFAULT 0,
+  `user_allow_project_dash` tinyint(1) NOT NULL DEFAULT 0,
+  `user_allow_notafiscal_dash` tinyint(1) NOT NULL DEFAULT 0,
+  `user_allow_contract_dash` tinyint(1) NOT NULL DEFAULT 0,
+  `user_allow_iteminfo_dash` tinyint(1) NOT NULL DEFAULT 0,
+  `user_allow_technical_dash` tinyint(1) NOT NULL DEFAULT 0,
+  `user_allow_operational_dash` tinyint(1) NOT NULL DEFAULT 0,
+  `user_allow_panorama_dash` tinyint(1) NOT NULL DEFAULT 0,
+  `user_allow_vision_dash` tinyint(1) NOT NULL DEFAULT 0,
+  `user_allow_renewal_dash` tinyint(1) NOT NULL DEFAULT 0,
+  `user_theme` varchar(10) CHARACTER SET utf8 COLLATE utf8_general_ci NOT NULL DEFAULT 'dark',
+  `user_person_id` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -4593,9 +4762,9 @@ SET character_set_client = utf8mb4;
 /*!50001 CREATE VIEW `vwTaskRACI` AS SELECT
  1 AS `taskraci_task_id`,
   1 AS `taskraci_subtask_id`,
-  1 AS `taskrack_stakeholder_id`,
-  1 AS `taskrack_stakeholder_name`,
-  1 AS `taskraci_stakeholder_type`,
+  1 AS `taskrack_person_id`,
+  1 AS `taskrack_person_name`,
+  1 AS `taskraci_person_type`,
   1 AS `taskraci_responsibility` */;
 SET character_set_client = @saved_cs_client;
 
@@ -5667,7 +5836,7 @@ DELIMITER ;
 /*!50001 SET collation_connection      = utf8mb4_general_ci */;
 /*!50001 CREATE ALGORITHM=UNDEFINED */
 /*!50013 DEFINER=`pegasus`@`%` SQL SECURITY DEFINER */
-/*!50001 VIEW `vwAccountTeam` AS select `tat`.`accountteam_id` AS `accountteam_id`,`tat`.`accountteam_company_id` AS `accountteam_company_id`,`tat`.`accountteam_user_id` AS `accountteam_user_id`,`tat`.`accountteam_user_type` AS `accountteam_user_type`,`tat`.`accountteam_allocation_start_date` AS `accountteam_allocation_start_date`,`tat`.`accountteam_allocation_end_date` AS `accountteam_allocation_end_date`,`tat`.`accountteam_allocated` AS `accountteam_allocated`,`tat`.`accountteam_changed_in` AS `accountteam_changed_in`,`tat`.`accountteam_changed_by` AS `accountteam_changed_by`,`tu`.`user_name` AS `accountteam_user_name`,`tc`.`company_name` AS `accountteam_company_name` from ((`tbAccountTeam` `tat` join `tbUser` `tu` on(`tat`.`accountteam_user_id` = `tu`.`user_id`)) join `tbCompany` `tc` on(`tat`.`accountteam_company_id` = `tc`.`company_id`)) */;
+/*!50001 VIEW `vwAccountTeam` AS select `tat`.`accountteam_id` AS `accountteam_id`,`tat`.`accountteam_company_id` AS `accountteam_company_id`,`tat`.`accountteam_person_id` AS `accountteam_user_id`,`tat`.`accountteam_person_type` AS `accountteam_user_type`,`tat`.`accountteam_allocation_start_date` AS `accountteam_allocation_start_date`,`tat`.`accountteam_allocation_end_date` AS `accountteam_allocation_end_date`,`tat`.`accountteam_allocated` AS `accountteam_allocated`,`tat`.`accountteam_changed_in` AS `accountteam_changed_in`,`tat`.`accountteam_changed_by` AS `accountteam_changed_by`,`tu`.`person_name` AS `accountteam_user_name`,`tc`.`company_name` AS `accountteam_company_name` from ((`tbAccountTeam` `tat` join `tbPerson` `tu` on(`tat`.`accountteam_person_id` = `tu`.`person_id`)) join `tbCompany` `tc` on(`tat`.`accountteam_company_id` = `tc`.`company_id`)) */;
 /*!50001 SET character_set_client      = @saved_cs_client */;
 /*!50001 SET character_set_results     = @saved_cs_results */;
 /*!50001 SET collation_connection      = @saved_col_connection */;
@@ -5685,7 +5854,7 @@ DELIMITER ;
 /*!50001 SET collation_connection      = utf8mb4_general_ci */;
 /*!50001 CREATE ALGORITHM=UNDEFINED */
 /*!50013 DEFINER=`pegasus`@`%` SQL SECURITY DEFINER */
-/*!50001 VIEW `vwAccountTeamCSM` AS select `at`.`accountteam_user_id` AS `csm_id`,`uc`.`user_name` AS `csm_name`,`at`.`accountteam_company_id` AS `client_id`,`c`.`company_name` AS `client_name`,`am`.`accountteam_user_id` AS `am_id`,`ua`.`user_name` AS `am_name`,case when exists(select 1 from `tbCiscoEnterpriseAgreementMetering` `m` where `m`.`mcea_client_id` = `at`.`accountteam_company_id` limit 1) then 'Y' else 'N' end AS `CiscoEA`,`c`.`company_type` AS `client_type` from ((((`tbAccountTeam` `at` join `tbCompany` `c` on(`at`.`accountteam_company_id` = `c`.`company_id`)) join `tbUser` `uc` on(`at`.`accountteam_user_id` = `uc`.`user_id`)) left join (select min(`x`.`accountteam_id`) AS `MIN(``x``.``accountteam_id``)`,`x`.`accountteam_company_id` AS `accountteam_company_id`,`x`.`accountteam_user_id` AS `accountteam_user_id` from `tbAccountTeam` `x` where `x`.`accountteam_user_type` = 'AM' and `x`.`accountteam_allocated` <> 0 group by `x`.`accountteam_company_id`) `am` on(`at`.`accountteam_company_id` = `am`.`accountteam_company_id`)) left join `tbUser` `ua` on(`am`.`accountteam_user_id` = `ua`.`user_id`)) where `at`.`accountteam_allocated` <> 0 and `at`.`accountteam_user_type` = 'CSM' group by `at`.`accountteam_company_id`,`at`.`accountteam_user_id`,`c`.`company_name`,`c`.`company_type`,`uc`.`user_name`,`ua`.`user_name` */;
+/*!50001 VIEW `vwAccountTeamCSM` AS select `at`.`accountteam_person_id` AS `csm_id`,`uc`.`person_name` AS `csm_name`,`at`.`accountteam_company_id` AS `client_id`,`c`.`company_name` AS `client_name`,`am`.`accountteam_person_id` AS `am_id`,`ua`.`person_name` AS `am_name`,case when exists(select 1 from `tbCiscoEnterpriseAgreementMetering` `m` where `m`.`mcea_client_id` = `at`.`accountteam_company_id` limit 1) then 'Y' else 'N' end AS `CiscoEA`,`c`.`company_type` AS `client_type` from ((((`tbAccountTeam` `at` join `tbCompany` `c` on(`at`.`accountteam_company_id` = `c`.`company_id`)) join `tbPerson` `uc` on(`at`.`accountteam_person_id` = `uc`.`person_id`)) left join (select min(`x`.`accountteam_id`) AS `MIN(``x``.``accountteam_id``)`,`x`.`accountteam_company_id` AS `accountteam_company_id`,`x`.`accountteam_person_id` AS `accountteam_person_id` from `tbAccountTeam` `x` where `x`.`accountteam_person_type` = 'AM' and `x`.`accountteam_allocated` <> 0 group by `x`.`accountteam_company_id`) `am` on(`at`.`accountteam_company_id` = `am`.`accountteam_company_id`)) left join `tbPerson` `ua` on(`am`.`accountteam_person_id` = `ua`.`person_id`)) where `at`.`accountteam_allocated` <> 0 and `at`.`accountteam_person_type` = 'CSM' group by `at`.`accountteam_company_id`,`at`.`accountteam_person_id`,`c`.`company_name`,`c`.`company_type`,`uc`.`person_name`,`ua`.`person_name` */;
 /*!50001 SET character_set_client      = @saved_cs_client */;
 /*!50001 SET character_set_results     = @saved_cs_results */;
 /*!50001 SET collation_connection      = @saved_col_connection */;
@@ -5703,7 +5872,7 @@ DELIMITER ;
 /*!50001 SET collation_connection      = utf8mb4_general_ci */;
 /*!50001 CREATE ALGORITHM=UNDEFINED */
 /*!50013 DEFINER=`pegasus`@`%` SQL SECURITY DEFINER */
-/*!50001 VIEW `vwAccountTeamCSMCountByAM` AS select `am`.`accountteam_user_id` AS `am_id`,`uam`.`user_name` AS `am_name`,`csm`.`accountteam_user_id` AS `csm_id`,`ucsm`.`user_name` AS `csm_name`,count(distinct `csm`.`accountteam_id`) AS `count_csm` from (((`tbAccountTeam` `am` join `tbAccountTeam` `csm` on(`am`.`accountteam_company_id` = `csm`.`accountteam_company_id` and `csm`.`accountteam_allocated` <> 0 and `csm`.`accountteam_user_type` = 'CSM')) join `tbUser` `uam` on(`am`.`accountteam_user_id` = `uam`.`user_id`)) join `tbUser` `ucsm` on(`csm`.`accountteam_user_id` = `ucsm`.`user_id`)) where `am`.`accountteam_user_type` = 'AM' and `am`.`accountteam_allocated` <> 0 group by `am`.`accountteam_user_id`,`csm`.`accountteam_user_id` */;
+/*!50001 VIEW `vwAccountTeamCSMCountByAM` AS select `am`.`accountteam_person_id` AS `am_id`,`uam`.`person_name` AS `am_name`,`csm`.`accountteam_person_id` AS `csm_id`,`ucsm`.`person_name` AS `csm_name`,count(distinct `csm`.`accountteam_id`) AS `count_csm` from (((`tbAccountTeam` `am` join `tbAccountTeam` `csm` on(`am`.`accountteam_company_id` = `csm`.`accountteam_company_id` and `csm`.`accountteam_allocated` <> 0 and `csm`.`accountteam_person_type` = 'CSM')) join `tbPerson` `uam` on(`am`.`accountteam_person_id` = `uam`.`person_id`)) join `tbPerson` `ucsm` on(`csm`.`accountteam_person_id` = `ucsm`.`person_id`)) where `am`.`accountteam_person_type` = 'AM' and `am`.`accountteam_allocated` <> 0 group by `am`.`accountteam_person_id`,`csm`.`accountteam_person_id` */;
 /*!50001 SET character_set_client      = @saved_cs_client */;
 /*!50001 SET character_set_results     = @saved_cs_results */;
 /*!50001 SET collation_connection      = @saved_col_connection */;
@@ -5721,7 +5890,7 @@ DELIMITER ;
 /*!50001 SET collation_connection      = utf8mb4_general_ci */;
 /*!50001 CREATE ALGORITHM=UNDEFINED */
 /*!50013 DEFINER=`pegasus`@`%` SQL SECURITY DEFINER */
-/*!50001 VIEW `vwAccountTeamCiscoEANoCSM` AS select `e`.`ea_end_customer_id` AS `company_id`,`c`.`company_name` AS `company_name` from (`tbCiscoEA` `e` join `tbCompany` `c` on(`e`.`ea_end_customer_id` = `c`.`company_id`)) where !(`e`.`ea_end_customer_id` in (select `tbAccountTeam`.`accountteam_company_id` from `tbAccountTeam` where `tbAccountTeam`.`accountteam_user_type` = 'CSM' and `tbAccountTeam`.`accountteam_allocated` <> 0 group by `tbAccountTeam`.`accountteam_company_id`)) group by `e`.`ea_end_customer_id` */;
+/*!50001 VIEW `vwAccountTeamCiscoEANoCSM` AS select `e`.`ea_end_customer_id` AS `company_id`,`c`.`company_name` AS `company_name` from (`tbCiscoEA` `e` join `tbCompany` `c` on(`e`.`ea_end_customer_id` = `c`.`company_id`)) where !(`e`.`ea_end_customer_id` in (select `tbAccountTeam`.`accountteam_company_id` from `tbAccountTeam` where `tbAccountTeam`.`accountteam_person_type` = 'CSM' and `tbAccountTeam`.`accountteam_allocated` <> 0 group by `tbAccountTeam`.`accountteam_company_id`)) group by `e`.`ea_end_customer_id` */;
 /*!50001 SET character_set_client      = @saved_cs_client */;
 /*!50001 SET character_set_results     = @saved_cs_results */;
 /*!50001 SET collation_connection      = @saved_col_connection */;
@@ -5739,7 +5908,7 @@ DELIMITER ;
 /*!50001 SET collation_connection      = utf8mb4_general_ci */;
 /*!50001 CREATE ALGORITHM=UNDEFINED */
 /*!50013 DEFINER=`pegasus`@`%` SQL SECURITY DEFINER */
-/*!50001 VIEW `vwAccountTeamCustomerScore` AS select `n`.`company_id` AS `company_id`,`n`.`company_name` AS `company_name`,`n`.`company_type` AS `company_current_level`,`n`.`company_vertical` AS `company_vertical`,coalesce(`team`.`has_csm`,'N') AS `has_csm`,`team`.`csm_id` AS `csm_id`,`team`.`csm_name` AS `csm_name`,coalesce(`team`.`has_cdm`,'N') AS `has_cdm`,`team`.`cdm_id` AS `cdm_id`,`team`.`cdm_name` AS `cdm_name`,`team`.`am_id` AS `am_id`,`team`.`am_name` AS `am_name`,`team`.`dir_id` AS `dir_id`,`team`.`dir_name` AS `dir_name`,round(coalesce(`mrr`.`total_active_mrr`,0),2) AS `total_active_mrr`,least(case when coalesce(`team`.`has_cdm`,'N') = 'Y' then 1 else 0 end + case when coalesce(`mrr`.`total_active_mrr`,0) = 0 then 0 when coalesce(`mrr`.`total_active_mrr`,0) < 50000 then 1 when coalesce(`mrr`.`total_active_mrr`,0) between 50000 and 400000 then 2 else 3 end,3) AS `customer_score`,case least(case when coalesce(`team`.`has_cdm`,'N') = 'Y' then 1 else 0 end + case when coalesce(`mrr`.`total_active_mrr`,0) = 0 then 0 when coalesce(`mrr`.`total_active_mrr`,0) < 50000 then 1 when coalesce(`mrr`.`total_active_mrr`,0) between 50000 and 400000 then 2 else 3 end,3) when 0 then 'LOW' when 1 then 'LOW' when 2 then 'MEDIUM' else 'HIGH' end AS `customer_level`,coalesce(`opp`.`opportunity_amount_total_12m`,0) AS `opportunity_amount_total_12m`,coalesce(`opp`.`opportunity_amount_deal_lost_12m`,0) AS `opportunity_amount_deal_lost_12m`,coalesce(`opp`.`opportunity_amount_identification_12m`,0) AS `opportunity_amount_identification_12m`,coalesce(`opp`.`opportunity_amount_finalist_12m`,0) AS `opportunity_amount_finalist_12m`,coalesce(`opp`.`opportunity_amount_proposal_evaluation_12m`,0) AS `opportunity_amount_proposal_evaluation_12m`,coalesce(`opp`.`opportunity_amount_deal_won_12m`,0) AS `opportunity_amount_deal_won_12m`,coalesce(`opp`.`opportunity_amount_proposal_12m`,0) AS `opportunity_amount_proposal_12m`,coalesce(`opp`.`opportunity_amount_qualification_12m`,0) AS `opportunity_amount_qualification_12m`,coalesce(`opp`.`opportunity_amount_requirements_definition_12m`,0) AS `opportunity_amount_requirements_definition_12m` from (((`tbCompany` `n` left join (select `at`.`accountteam_company_id` AS `company_id`,max(case when `at`.`accountteam_user_type` = 'CSM' and `at`.`accountteam_allocated` <> 0 then 'Y' else 'N' end) AS `has_csm`,max(case when `at`.`accountteam_user_type` = 'CDM' and `at`.`accountteam_allocated` <> 0 then 'Y' else 'N' end) AS `has_cdm`,min(case when `at`.`accountteam_user_type` = 'CSM' and `at`.`accountteam_allocated` <> 0 then `u`.`user_id` end) AS `csm_id`,min(case when `at`.`accountteam_user_type` = 'CSM' and `at`.`accountteam_allocated` <> 0 then `u`.`user_name` end) AS `csm_name`,min(case when `at`.`accountteam_user_type` = 'CDM' and `at`.`accountteam_allocated` <> 0 then `u`.`user_id` end) AS `cdm_id`,min(case when `at`.`accountteam_user_type` = 'CDM' and `at`.`accountteam_allocated` <> 0 then `u`.`user_name` end) AS `cdm_name`,min(case when `at`.`accountteam_user_type` = 'AM' and `at`.`accountteam_allocated` <> 0 then `u`.`user_id` end) AS `am_id`,min(case when `at`.`accountteam_user_type` = 'AM' and `at`.`accountteam_allocated` <> 0 then `u`.`user_name` end) AS `am_name`,min(case when `at`.`accountteam_user_type` = 'DIR' and `at`.`accountteam_allocated` <> 0 then `u`.`user_id` end) AS `dir_id`,min(case when `at`.`accountteam_user_type` = 'DIR' and `at`.`accountteam_allocated` <> 0 then `u`.`user_name` end) AS `dir_name` from (`tbAccountTeam` `at` left join `tbUser` `u` on(`u`.`user_id` = `at`.`accountteam_user_id`)) group by `at`.`accountteam_company_id`) `team` on(`team`.`company_id` = `n`.`company_id`)) left join (select `t`.`customer_id` AS `customer_id`,sum(`t`.`contract_mrr`) AS `total_active_mrr` from (select `c`.`nttasset_customer_id` AS `customer_id`,`c`.`nttasset_contract_number` AS `nttasset_contract_number`,min(`c`.`nttasset_contract_start`) AS `contract_start_date`,max(`c`.`nttasset_contract_end`) AS `contract_end_date`,max(`c`.`nttasset_contract_amount`) AS `contract_amount`,timestampdiff(MONTH,min(`c`.`nttasset_contract_start`),max(`c`.`nttasset_contract_end`)) + 1 AS `contract_months`,case when timestampdiff(MONTH,min(`c`.`nttasset_contract_start`),max(`c`.`nttasset_contract_end`)) + 1 > 0 then max(`c`.`nttasset_contract_amount`) / (timestampdiff(MONTH,min(`c`.`nttasset_contract_start`),max(`c`.`nttasset_contract_end`)) + 1) else 0 end AS `contract_mrr`,case when max(`c`.`nttasset_contract_end`) < curdate() then 'EXPIRED' else 'ACTIVE' end AS `contract_status` from `tbContractNTTAsset` `c` group by `c`.`nttasset_customer_id`,`c`.`nttasset_contract_number`,`c`.`nttasset_contract_start`,`c`.`nttasset_contract_end`,`c`.`nttasset_contract_amount`) `t` where `t`.`contract_status` = 'ACTIVE' group by `t`.`customer_id`) `mrr` on(`mrr`.`customer_id` = `n`.`company_id`)) left join (select `t`.`opportunity_customer_id` AS `opportunity_customer_id`,coalesce(sum(`t`.`amount_brl`),0) AS `opportunity_amount_total_12m`,coalesce(sum(case when `t`.`opportunity_stage` = 'Deal Lost' then `t`.`amount_brl` end),0) AS `opportunity_amount_deal_lost_12m`,coalesce(sum(case when `t`.`opportunity_stage` = 'Identification' then `t`.`amount_brl` end),0) AS `opportunity_amount_identification_12m`,coalesce(sum(case when `t`.`opportunity_stage` = 'Finalist' then `t`.`amount_brl` end),0) AS `opportunity_amount_finalist_12m`,coalesce(sum(case when `t`.`opportunity_stage` = 'Proposal Evaluation' then `t`.`amount_brl` end),0) AS `opportunity_amount_proposal_evaluation_12m`,coalesce(sum(case when `t`.`opportunity_stage` = 'Deal Won' then `t`.`amount_brl` end),0) AS `opportunity_amount_deal_won_12m`,coalesce(sum(case when `t`.`opportunity_stage` = 'Proposal' then `t`.`amount_brl` end),0) AS `opportunity_amount_proposal_12m`,coalesce(sum(case when `t`.`opportunity_stage` = 'Qualification' then `t`.`amount_brl` end),0) AS `opportunity_amount_qualification_12m`,coalesce(sum(case when `t`.`opportunity_stage` in ('Requirements Definition','Requirements Definit') then `t`.`amount_brl` end),0) AS `opportunity_amount_requirements_definition_12m` from (select `o`.`opportunity_num` AS `opportunity_num`,`o`.`opportunity_customer_id` AS `opportunity_customer_id`,`o`.`opportunity_stage` AS `opportunity_stage`,case when month(`o`.`opportunity_close_date`) >= 4 then year(`o`.`opportunity_close_date`) else year(`o`.`opportunity_close_date`) - 1 end AS `fiscal_year`,sum(case when `o`.`opportunity_currency` = 'USD' then `o`.`opportunity_amount` * coalesce(`r`.`rate_value`,0) else `o`.`opportunity_amount` end) AS `amount_brl` from (`tbOpportunity` `o` left join `tbCurrencyRate` `r` on(`r`.`rate_currency` = 'USD' and `r`.`rate_fiscalyear` = case when month(`o`.`opportunity_close_date`) >= 4 then year(`o`.`opportunity_close_date`) else year(`o`.`opportunity_close_date`) - 1 end)) where `o`.`opportunity_close_date` >= curdate() - interval 12 month and `o`.`opportunity_create_date` <= curdate() group by `o`.`opportunity_num`,`o`.`opportunity_customer_id`,`o`.`opportunity_stage`) `t` group by `t`.`opportunity_customer_id`) `opp` on(`opp`.`opportunity_customer_id` = `n`.`company_id`)) where coalesce(`team`.`has_csm`,'N') = 'Y' */;
+/*!50001 VIEW `vwAccountTeamCustomerScore` AS select `n`.`company_id` AS `company_id`,`n`.`company_name` AS `company_name`,`n`.`company_type` AS `company_current_level`,`n`.`company_vertical` AS `company_vertical`,coalesce(`team`.`has_csm`,'N') AS `has_csm`,`team`.`csm_id` AS `csm_id`,`team`.`csm_name` AS `csm_name`,coalesce(`team`.`has_cdm`,'N') AS `has_cdm`,`team`.`cdm_id` AS `cdm_id`,`team`.`cdm_name` AS `cdm_name`,`team`.`am_id` AS `am_id`,`team`.`am_name` AS `am_name`,`team`.`dir_id` AS `dir_id`,`team`.`dir_name` AS `dir_name`,round(coalesce(`mrr`.`total_active_mrr`,0),2) AS `total_active_mrr`,least(case when coalesce(`team`.`has_cdm`,'N') = 'Y' then 1 else 0 end + case when coalesce(`mrr`.`total_active_mrr`,0) = 0 then 0 when coalesce(`mrr`.`total_active_mrr`,0) < 50000 then 1 when coalesce(`mrr`.`total_active_mrr`,0) between 50000 and 400000 then 2 else 3 end,3) AS `customer_score`,case least(case when coalesce(`team`.`has_cdm`,'N') = 'Y' then 1 else 0 end + case when coalesce(`mrr`.`total_active_mrr`,0) = 0 then 0 when coalesce(`mrr`.`total_active_mrr`,0) < 50000 then 1 when coalesce(`mrr`.`total_active_mrr`,0) between 50000 and 400000 then 2 else 3 end,3) when 0 then 'LOW' when 1 then 'LOW' when 2 then 'MEDIUM' else 'HIGH' end AS `customer_level`,coalesce(`opp`.`opportunity_amount_total_12m`,0) AS `opportunity_amount_total_12m`,coalesce(`opp`.`opportunity_amount_deal_lost_12m`,0) AS `opportunity_amount_deal_lost_12m`,coalesce(`opp`.`opportunity_amount_identification_12m`,0) AS `opportunity_amount_identification_12m`,coalesce(`opp`.`opportunity_amount_finalist_12m`,0) AS `opportunity_amount_finalist_12m`,coalesce(`opp`.`opportunity_amount_proposal_evaluation_12m`,0) AS `opportunity_amount_proposal_evaluation_12m`,coalesce(`opp`.`opportunity_amount_deal_won_12m`,0) AS `opportunity_amount_deal_won_12m`,coalesce(`opp`.`opportunity_amount_proposal_12m`,0) AS `opportunity_amount_proposal_12m`,coalesce(`opp`.`opportunity_amount_qualification_12m`,0) AS `opportunity_amount_qualification_12m`,coalesce(`opp`.`opportunity_amount_requirements_definition_12m`,0) AS `opportunity_amount_requirements_definition_12m` from (((`tbCompany` `n` left join (select `at`.`accountteam_company_id` AS `company_id`,max(case when `at`.`accountteam_person_type` = 'CSM' and `at`.`accountteam_allocated` <> 0 then 'Y' else 'N' end) AS `has_csm`,max(case when `at`.`accountteam_person_type` = 'CDM' and `at`.`accountteam_allocated` <> 0 then 'Y' else 'N' end) AS `has_cdm`,min(case when `at`.`accountteam_person_type` = 'CSM' and `at`.`accountteam_allocated` <> 0 then `u`.`person_id` end) AS `csm_id`,min(case when `at`.`accountteam_person_type` = 'CSM' and `at`.`accountteam_allocated` <> 0 then `u`.`person_name` end) AS `csm_name`,min(case when `at`.`accountteam_person_type` = 'CDM' and `at`.`accountteam_allocated` <> 0 then `u`.`person_id` end) AS `cdm_id`,min(case when `at`.`accountteam_person_type` = 'CDM' and `at`.`accountteam_allocated` <> 0 then `u`.`person_name` end) AS `cdm_name`,min(case when `at`.`accountteam_person_type` = 'AM' and `at`.`accountteam_allocated` <> 0 then `u`.`person_id` end) AS `am_id`,min(case when `at`.`accountteam_person_type` = 'AM' and `at`.`accountteam_allocated` <> 0 then `u`.`person_name` end) AS `am_name`,min(case when `at`.`accountteam_person_type` = 'DIR' and `at`.`accountteam_allocated` <> 0 then `u`.`person_id` end) AS `dir_id`,min(case when `at`.`accountteam_person_type` = 'DIR' and `at`.`accountteam_allocated` <> 0 then `u`.`person_name` end) AS `dir_name` from (`tbAccountTeam` `at` left join `tbPerson` `u` on(`u`.`person_id` = `at`.`accountteam_person_id`)) group by `at`.`accountteam_company_id`) `team` on(`team`.`company_id` = `n`.`company_id`)) left join (select `t`.`customer_id` AS `customer_id`,sum(`t`.`contract_mrr`) AS `total_active_mrr` from (select `c`.`nttasset_customer_id` AS `customer_id`,`c`.`nttasset_contract_number` AS `nttasset_contract_number`,min(`c`.`nttasset_contract_start`) AS `contract_start_date`,max(`c`.`nttasset_contract_end`) AS `contract_end_date`,max(`c`.`nttasset_contract_amount`) AS `contract_amount`,timestampdiff(MONTH,min(`c`.`nttasset_contract_start`),max(`c`.`nttasset_contract_end`)) + 1 AS `contract_months`,case when timestampdiff(MONTH,min(`c`.`nttasset_contract_start`),max(`c`.`nttasset_contract_end`)) + 1 > 0 then max(`c`.`nttasset_contract_amount`) / (timestampdiff(MONTH,min(`c`.`nttasset_contract_start`),max(`c`.`nttasset_contract_end`)) + 1) else 0 end AS `contract_mrr`,case when max(`c`.`nttasset_contract_end`) < curdate() then 'EXPIRED' else 'ACTIVE' end AS `contract_status` from `tbContractNTTAsset` `c` group by `c`.`nttasset_customer_id`,`c`.`nttasset_contract_number`,`c`.`nttasset_contract_start`,`c`.`nttasset_contract_end`,`c`.`nttasset_contract_amount`) `t` where `t`.`contract_status` = 'ACTIVE' group by `t`.`customer_id`) `mrr` on(`mrr`.`customer_id` = `n`.`company_id`)) left join (select `t`.`opportunity_customer_id` AS `opportunity_customer_id`,coalesce(sum(`t`.`amount_brl`),0) AS `opportunity_amount_total_12m`,coalesce(sum(case when `t`.`opportunity_stage` = 'Deal Lost' then `t`.`amount_brl` end),0) AS `opportunity_amount_deal_lost_12m`,coalesce(sum(case when `t`.`opportunity_stage` = 'Identification' then `t`.`amount_brl` end),0) AS `opportunity_amount_identification_12m`,coalesce(sum(case when `t`.`opportunity_stage` = 'Finalist' then `t`.`amount_brl` end),0) AS `opportunity_amount_finalist_12m`,coalesce(sum(case when `t`.`opportunity_stage` = 'Proposal Evaluation' then `t`.`amount_brl` end),0) AS `opportunity_amount_proposal_evaluation_12m`,coalesce(sum(case when `t`.`opportunity_stage` = 'Deal Won' then `t`.`amount_brl` end),0) AS `opportunity_amount_deal_won_12m`,coalesce(sum(case when `t`.`opportunity_stage` = 'Proposal' then `t`.`amount_brl` end),0) AS `opportunity_amount_proposal_12m`,coalesce(sum(case when `t`.`opportunity_stage` = 'Qualification' then `t`.`amount_brl` end),0) AS `opportunity_amount_qualification_12m`,coalesce(sum(case when `t`.`opportunity_stage` in ('Requirements Definition','Requirements Definit') then `t`.`amount_brl` end),0) AS `opportunity_amount_requirements_definition_12m` from (select `o`.`opportunity_num` AS `opportunity_num`,`o`.`opportunity_customer_id` AS `opportunity_customer_id`,`o`.`opportunity_stage` AS `opportunity_stage`,case when month(`o`.`opportunity_close_date`) >= 4 then year(`o`.`opportunity_close_date`) else year(`o`.`opportunity_close_date`) - 1 end AS `fiscal_year`,sum(case when `o`.`opportunity_currency` = 'USD' then `o`.`opportunity_amount` * coalesce(`r`.`rate_value`,0) else `o`.`opportunity_amount` end) AS `amount_brl` from (`tbOpportunity` `o` left join `tbCurrencyRate` `r` on(`r`.`rate_currency` = 'USD' and `r`.`rate_fiscalyear` = case when month(`o`.`opportunity_close_date`) >= 4 then year(`o`.`opportunity_close_date`) else year(`o`.`opportunity_close_date`) - 1 end)) where `o`.`opportunity_close_date` >= curdate() - interval 12 month and `o`.`opportunity_create_date` <= curdate() group by `o`.`opportunity_num`,`o`.`opportunity_customer_id`,`o`.`opportunity_stage`) `t` group by `t`.`opportunity_customer_id`) `opp` on(`opp`.`opportunity_customer_id` = `n`.`company_id`)) where coalesce(`team`.`has_csm`,'N') = 'Y' */;
 /*!50001 SET character_set_client      = @saved_cs_client */;
 /*!50001 SET character_set_results     = @saved_cs_results */;
 /*!50001 SET collation_connection      = @saved_col_connection */;
@@ -6387,7 +6556,7 @@ DELIMITER ;
 /*!50001 SET collation_connection      = utf8mb4_general_ci */;
 /*!50001 CREATE ALGORITHM=UNDEFINED */
 /*!50013 DEFINER=`pegasus`@`%` SQL SECURITY DEFINER */
-/*!50001 VIEW `vwForecast` AS select `t`.`task_id` AS `task_id`,`t`.`task_tasktype_id` AS `task_tasktype_id`,`tp`.`tasktype_name` AS `task_tasktype_name`,`t`.`task_owner_id` AS `task_owner_id`,`o`.`user_name` AS `task_owner_name`,`t`.`task_customer_id` AS `task_client_id`,`c`.`company_name` AS `task_client_name`,`t`.`task_status` AS `task_status_id`,`tst`.`statustype_name` AS `task_status_name`,`a`.`activity_status` AS `activity_status_id`,`ast`.`statustype_name` AS `activity_status_name`,`a`.`activity_value` AS `activity_value`,`a`.`activity_currency` AS `activity_currency`,`a`.`activity_end` AS `activity_end`,`a`.`activity_end_fy` AS `activity_end_fy`,`a`.`activity_approved` AS `activity_approved`,`a`.`activity_approved_value` AS `activity_approved_value`,`a`.`activity_approval_date` AS `activity_approval_date`,`a`.`activity_approval_fy` AS `activity_approval_fy` from ((((((`tbTask` `t` left join `tbTaskActivity` `a` on(`t`.`task_id` = `a`.`activity_task_id`)) left join `tbUser` `o` on(`t`.`task_owner_id` = `o`.`user_id`)) left join `tbCompany` `c` on(`t`.`task_customer_id` = `c`.`company_id`)) left join `tbTaskType` `tp` on(`t`.`task_tasktype_id` = `tp`.`tasktype_id`)) left join `tbStatusType` `tst` on(`t`.`task_status` = `tst`.`statustype_id`)) left join `tbStatusType` `ast` on(`a`.`activity_status` = `ast`.`statustype_id`)) where `t`.`task_eligible` = 'Y' and `a`.`activity_status` <> 4 and `a`.`activity_status` <> 5 and `a`.`activity_status` <> 6 and `a`.`activity_value` > 0 */;
+/*!50001 VIEW `vwForecast` AS select `t`.`task_id` AS `task_id`,`t`.`task_tasktype_id` AS `task_tasktype_id`,`tp`.`tasktype_name` AS `task_tasktype_name`,`t`.`task_owner_id` AS `task_owner_id`,`o`.`user_name` AS `task_owner_name`,`t`.`task_customer_id` AS `task_client_id`,`c`.`company_name` AS `task_client_name`,`t`.`task_status` AS `task_status_id`,`tst`.`statustype_name` AS `task_status_name`,`a`.`activity_status` AS `activity_status_id`,`ast`.`statustype_name` AS `activity_status_name`,`a`.`activity_value` AS `activity_value`,`a`.`activity_currency` AS `activity_currency`,`a`.`activity_end` AS `activity_end`,`a`.`activity_end_fy` AS `activity_end_fy`,`a`.`activity_approved` AS `activity_approved`,`a`.`activity_approved_value` AS `activity_approved_value`,`a`.`activity_approval_date` AS `activity_approval_date`,`a`.`activity_approval_fy` AS `activity_approval_fy` from ((((((`tbTask` `t` left join `tbTaskActivity` `a` on(`t`.`task_id` = `a`.`activity_task_id`)) left join `tbUser` `o` on(`t`.`task_owner_id` = `o`.`user_id`)) left join `tbCompany` `c` on(`t`.`task_customer_id` = `c`.`company_id`)) left join `tbTaskType` `tp` on(`t`.`task_tasktype_id` = `tp`.`tasktype_id`)) left join `tbStatusType` `tst` on(`t`.`task_status` = `tst`.`statustype_id`)) left join `tbStatusType` `ast` on(`a`.`activity_status` = `ast`.`statustype_id`)) where `t`.`task_tasktype_id` in (21,22) and `t`.`task_eligible` = 'Y' and `a`.`activity_status` not in (0,4,5) */;
 /*!50001 SET character_set_client      = @saved_cs_client */;
 /*!50001 SET character_set_results     = @saved_cs_results */;
 /*!50001 SET collation_connection      = @saved_col_connection */;
@@ -6801,7 +6970,7 @@ DELIMITER ;
 /*!50001 SET collation_connection      = utf8mb4_general_ci */;
 /*!50001 CREATE ALGORITHM=UNDEFINED */
 /*!50013 DEFINER=`pegasus`@`%` SQL SECURITY DEFINER */
-/*!50001 VIEW `vwTaskRACI` AS select `r`.`taskraci_task_id` AS `taskraci_task_id`,`r`.`taskraci_subtask_id` AS `taskraci_subtask_id`,`r`.`taskrack_stakeholder_id` AS `taskrack_stakeholder_id`,`u`.`user_name` AS `taskrack_stakeholder_name`,`r`.`taskraci_stakeholder_type` AS `taskraci_stakeholder_type`,`r`.`taskraci_responsibility` AS `taskraci_responsibility` from ((select `t2`.`task_id` AS `taskraci_task_id`,`t1`.`activity_id` AS `taskraci_subtask_id`,`t2`.`task_owner_id` AS `taskrack_stakeholder_id`,'INTERNAL' AS `taskraci_stakeholder_type`,'O' AS `taskraci_responsibility` from (`tbTaskActivity` `t1` join `tbTask` `t2` on(`t1`.`activity_task_id` = `t2`.`task_id`)) where `t2`.`task_owner_id` > 0 and `t1`.`activity_id` > 0 union select `t2`.`task_id` AS `taskraci_task_id`,`t1`.`activity_id` AS `taskraci_subtask_id`,`t2`.`task_temp_owner_id` AS `taskrack_stakeholder_id`,'INTERNAL' AS `taskraci_stakeholder_type`,'O' AS `taskraci_responsibility` from (`tbTaskActivity` `t1` join `tbTask` `t2` on(`t1`.`activity_task_id` = `t2`.`task_id`)) where `t2`.`task_temp_owner_id` > 0 and `t1`.`activity_id` > 0 union select `t2`.`activity_task_id` AS `taskraci_task_id`,`t1`.`taskraci_subtask_id` AS `taskraci_subtask_id`,`t1`.`taskraci_stakeholder_id` AS `taskraci_stakeholder_id`,`t1`.`taskraci_stakeholder_type` AS `taskraci_stakeholder_type`,`t1`.`taskraci_responsibility` AS `taskraci_responsibility` from (`tbTaskRACI` `t1` join `tbTaskActivity` `t2` on(`t1`.`taskraci_subtask_id` = `t2`.`activity_id`)) where `t1`.`taskraci_subtask_id` > 0 and `t1`.`taskraci_enabled` <> 0) `r` left join `tbUser` `u` on(`r`.`taskrack_stakeholder_id` = `u`.`user_id`)) */;
+/*!50001 VIEW `vwTaskRACI` AS select `r`.`taskraci_task_id` AS `taskraci_task_id`,`r`.`taskraci_subtask_id` AS `taskraci_subtask_id`,`r`.`taskrack_person_id` AS `taskrack_person_id`,`u`.`user_name` AS `taskrack_person_name`,`r`.`taskraci_person_type` AS `taskraci_person_type`,`r`.`taskraci_responsibility` AS `taskraci_responsibility` from ((select `t2`.`task_id` AS `taskraci_task_id`,`t1`.`activity_id` AS `taskraci_subtask_id`,`t2`.`task_owner_id` AS `taskrack_person_id`,'INTERNAL' AS `taskraci_person_type`,'O' AS `taskraci_responsibility` from (`tbTaskActivity` `t1` join `tbTask` `t2` on(`t1`.`activity_task_id` = `t2`.`task_id`)) where `t2`.`task_owner_id` > 0 and `t1`.`activity_id` > 0 union select `t2`.`task_id` AS `taskraci_task_id`,`t1`.`activity_id` AS `taskraci_subtask_id`,`t2`.`task_temp_owner_id` AS `taskrack_person_id`,'INTERNAL' AS `taskraci_person_type`,'O' AS `taskraci_responsibility` from (`tbTaskActivity` `t1` join `tbTask` `t2` on(`t1`.`activity_task_id` = `t2`.`task_id`)) where `t2`.`task_temp_owner_id` > 0 and `t1`.`activity_id` > 0 union select `t2`.`activity_task_id` AS `taskraci_task_id`,`t1`.`taskraci_subtask_id` AS `taskraci_subtask_id`,`t1`.`taskraci_person_id` AS `taskraci_person_id`,`t1`.`taskraci_person_type` AS `taskraci_person_type`,`t1`.`taskraci_responsibility` AS `taskraci_responsibility` from (`tbTaskRACI` `t1` join `tbTaskActivity` `t2` on(`t1`.`taskraci_subtask_id` = `t2`.`activity_id`)) where `t1`.`taskraci_subtask_id` > 0 and `t1`.`taskraci_enabled` <> 0) `r` left join `tbUser` `u` on(`r`.`taskrack_person_id` = `u`.`user_id`)) */;
 /*!50001 SET character_set_client      = @saved_cs_client */;
 /*!50001 SET character_set_results     = @saved_cs_results */;
 /*!50001 SET collation_connection      = @saved_col_connection */;
@@ -6909,7 +7078,7 @@ DELIMITER ;
 /*!50001 SET collation_connection      = utf8mb4_general_ci */;
 /*!50001 CREATE ALGORITHM=UNDEFINED */
 /*!50013 DEFINER=`pegasus`@`%` SQL SECURITY DEFINER */
-/*!50001 VIEW `vwTaskSIPNewOpportunity` AS select `t`.`task_id` AS `task_id`,`t`.`task_tasktype_id` AS `task_tasktype_id`,`tp`.`tasktype_name` AS `task_tasktype_name`,`t`.`task_owner_id` AS `task_owner_id`,`o`.`user_name` AS `task_owner_name`,`s`.`squad_user_id` AS `task_owner_squad_id`,`d`.`department_name` AS `task_owner_squad_name`,`t`.`task_customer_id` AS `task_client_id`,`c`.`company_name` AS `task_client_name`,`t`.`task_reference` AS `task_reference`,`t`.`task_start` AS `task_start`,case when `t`.`task_status` in (9,10) then `t`.`task_end` else NULL end AS `task_end`,case when `t`.`task_status` not in (4,5,6) and `t`.`task_end` is not null and `t`.`task_start` is not null then to_days(`t`.`task_end`) - to_days(`t`.`task_start`) else 0 end AS `task_days`,case when `t`.`task_status` in (9,10) then `t`.`task_end_fy` else NULL end AS `task_end_fy`,`t`.`task_status` AS `task_status_id`,`tst`.`statustype_name` AS `task_status_name`,`t`.`task_deal_id` AS `task_deal_id`,`t`.`task_currency` AS `task_currency`,`t`.`task_value` AS `task_deal_value`,`t`.`task_highlight` AS `task_note` from ((((((`tbTask` `t` left join `tbUser` `o` on(`t`.`task_owner_id` = `o`.`user_id`)) left join `tbCompany` `c` on(`t`.`task_customer_id` = `c`.`company_id`)) left join (select `s1`.`squad_id` AS `squad_id`,`s1`.`squad_user_id` AS `squad_user_id`,`s1`.`squad_department_id` AS `squad_department_id`,`s1`.`squad_level_id` AS `squad_level_id`,`s1`.`squad_upgrade` AS `squad_upgrade` from (`tbSquad` `s1` join (select `tbSquad`.`squad_user_id` AS `squad_user_id`,max(`tbSquad`.`squad_upgrade`) AS `max_upgrade` from `tbSquad` group by `tbSquad`.`squad_user_id`) `s2` on(`s1`.`squad_user_id` = `s2`.`squad_user_id` and `s1`.`squad_upgrade` = `s2`.`max_upgrade`))) `s` on(`s`.`squad_user_id` = `t`.`task_owner_id`)) left join `tbDepartment` `d` on(`s`.`squad_department_id` = `d`.`department_id`)) left join `tbTaskType` `tp` on(`t`.`task_tasktype_id` = `tp`.`tasktype_id`)) left join `tbStatusType` `tst` on(`t`.`task_status` = `tst`.`statustype_id`)) where `t`.`task_tasktype_id` = 11 */;
+/*!50001 VIEW `vwTaskSIPNewOpportunity` AS select `t`.`task_id` AS `task_id`,`t`.`task_tasktype_id` AS `task_tasktype_id`,`tp`.`tasktype_name` AS `task_tasktype_name`,`t`.`task_owner_id` AS `task_owner_id`,`o`.`user_name` AS `task_owner_name`,`s`.`squad_department_id` AS `task_owner_squad_id`,`d`.`department_name` AS `task_owner_squad_name`,`t`.`task_customer_id` AS `task_client_id`,`c`.`company_name` AS `task_client_name`,`t`.`task_reference` AS `task_reference`,`t`.`task_start` AS `task_start`,case when `t`.`task_status` in (9,10) then `t`.`task_end` else NULL end AS `task_end`,case when `t`.`task_status` not in (4,5,6) and `t`.`task_end` is not null and `t`.`task_start` is not null then to_days(`t`.`task_end`) - to_days(`t`.`task_start`) else 0 end AS `task_days`,case when `t`.`task_status` in (9,10) then `t`.`task_end_fy` when `t`.`task_end` is null then NULL when month(`t`.`task_end`) >= 4 then year(`t`.`task_end`) else year(`t`.`task_end`) - 1 end AS `task_end_fy`,`t`.`task_status` AS `task_status_id`,`tst`.`statustype_name` AS `task_status_name`,`t`.`task_deal_id` AS `task_deal_id`,`t`.`task_currency` AS `task_currency`,`t`.`task_value` AS `task_deal_value`,`t`.`task_highlight` AS `task_note` from ((((((`tbTask` `t` left join `tbUser` `o` on(`t`.`task_owner_id` = `o`.`user_id`)) left join `tbCompany` `c` on(`t`.`task_customer_id` = `c`.`company_id`)) left join (select `s1`.`squad_user_id` AS `squad_user_id`,`s1`.`squad_department_id` AS `squad_department_id`,`s1`.`squad_level_id` AS `squad_level_id`,`s1`.`squad_upgrade` AS `squad_upgrade` from (`tbSquad` `s1` join (select `tbSquad`.`squad_user_id` AS `squad_user_id`,max(`tbSquad`.`squad_upgrade`) AS `max_upgrade` from `tbSquad` group by `tbSquad`.`squad_user_id`) `s2` on(`s1`.`squad_user_id` = `s2`.`squad_user_id` and `s1`.`squad_upgrade` = `s2`.`max_upgrade`))) `s` on(`s`.`squad_user_id` = `t`.`task_owner_id`)) left join `tbDepartment` `d` on(`s`.`squad_department_id` = `d`.`department_id`)) left join `tbTaskType` `tp` on(`t`.`task_tasktype_id` = `tp`.`tasktype_id`)) left join `tbStatusType` `tst` on(`t`.`task_status` = `tst`.`statustype_id`)) where `t`.`task_tasktype_id` = 11 */;
 /*!50001 SET character_set_client      = @saved_cs_client */;
 /*!50001 SET character_set_results     = @saved_cs_results */;
 /*!50001 SET collation_connection      = @saved_col_connection */;
@@ -7031,4 +7200,4 @@ DELIMITER ;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-07-25  6:00:02
+-- Dump completed on 2026-08-22  6:00:02

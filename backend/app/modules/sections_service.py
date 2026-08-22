@@ -853,9 +853,19 @@ def get_adoption_tasks(customer_id: Optional[int] = None) -> List[Dict]:
 
 # ─── Portfolio: Cisco SA ──────────────────────────────────
 def get_cisco_sa_usage(customer_id: Optional[int] = None) -> List[Dict]:
+    """
+    Returns Cisco Smart Account metering data for a specific client.
+    Mirrors render_cisco_sa_report() from Streamlit which calls:
+      sa_repo.get_cisco_sa_metering_by_client_id(client_id=client_id, as_df=True)
+    """
     try:
         from src.infrastructure.database.repositories.cisco_sa_repository import CiscoSARepository
         repo = CiscoSARepository()
+        # Priority 1: dedicated per-client method (same as Streamlit)
+        if hasattr(repo, "get_cisco_sa_metering_by_client_id") and customer_id:
+            df = repo.get_cisco_sa_metering_by_client_id(client_id=customer_id, as_df=True)
+            return _df(df)
+        # Priority 2: load all + filter by column
         if hasattr(repo, "load_measure_cisco_sa"):
             df = repo.load_measure_cisco_sa(as_df=True)
         elif hasattr(repo, "load_sa_usage"):
@@ -866,7 +876,8 @@ def get_cisco_sa_usage(customer_id: Optional[int] = None) -> List[Dict]:
             return []
         if df is not None and not df.empty and customer_id:
             id_col = [c for c in df.columns if "customer_id" in c.lower() or "client_id" in c.lower()]
-            if id_col: df = df[df[id_col[0]] == customer_id]
+            if id_col:
+                df = df[df[id_col[0]] == customer_id]
         return _df(df)
     except Exception as e:
         logger.error(f"get_cisco_sa_usage: {e}\n{traceback.format_exc()}"); return []

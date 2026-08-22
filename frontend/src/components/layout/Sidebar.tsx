@@ -37,6 +37,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
+  { key: "portfolioClientOverview", label: "Client Overview", icon: <BarChart3 size={18} />, path: "/portfolio/client-overview", resourceKey: "portfolio.client_overview" },
   { key: "tasks", label: "Tasks", icon: <CheckSquare size={18} />, path: "/tasks", resourceKey: "task.task" },
   {
     key: "adoption", label: "Adoption", icon: <TrendingUp size={18} />,
@@ -64,7 +65,6 @@ const NAV_ITEMS: NavItem[] = [
       { key: "portfolioAsset", label: "Assets", icon: <Package size={16} />, path: "/portfolio/asset", resourceKey: "portfolio.asset" },
       { key: "portfolioAccountTeam", label: "Account Team", icon: <Users size={16} />, path: "/portfolio/account-team", resourceKey: "portfolio.account_team" },
       { key: "portfolioAdoptionTasks", label: "Adoption Initiatives", icon: <CheckSquare size={16} />, path: "/portfolio/adoption-tasks", resourceKey: "portfolio.adoption_initiatives" },
-      { key: "portfolioClientOverview", label: "Client Overview", icon: <BarChart3 size={16} />, path: "/portfolio/client-overview", resourceKey: "portfolio.client_overview" },
       { key: "portfolioCiscoEA", label: "Cisco EA", icon: <Package size={16} />, path: "/portfolio/cisco-ea", resourceKey: "portfolio.cisco_enterprise_agreement" },
     ],
   },
