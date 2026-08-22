@@ -1,0 +1,102 @@
+{
+  "common": {
+    "loading": "Cargando...",
+    "noData": "Sin datos",
+    "error": "Error",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "confirm": "Confirmar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "add": "Agregar",
+    "search": "Buscar",
+    "filter": "Filtrar",
+    "export": "Exportar",
+    "import": "Importar",
+    "close": "Cerrar",
+    "back": "Volver",
+    "next": "Siguiente",
+    "previous": "Anterior",
+    "refresh": "Actualizar",
+    "showing": "Mostrando",
+    "of": "de",
+    "all": "Todos",
+    "none": "Ninguno",
+    "yes": "Sí",
+    "no": "No",
+    "status": "Estado",
+    "actions": "Acciones",
+    "name": "Nombre",
+    "description": "Descripción",
+    "date": "Fecha",
+    "total": "Total",
+    "active": "Activo",
+    "inactive": "Inactivo",
+    "enabled": "Habilitado",
+    "disabled": "Deshabilitado",
+    "view": "Ver"
+  },
+  "nav": {
+    "dashboard": "Panel",
+    "tasks": "Tareas",
+    "adoption": "Adopción",
+    "today": "Hoy",
+    "cisco_lci": "Cisco LCI",
+    "csm_account": "Cuenta CSM",
+    "team_target": "Meta del Equipo",
+    "opportunities": "Oportunidades",
+    "use_cases": "Casos de Uso",
+    "portfolio": "Portafolio",
+    "projects": "Proyectos",
+    "public": "Público",
+    "admin": "Admin",
+    "logout": "Salir"
+  },
+  "auth": {
+    "login": "Entrar",
+    "username": "Usuario",
+    "password": "Contraseña",
+    "loginButton": "Iniciar sesión",
+    "loginError": "Usuario o contraseña incorrectos"
+  },
+  "portfolio": {
+    "farol": {
+      "title": "Portafolio — Farol",
+      "subtitle": "Panel de salud y adopción de clientes"
+    },
+    "accountTeam": {
+      "title": "Portafolio — Account Team",
+      "subtitle": "Vista del equipo de cuentas y asignación por cliente"
+    },
+    "asset": {
+      "title": "Portafolio — Assets",
+      "subtitle": "Gestión de activos y contratos"
+    },
+    "ciscoEA": {
+      "title": "Portafolio — Cisco EA",
+      "subtitle": "Cisco Enterprise Agreement — Informe de Licencias",
+      "eaGenerated": "EA Generado",
+      "totalPurchased": "Total Contratado",
+      "totalGenerated": "Total Generado",
+      "tableTitle": "Cisco EA",
+      "tabMetering": "Metering",
+      "tabTrueForward": "True Forward",
+      "filterCustomer": "Cliente",
+      "filterClear": "Limpiar",
+      "refresh": "Actualizar"
+    }
+  },
+  "adoption": {
+    "teamTarget": {
+      "fiscalYear": "Año Fiscal"
+    }
+  },
+  "tasks": {
+    "title": "Tareas",
+    "subtitle": "Gestión de tareas y actividades"
+  },
+  "errors": {
+    "access_denied": "Acceso denegado",
+    "generic": "Ocurrió un error inesperado"
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "noData": "No data",
+    "error": "Error",
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "search": "Search",
+    "filter": "Filter",
+    "export": "Export",
+    "import": "Import",
+    "close": "Close",
+    "back": "Back",
+    "next": "Next",
+    "previous": "Previous",
+    "refresh": "Refresh",
+    "showing": "Showing",
+    "of": "of",
+    "all": "All",
+    "none": "None",
+    "yes": "Yes",
+    "no": "No",
+    "status": "Status",
+    "actions": "Actions",
+    "name": "Name",
+    "description": "Description",
+    "date": "Date",
+    "total": "Total",
+    "active": "Active",
+    "inactive": "Inactive",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "view": "View"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "tasks": "Tasks",
+    "adoption": "Adoption",
+    "today": "Today",
+    "cisco_lci": "Cisco LCI",
+    "csm_account": "CSM Account",
+    "team_target": "Team Target",
+    "opportunities": "Opportunities",
+    "use_cases": "Use Cases",
+    "portfolio": "Portfolio",
+    "projects": "Projects",
+    "public": "Public",
+    "admin": "Admin",
+    "logout": "Logout"
+  },
+  "auth": {
+    "login": "Login",
+    "username": "Username",
+    "password": "Password",
+    "loginButton": "Sign In",
+    "loginError": "Incorrect username or password"
+  },
+  "portfolio": {
+    "farol": {
+      "title": "Portfolio — Farol",
+      "subtitle": "Customer health and adoption dashboard"
+    },
+    "accountTeam": {
+      "title": "Portfolio — Account Team",
+      "subtitle": "Account team view and customer allocation"
+    },
+    "asset": {
+      "title": "Portfolio — Assets",
+      "subtitle": "Asset and contract management"
+    },
+    "ciscoEA": {
+      "title": "Portfolio — Cisco EA",
+      "subtitle": "Cisco Enterprise Agreement — License Report",
+      "eaGenerated": "EA Generated",
+      "totalPurchased": "Total Purchased",
+      "totalGenerated": "Total Generated",
+      "tableTitle": "Cisco EA",
+      "tabMetering": "Metering",
+      "tabTrueForward": "True Forward",
+      "filterCustomer": "Customer",
+      "filterClear": "Clear",
+      "refresh": "Refresh"
+    }
+  },
+  "adoption": {
+    "teamTarget": {
+      "fiscalYear": "Fiscal Year"
+    }
+  },
+  "tasks": {
+    "title": "Tasks",
+    "subtitle": "Task and activity management"
+  },
+  "errors": {
+    "access_denied": "Access denied",
+    "generic": "An unexpected error occurred"
+  }
+}

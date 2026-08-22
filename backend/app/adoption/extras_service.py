@@ -278,10 +278,90 @@ def get_rebate_sip_opportunities(squad_ids: int = 30) -> List[Dict[str, Any]]:
 
 
 def get_rebate_cisco_ea() -> List[Dict[str, Any]]:
+    """
+    Loads Cisco EA metering data WITH customer names.
+    Uses a single query that includes mcea_client (name) and mcea_client_id
+    directly from vwCiscoEAMeteringLatest, plus fallback to vwCustomerCiscoEAConsolidated.
+    """
     if not _OK: return []
     try:
+        import pandas as pd
         repo = CiscoEARepository()
-        df = repo.load_measure_cisco_ea(as_df=True)
+
+        # Primary: load metering data WITH mcea_client (name) in one query
+        # Uses get_sqlalchemy_engine() which supports pd.read_sql directly.
+        try:
+            from src.infrastructure.database.connection import get_sqlalchemy_engine
+            engine = get_sqlalchemy_engine()
+            df = pd.read_sql(
+                """
+                SELECT
+                    mcea_client_id,
+                    mcea_client,
+                    mcea_subscription,
+                    mcea_suite_name,
+                    mcea_sku,
+                    mcea_domain,
+                    mcea_virtual_account,
+                    mcea_status,
+                    mcea_start_date,
+                    mcea_end_date,
+                    mcea_purchased,
+                    mcea_total_purchased,
+                    mcea_generated,
+                    mcea_balance,
+                    mcea_update
+                FROM vwCiscoEAMeteringLatest
+                """,
+                engine,
+            )
+        except Exception as eq:
+            logger.warning(f"get_rebate_cisco_ea SQLAlchemy query failed: {eq}, using repo method")
+            df = repo.load_measure_cisco_ea(as_df=True)
+
+        if df is None or df.empty:
+            return []
+
+        # Use mcea_client as customer_name if available and non-empty
+        if "mcea_client" in df.columns:
+            df["customer_name"] = df["mcea_client"].where(
+                df["mcea_client"].notna() & (df["mcea_client"].astype(str).str.strip() != ""),
+                None
+            )
+        else:
+            df["customer_name"] = None
+
+        # Fill remaining NULLs using vwCustomerCiscoEAConsolidated
+        needs_name = df["customer_name"].isna().any()
+        if needs_name:
+            try:
+                df_c = repo.load_customer_cisco_ea_consolidated(as_df=True)
+                if df_c is not None and not df_c.empty and "customer_id" in df_c.columns and "customer_name" in df_c.columns:
+                    df_cust = (
+                        df_c[["customer_id", "customer_name"]]
+                        .dropna(subset=["customer_name"])
+                        .drop_duplicates("customer_id")
+                    )
+                    df_cust["customer_id"] = pd.to_numeric(df_cust["customer_id"], errors="coerce")
+                    df["mcea_client_id"]   = pd.to_numeric(df["mcea_client_id"],   errors="coerce")
+                    # Merge only for rows missing customer_name
+                    missing_mask = df["customer_name"].isna()
+                    df_missing = df[missing_mask][["mcea_client_id"]].merge(
+                        df_cust, left_on="mcea_client_id", right_on="customer_id", how="left"
+                    )
+                    df.loc[missing_mask, "customer_name"] = df_missing["customer_name"].values
+            except Exception as ec:
+                logger.warning(f"get_rebate_cisco_ea consolidated fallback: {ec}")
+
+        # Last resort: use mcea_client_id as string
+        df["customer_name"] = df["customer_name"].where(
+            df["customer_name"].notna(),
+            df["mcea_client_id"].astype(str)
+        )
+
+        # Drop helper column
+        df.drop(columns=["mcea_client"], errors="ignore", inplace=True)
+
         return _df_to_list(df)
     except Exception as e:
         logger.error(f"get_rebate_cisco_ea: {e}\n{traceback.format_exc()}"); return []

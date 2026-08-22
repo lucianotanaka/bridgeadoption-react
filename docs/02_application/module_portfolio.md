@@ -21,6 +21,7 @@ O grupo Portfolio reúne as visões centradas no cliente — saúde do portfóli
 | Account Team | `/portfolio/account-team` | `portfolio.account_team` | `AccountTeamPage.tsx` |
 | Adoption Tasks | `/portfolio/adoption-tasks` | `portfolio.adoption_tasks` | `AdoptionTasksPage.tsx` |
 | Client Overview | `/portfolio/client-overview` | `portfolio.client_overview` | `ClientOverviewPage.tsx` |
+| **Cisco EA** | `/portfolio/cisco-ea` | `portfolio.cisco_enterprise_agreement` | `CiscoEAPage.tsx` |
 
 ---
 
@@ -158,6 +159,42 @@ backend/app/modules/
 ├── sections_router.py   → Endpoints de seções (portfolio, etc.)
 └── sections_service.py  → Queries para portfolio e visões de cliente
 ```
+
+---
+
+## 8b. Cisco EA (`portfolio.cisco_enterprise_agreement`)
+
+> **Status:** ✅ Migrado para React — 2026-08-21
+> **Documentação detalhada:** `docs/02_application/portfolio/cisco_ea.md`
+> **API:** `docs/07_api/cisco_ea_endpoints.md`
+
+### Propósito
+Painel de gestão de licenças **Cisco Enterprise Agreement (EA)**. Fornece visibilidade completa do consumo de licenças EA por cliente, com monitoramento preventivo do **True Forward** — mecanismo Cisco onde o cliente é cobrado pelo pico de consumo atingido durante o contrato.
+
+### Abas
+
+| Aba | Descrição |
+|---|---|
+| **Metering** | Consumo de licenças por suite. Filtro cliente (multiselect), KPIs (EA Gerado, Total Contratado, Total Gerado), gráfico % por suite e tabela (visível apenas com cliente selecionado) |
+| **True Forward** | Relatório completo de consumo excedente: filtros, 6 KPIs, 4 gráficos, 5 sub-tabs incluindo CCW Subscriptions com 7 filtros multiselect |
+
+### Fontes de Dados
+
+| Fonte | Descrição |
+|---|---|
+| `vwCiscoEAMeteringLatest` | Último snapshot de consumo por SKU/subscription |
+| `vwCustomerCiscoEAConsolidated` | Dados consolidados com `customer_name` via `tbCompany` |
+| `tbTask` (type 35) | Tarefas "Consumo Excedente: CISCO EA" |
+| CCW subscription report | Subscriptions importadas via CCW |
+
+### Endpoints
+- `GET /api/adoption/rebate/cisco-ea` — dados de medição com `customer_name`
+- `GET /api/adoption/rebate/summary?fy={fy}` — KPI EA Gerado %
+- `GET /api/adoption/cisco-ea-true-forward/report-data` — dados unificados True Forward
+
+### Backend Services
+- `backend/app/adoption/extras_service.py` → `get_rebate_cisco_ea()` (Metering)
+- `backend/app/adoption/cisco_ea_true_forward_service.py` → `get_true_forward_report_data()` (True Forward)
 
 ---
 

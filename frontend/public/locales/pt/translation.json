@@ -1,0 +1,102 @@
+{
+  "common": {
+    "loading": "Carregando...",
+    "noData": "Sem dados",
+    "error": "Erro",
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "confirm": "Confirmar",
+    "delete": "Excluir",
+    "edit": "Editar",
+    "add": "Adicionar",
+    "search": "Pesquisar",
+    "filter": "Filtrar",
+    "export": "Exportar",
+    "import": "Importar",
+    "close": "Fechar",
+    "back": "Voltar",
+    "next": "Próximo",
+    "previous": "Anterior",
+    "refresh": "Atualizar",
+    "showing": "Mostrando",
+    "of": "de",
+    "all": "Todos",
+    "none": "Nenhum",
+    "yes": "Sim",
+    "no": "Não",
+    "status": "Status",
+    "actions": "Ações",
+    "name": "Nome",
+    "description": "Descrição",
+    "date": "Data",
+    "total": "Total",
+    "active": "Ativo",
+    "inactive": "Inativo",
+    "enabled": "Habilitado",
+    "disabled": "Desabilitado",
+    "view": "Visualizar"
+  },
+  "nav": {
+    "dashboard": "Painel",
+    "tasks": "Tarefas",
+    "adoption": "Adoção",
+    "today": "Hoje",
+    "cisco_lci": "Cisco LCI",
+    "csm_account": "Conta CSM",
+    "team_target": "Meta da Equipe",
+    "opportunities": "Oportunidades",
+    "use_cases": "Casos de Uso",
+    "portfolio": "Portfólio",
+    "projects": "Projetos",
+    "public": "Público",
+    "admin": "Admin",
+    "logout": "Sair"
+  },
+  "auth": {
+    "login": "Entrar",
+    "username": "Usuário",
+    "password": "Senha",
+    "loginButton": "Entrar",
+    "loginError": "Usuário ou senha incorretos"
+  },
+  "portfolio": {
+    "farol": {
+      "title": "Portfólio — Farol",
+      "subtitle": "Painel de saúde e adoção dos clientes"
+    },
+    "accountTeam": {
+      "title": "Portfólio — Account Team",
+      "subtitle": "Visão da equipe de contas e alocação por cliente"
+    },
+    "asset": {
+      "title": "Portfólio — Assets",
+      "subtitle": "Gestão de ativos e contratos"
+    },
+    "ciscoEA": {
+      "title": "Portfólio — Cisco EA",
+      "subtitle": "Cisco Enterprise Agreement — Relatório de Licenças",
+      "eaGenerated": "EA Gerado",
+      "totalPurchased": "Total Contratado",
+      "totalGenerated": "Total Gerado",
+      "tableTitle": "Cisco EA",
+      "tabMetering": "Metering",
+      "tabTrueForward": "True Forward",
+      "filterCustomer": "Cliente",
+      "filterClear": "Limpar",
+      "refresh": "Atualizar"
+    }
+  },
+  "adoption": {
+    "teamTarget": {
+      "fiscalYear": "Ano Fiscal"
+    }
+  },
+  "tasks": {
+    "title": "Tarefas",
+    "subtitle": "Gestão de tarefas e atividades"
+  },
+  "errors": {
+    "access_denied": "Acesso negado",
+    "generic": "Ocorreu um erro inesperado"
+  }
+}
