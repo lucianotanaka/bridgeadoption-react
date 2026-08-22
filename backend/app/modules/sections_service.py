@@ -855,32 +855,58 @@ def get_adoption_tasks(customer_id: Optional[int] = None) -> List[Dict]:
 def get_cisco_sa_usage(customer_id: Optional[int] = None) -> List[Dict]:
     """
     Returns Cisco Smart Account metering data for a specific client.
-    Mirrors render_cisco_sa_report() from Streamlit which calls:
-      sa_repo.get_cisco_sa_metering_by_client_id(client_id=client_id, as_df=True)
+    Source: vwCiscoSAMeteringLatest WHERE mcsa_client_id = customer_id
+
+    Uses the backend's OWN connection pool (app.core.database) — guaranteed to work
+    since all other backend endpoints use the same pool successfully.
     """
+    if not customer_id:
+        return []
+
+    # ── Priority 1: backend native connection (no external path dependency) ──
+    try:
+        from app.core.database import get_db_connection
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT * FROM vwCiscoSAMeteringLatest WHERE mcsa_client_id = %s",
+                (int(customer_id),)
+            )
+            rows = cursor.fetchall()
+            return [_ser(dict(r)) for r in rows]
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e1:
+        logger.warning(f"get_cisco_sa_usage native conn failed: {e1}\n{traceback.format_exc()}")
+
+    # ── Priority 2: sqlalchemy engine via src path ────────────────────────────
+    try:
+        from src.infrastructure.database.connection import get_sqlalchemy_engine
+        import pandas as pd
+        engine = get_sqlalchemy_engine()
+        df = pd.read_sql(
+            "SELECT * FROM vwCiscoSAMeteringLatest WHERE mcsa_client_id = %(cid)s",
+            engine,
+            params={"cid": int(customer_id)},
+        )
+        if df is not None and not df.empty:
+            return _df(df)
+    except Exception as e2:
+        logger.warning(f"get_cisco_sa_usage sqlalchemy failed: {e2}\n{traceback.format_exc()}")
+
+    # ── Priority 3: CiscoSARepository ────────────────────────────────────────
     try:
         from src.infrastructure.database.repositories.cisco_sa_repository import CiscoSARepository
         repo = CiscoSARepository()
-        # Priority 1: dedicated per-client method (same as Streamlit)
-        if hasattr(repo, "get_cisco_sa_metering_by_client_id") and customer_id:
+        if hasattr(repo, "get_cisco_sa_metering_by_client_id"):
             df = repo.get_cisco_sa_metering_by_client_id(client_id=customer_id, as_df=True)
             return _df(df)
-        # Priority 2: load all + filter by column
-        if hasattr(repo, "load_measure_cisco_sa"):
-            df = repo.load_measure_cisco_sa(as_df=True)
-        elif hasattr(repo, "load_sa_usage"):
-            df = repo.load_sa_usage(as_df=True)
-        elif hasattr(repo, "get_all"):
-            df = repo.get_all(as_df=True)
-        else:
-            return []
-        if df is not None and not df.empty and customer_id:
-            id_col = [c for c in df.columns if "customer_id" in c.lower() or "client_id" in c.lower()]
-            if id_col:
-                df = df[df[id_col[0]] == customer_id]
-        return _df(df)
-    except Exception as e:
-        logger.error(f"get_cisco_sa_usage: {e}\n{traceback.format_exc()}"); return []
+    except Exception as e3:
+        logger.error(f"get_cisco_sa_usage repo failed: {e3}\n{traceback.format_exc()}")
+
+    return []
 
 
 # ─── Portfolio: Cisco True Forward ───────────────────────
