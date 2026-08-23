@@ -14,9 +14,9 @@
  *  8. Detail table (sorted by Balance, paginated)
  */
 
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useRef, useState } from "react";
 import Plot from "react-plotly.js";
-import { BarChart3, Layers, Tag, CheckCircle, TrendingUp, Calendar, List } from "lucide-react";
+import { BarChart3, Layers, Tag, CheckCircle, TrendingUp, Calendar, List, ChevronDown } from "lucide-react";
 
 function SectionTitle({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
@@ -57,6 +57,96 @@ function BarInline({ value, max = 100 }: { value: number; max?: number }) {
   return (
     <div className="w-full h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
       <div className={"h-full rounded-full " + col} style={{ width: (w / max * 100) + "%" }} />
+    </div>
+  );
+}
+
+function MultiSelect({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: string[];
+  value: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  const toggleOption = (option: string) => {
+    onChange(value.includes(option) ? value.filter((item) => item !== option) : [...value, option]);
+  };
+
+  const summary = value.length === 0
+    ? "All"
+    : value.length === 1
+      ? value[0]
+      : `${value.length} selected`;
+
+  return (
+    <div
+      ref={rootRef}
+      className="relative min-w-[130px]"
+      onBlur={(e) => {
+        if (!rootRef.current?.contains(e.relatedTarget as Node | null)) {
+          setOpen(false);
+        }
+      }}
+    >
+      <label className="text-[10px] text-gray-500 dark:text-gray-400 uppercase mb-1 block">{label}</label>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="w-full min-h-[34px] flex items-center justify-between gap-2 text-xs px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+      >
+        <span className="truncate text-left">{summary}</span>
+        <ChevronDown size={14} className={"shrink-0 transition-transform " + (open ? "rotate-180" : "")} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-20 w-full min-w-[220px] rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg">
+          <div className="max-h-56 overflow-auto py-1">
+            {options.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500">No options</p>
+            ) : (
+              options.map((option) => {
+                const checked = value.includes(option);
+                return (
+                  <label
+                    key={option}
+                    className="flex items-center gap-2 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleOption(option)}
+                      className="w-4 h-4 rounded accent-blue-600"
+                    />
+                    <span className="truncate">{option}</span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-2 border-t border-gray-100 dark:border-gray-700 px-3 py-2">
+            <button
+              type="button"
+              onClick={() => onChange(options)}
+              className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="text-[10px] text-red-500 hover:underline"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -181,12 +271,50 @@ export default function CiscoSAClientReport({ rows, isDark = false }: Props) {
   const paginated = tableRows.slice((safePage - 1) * TABLE_PS, safePage * TABLE_PS);
 
   const lastUpdate = useMemo(() => {
+    const preferredKeys = [
+      "mcsa_update",
+      "mcsa_last_update",
+      "mcsa_measurement_date",
+      "mcsa_snapshot_date",
+      "mcsa_created_at",
+      "mcsa_updated_at",
+      "update",
+      "updated_at",
+      "measurement_date",
+      "snapshot_date",
+      "created_at",
+    ];
+
+    const extractDate = (value: unknown): string => {
+      if (!value) return "";
+      const raw = String(value);
+      const match = raw.match(/\d{4}-\d{2}-\d{2}/);
+      if (match) return match[0];
+      const parsed = new Date(raw);
+      return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
+    };
+
     let max = "";
-    for (const r of deferredRows) { const d = r.mcsa_update ? String(r.mcsa_update).slice(0, 10) : ""; if (d > max) max = d; }
+
+    for (const row of deferredRows) {
+      for (const key of preferredKeys) {
+        const date = extractDate((row as Record<string, unknown>)[key]);
+        if (date > max) max = date;
+      }
+
+      if (max) continue;
+
+      for (const [key, value] of Object.entries(row)) {
+        const normalizedKey = key.toLowerCase();
+        if (!normalizedKey.includes("update") && !normalizedKey.includes("measure") && !normalizedKey.includes("snapshot")) continue;
+        const date = extractDate(value);
+        if (date > max) max = date;
+      }
+    }
+
     return max || "—";
   }, [deferredRows]);
 
-  const selectCls = "text-xs px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500";
   const hasFilter = filterDom.length > 0 || filterVA.length > 0 || filterSub.length > 0 || filterComp.length > 0 || filterLic.length > 0 || showOOC || showNeg;
   const isFiltering = deferredRows !== rows;
 
@@ -210,13 +338,7 @@ export default function CiscoSAClientReport({ rows, isDark = false }: Props) {
             { label: "Compliance",      opts: compOpts, val: filterComp, set: setFilterComp },
             { label: "License",         opts: licOpts,  val: filterLic,  set: setFilterLic  },
           ] as { label: string; opts: string[]; val: string[]; set: (v: string[]) => void }[]).map(({ label, opts, val, set }) => (
-            <div key={label}>
-              <label className="text-[10px] text-gray-500 dark:text-gray-400 uppercase mb-1 block">{label}</label>
-              <select multiple value={val} onChange={e => set([...e.target.selectedOptions].map(o => o.value))}
-                className={selectCls + " min-w-[130px] max-h-20"} size={Math.min(opts.length, 3)}>
-                {opts.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
+            <MultiSelect key={label} label={label} options={opts} value={val} onChange={set} />
           ))}
           <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-600 dark:text-gray-400 mt-4">
             <input type="checkbox" checked={showOOC} onChange={e => setShowOOC(e.target.checked)} className="w-4 h-4 rounded accent-red-500" />

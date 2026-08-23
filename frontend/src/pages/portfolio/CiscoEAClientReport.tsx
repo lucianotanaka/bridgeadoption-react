@@ -14,9 +14,9 @@
  *  8. Detail table (all columns, sorted by Balance, paginated)
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Plot from "react-plotly.js";
-import { AlertCircle, AlertTriangle, CheckCircle, BarChart3, TrendingDown, List } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle, BarChart3, TrendingDown, List, ChevronDown } from "lucide-react";
 
 function SectionTitle({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
@@ -72,6 +72,96 @@ function KpiTile({ label, value, sub, cls = "" }: { label: string; value: string
   );
 }
 
+function MultiSelect({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: string[];
+  value: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  const toggleOption = (option: string) => {
+    onChange(value.includes(option) ? value.filter((item) => item !== option) : [...value, option]);
+  };
+
+  const summary = value.length === 0
+    ? "All"
+    : value.length === 1
+      ? value[0]
+      : `${value.length} selected`;
+
+  return (
+    <div
+      ref={rootRef}
+      className="relative min-w-[130px]"
+      onBlur={(e) => {
+        if (!rootRef.current?.contains(e.relatedTarget as Node | null)) {
+          setOpen(false);
+        }
+      }}
+    >
+      <label className="text-[10px] text-gray-500 dark:text-gray-400 uppercase mb-1 block">{label}</label>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="w-full min-h-[34px] flex items-center justify-between gap-2 text-xs px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+      >
+        <span className="truncate text-left">{summary}</span>
+        <ChevronDown size={14} className={"shrink-0 transition-transform " + (open ? "rotate-180" : "")} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-20 w-full min-w-[220px] rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg">
+          <div className="max-h-56 overflow-auto py-1">
+            {options.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500">No options</p>
+            ) : (
+              options.map((option) => {
+                const checked = value.includes(option);
+                return (
+                  <label
+                    key={option}
+                    className="flex items-center gap-2 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleOption(option)}
+                      className="w-4 h-4 rounded accent-blue-600"
+                    />
+                    <span className="truncate">{option}</span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-2 border-t border-gray-100 dark:border-gray-700 px-3 py-2">
+            <button
+              type="button"
+              onClick={() => onChange(options)}
+              className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="text-[10px] text-red-500 hover:underline"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const PLT = { dark: { bg: "rgba(0,0,0,0)", font: "#9CA3AF", grid: "#374151" },
               light: { bg: "rgba(0,0,0,0)", font: "#4B5563", grid: "#E5E7EB" } };
 
@@ -117,7 +207,7 @@ export default function CiscoEAClientReport({ rows, isDark = false }: Props) {
     let ntfDate: string | null = null;
     for (const r of rows) {
       const d = r.mcea_ntf_date ? String(r.mcea_ntf_date).slice(0, 10) : null;
-      if (d && (!ntfDate || d < ntfDate === false)) ntfDate = ntfDate ? (d > ntfDate ? d : ntfDate) : d;
+      if (d && (!ntfDate || d > ntfDate)) ntfDate = d;
     }
     const daysNtf = ntfDate ? daysTo(ntfDate) : null;
     return { purchased, generated, overconsume, netBalance, overallPct, skusOver, ntfDate, daysNtf };
@@ -200,20 +290,8 @@ export default function CiscoEAClientReport({ rows, isDark = false }: Props) {
       <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 p-3">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">Filters</p>
         <div className="flex flex-wrap gap-3 items-end">
-          <div>
-            <label className="text-[10px] text-gray-500 dark:text-gray-400 uppercase mb-1 block">Subscription</label>
-            <select multiple value={filterSub} onChange={e => setFilterSub([...e.target.selectedOptions].map(o => o.value))}
-              className={selectCls + " min-w-[140px] max-h-20"} size={Math.min(subOpts.length, 3)}>
-              {subOpts.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-[10px] text-gray-500 dark:text-gray-400 uppercase mb-1 block">Suite</label>
-            <select multiple value={filterSuite} onChange={e => setFilterSuite([...e.target.selectedOptions].map(o => o.value))}
-              className={selectCls + " min-w-[140px] max-h-20"} size={Math.min(suiteOpts.length, 3)}>
-              {suiteOpts.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
+          <MultiSelect label="Subscription" options={subOpts} value={filterSub} onChange={setFilterSub} />
+          <MultiSelect label="Suite" options={suiteOpts} value={filterSuite} onChange={setFilterSuite} />
           <div>
             <label className="text-[10px] text-gray-500 dark:text-gray-400 uppercase mb-1 block">Status</label>
             <select multiple value={filterStatus} onChange={e => setFilterStatus([...e.target.selectedOptions].map(o => o.value))}

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
@@ -11,6 +11,7 @@ import { tasksApi, type TaskItem } from "@/api/tasks";
 import { useAuthStore } from "@/store/authStore";
 import CiscoEAClientReport from "@/pages/portfolio/CiscoEAClientReport";
 import CiscoSAClientReport from "@/pages/portfolio/CiscoSAClientReport";
+import TaskDetailPanel from "@/pages/tasks/TaskDetailPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -96,8 +97,14 @@ export default function ClientOverviewPage() {
   const [activeSection, setActiveSection] = useState<Section>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
+  const [detailTasks, setDetailTasks] = useState<TaskItem[] | null>(null);
+  const [detailIndex, setDetailIndex] = useState(0);
 
-  const toggle = (s: Section) => setActiveSection((prev) => (prev === s ? null : s));
+  const toggle = (s: Section) => {
+    setDetailTasks(null);
+    setDetailIndex(0);
+    setActiveSection((prev) => (prev === s ? null : s));
+  };
 
   // ── Data queries ──────────────────────────────────────────────────────────
   const companiesQ = useQuery({
@@ -168,11 +175,17 @@ export default function ClientOverviewPage() {
           timeout: 120000,
         })
         .then((r) => r.data),
-    enabled: loaded && !!numericId && activeSection === "sa",  // lazy: only fires when SA card is clicked
+    enabled: loaded && !!numericId,
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
   const saRows = saQ.data ?? [];
+
+  useEffect(() => {
+    if (activeSection === "sa" && saQ.isError) {
+      void saQ.refetch();
+    }
+  }, [activeSection, saQ]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const activeTasks = useMemo(() => tasks.filter((t) => !CLOSED_IDS.has(Number(t.task_status_id ?? 0))), [tasks]);
@@ -227,7 +240,9 @@ export default function ClientOverviewPage() {
 
   // ── Account Team Edit Mode ─────────────────────────────────────────────
   const authUser = useAuthStore((s) => s.user);
+  const hasPermission = useAuthStore((s) => s.hasPermission);
   const isAdmin = authUser?.roles?.includes("ADMIN") ?? false;
+  const canOpenTaskDetail = hasPermission("task.task");
   const canEditTeam = isAdmin || (() => {
     const role = (authUser?.role ?? "").toUpperCase();
     return role.includes("ADMIN") || role.includes("MANAGER") || role.includes("FULL") || role.includes("EDIT");
@@ -320,6 +335,14 @@ export default function ClientOverviewPage() {
     });
   };
 
+  const openTaskDetail = (taskList: TaskItem[], taskId?: number | string | null) => {
+    if (!canOpenTaskDetail || !taskList.length) return;
+    const normalizedTaskId = Number(taskId ?? 0);
+    const taskIdx = taskList.findIndex((task) => Number(task.task_id ?? 0) === normalizedTaskId);
+    setDetailTasks(taskList);
+    setDetailIndex(taskIdx >= 0 ? taskIdx : 0);
+  };
+
   return (
     <div className="space-y-4">
 
@@ -354,7 +377,7 @@ export default function ClientOverviewPage() {
                       const name = String(c.company_name ?? c.customer_name ?? id);
                       return (
                         <button key={id} type="button"
-                          onMouseDown={() => { setClientId(id); setLoaded(false); setActiveSection(null); setShowDropdown(false); setSearchQuery(""); }}
+                          onMouseDown={() => { setClientId(id); setLoaded(false); setActiveSection(null); setDetailTasks(null); setDetailIndex(0); setShowDropdown(false); setSearchQuery(""); }}
                           className={"w-full text-left px-3 py-1.5 text-xs transition-colors " + (id === clientId ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 font-medium" : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700")}>
                           {name}
                         </button>
@@ -364,7 +387,7 @@ export default function ClientOverviewPage() {
                 </div>
               )}
             </div>
-            <button disabled={!clientId} onClick={() => { setLoaded(true); setActiveSection(null); }}
+            <button disabled={!clientId} onClick={() => { setLoaded(true); setActiveSection(null); setDetailTasks(null); setDetailIndex(0); }}
               className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-xs font-medium rounded-lg transition-colors">
               <Search size={13} /> {t("portfolio.clientOverview.loadBtn")}
             </button>
@@ -645,7 +668,11 @@ export default function ClientOverviewPage() {
                           const isExpense = String(t.task_finance_type ?? "").toUpperCase() === "EXPENSE";
                           const isService = Number(t.is_service_impacting ?? 0) === 1;
                           return (
-                            <tr key={t.task_id ?? i} className="border-b border-gray-100 dark:border-gray-800 hover:bg-red-50/30 dark:hover:bg-red-900/10">
+                            <tr
+                              key={t.task_id ?? i}
+                              onClick={() => openTaskDetail(criticalAlerts, t.task_id)}
+                              className={"border-b border-gray-100 dark:border-gray-800 hover:bg-red-50/30 dark:hover:bg-red-900/10 " + (canOpenTaskDetail ? "cursor-pointer" : "")}
+                            >
                               <td className="px-3 py-2 font-medium text-gray-700 dark:text-gray-300">{t.task_type_name ?? "—"}</td>
                               <td className="px-3 py-2">
                                 <div className="flex gap-1.5 flex-wrap">
@@ -723,7 +750,11 @@ export default function ClientOverviewPage() {
                         </tr></thead>
                         <tbody>
                           {paginated.map((ini, i) => (
-                            <tr key={Number(ini.task_id ?? i)} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                            <tr
+                              key={Number(ini.task_id ?? i)}
+                              onClick={() => openTaskDetail(withStatus as TaskItem[], ini.task_id)}
+                              className={"border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 " + (canOpenTaskDetail ? "cursor-pointer" : "")}
+                            >
                               <td className="px-3 py-2 font-medium text-gray-700 dark:text-gray-300">{ini.task_type_name ?? "—"}</td>
                               <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{ini.task_owner_name ?? "—"}</td>
                               <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{fmt(ini.task_start)}</td>
@@ -1037,6 +1068,14 @@ export default function ClientOverviewPage() {
                 />
               )}
             </DetailPanel>
+          )}
+
+          {detailTasks && canOpenTaskDetail && (
+            <TaskDetailPanel
+              tasks={detailTasks}
+              initialIndex={detailIndex}
+              onClose={() => setDetailTasks(null)}
+            />
           )}
 
         </>
