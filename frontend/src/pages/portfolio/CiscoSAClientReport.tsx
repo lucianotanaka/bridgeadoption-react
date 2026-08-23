@@ -14,7 +14,7 @@
  *  8. Detail table (sorted by Balance, paginated)
  */
 
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import Plot from "react-plotly.js";
 import { BarChart3, Layers, Tag, CheckCircle, TrendingUp, Calendar, List } from "lucide-react";
 
@@ -67,35 +67,36 @@ const PLT = {
 };
 
 export default function CiscoSAClientReport({ rows, isDark = false }: Props) {
-  const [filterDom,    setFilterDom]    = useState<string[]>([]);
-  const [filterVA,     setFilterVA]     = useState<string[]>([]);
-  const [filterSub,    setFilterSub]    = useState<string[]>([]);
-  const [filterComp,   setFilterComp]   = useState<string[]>([]);
-  const [filterLic,    setFilterLic]    = useState<string[]>([]);
-  const [showOOC,      setShowOOC]      = useState(false);
-  const [showNeg,      setShowNeg]      = useState(false);
-  const [tablePage,    setTablePage]    = useState(1);
+  const [filterDom, setFilterDom] = useState<string[]>([]);
+  const [filterVA, setFilterVA] = useState<string[]>([]);
+  const [filterSub, setFilterSub] = useState<string[]>([]);
+  const [filterComp, setFilterComp] = useState<string[]>([]);
+  const [filterLic, setFilterLic] = useState<string[]>([]);
+  const [showOOC, setShowOOC] = useState(false);
+  const [showNeg, setShowNeg] = useState(false);
+  const [tablePage, setTablePage] = useState(1);
   const TABLE_PS = 20;
 
+  const deferredRows = useDeferredValue(rows);
   const plt = isDark ? PLT.dark : PLT.light;
 
   // ── Filter options (cascade) ──────────────────────────────────────────────
-  const domOpts   = useMemo(() => [...new Set(rows.map(r => String(r.mcsa_domain ?? "")).filter(Boolean))].sort(), [rows]);
-  const df1       = useMemo(() => filterDom.length  ? rows.filter(r => filterDom.includes(String(r.mcsa_domain ?? "")))           : rows, [rows, filterDom]);
-  const vaOpts    = useMemo(() => [...new Set(df1.map(r => String(r.mcsa_virtual_account ?? "")).filter(Boolean))].sort(), [df1]);
-  const df2       = useMemo(() => filterVA.length   ? df1.filter(r => filterVA.includes(String(r.mcsa_virtual_account ?? "")))    : df1, [df1, filterVA]);
-  const subOpts   = useMemo(() => [...new Set(df2.map(r => String(r.mcsa_subscription ?? "")).filter(Boolean))].sort(), [df2]);
-  const df3       = useMemo(() => filterSub.length  ? df2.filter(r => filterSub.includes(String(r.mcsa_subscription ?? "")))      : df2, [df2, filterSub]);
-  const compOpts  = useMemo(() => [...new Set(df3.map(r => String(r.mcsa_compliance ?? "")).filter(Boolean))].sort(), [df3]);
-  const df4       = useMemo(() => filterComp.length ? df3.filter(r => filterComp.includes(String(r.mcsa_compliance ?? "")))       : df3, [df3, filterComp]);
-  const licOpts   = useMemo(() => [...new Set(df4.map(r => String(r.mcsa_license ?? "")).filter(Boolean))].sort(), [df4]);
+  const domOpts = useMemo(() => [...new Set(deferredRows.map((r) => String(r.mcsa_domain ?? "")).filter(Boolean))].sort(), [deferredRows]);
+  const df1 = useMemo(() => filterDom.length ? deferredRows.filter((r) => filterDom.includes(String(r.mcsa_domain ?? ""))) : deferredRows, [deferredRows, filterDom]);
+  const vaOpts = useMemo(() => [...new Set(df1.map((r) => String(r.mcsa_virtual_account ?? "")).filter(Boolean))].sort(), [df1]);
+  const df2 = useMemo(() => filterVA.length ? df1.filter((r) => filterVA.includes(String(r.mcsa_virtual_account ?? ""))) : df1, [df1, filterVA]);
+  const subOpts = useMemo(() => [...new Set(df2.map((r) => String(r.mcsa_subscription ?? "")).filter(Boolean))].sort(), [df2]);
+  const df3 = useMemo(() => filterSub.length ? df2.filter((r) => filterSub.includes(String(r.mcsa_subscription ?? ""))) : df2, [df2, filterSub]);
+  const compOpts = useMemo(() => [...new Set(df3.map((r) => String(r.mcsa_compliance ?? "")).filter(Boolean))].sort(), [df3]);
+  const df4 = useMemo(() => filterComp.length ? df3.filter((r) => filterComp.includes(String(r.mcsa_compliance ?? ""))) : df3, [df3, filterComp]);
+  const licOpts = useMemo(() => [...new Set(df4.map((r) => String(r.mcsa_license ?? "")).filter(Boolean))].sort(), [df4]);
 
   // ── Apply all filters ─────────────────────────────────────────────────────
   const filtered = useMemo(() => {
     let d = df4;
-    if (filterLic.length) d = d.filter(r => filterLic.includes(String(r.mcsa_license ?? "")));
-    if (showOOC) d = d.filter(r => isOOC(r.mcsa_compliance));
-    if (showNeg) d = d.filter(r => num(r.mcsa_balance) < 0);
+    if (filterLic.length) d = d.filter((r) => filterLic.includes(String(r.mcsa_license ?? "")));
+    if (showOOC) d = d.filter((r) => isOOC(r.mcsa_compliance));
+    if (showNeg) d = d.filter((r) => num(r.mcsa_balance) < 0);
     return d;
   }, [df4, filterLic, showOOC, showNeg]);
 
@@ -181,16 +182,22 @@ export default function CiscoSAClientReport({ rows, isDark = false }: Props) {
 
   const lastUpdate = useMemo(() => {
     let max = "";
-    for (const r of rows) { const d = r.mcsa_update ? String(r.mcsa_update).slice(0, 10) : ""; if (d > max) max = d; }
+    for (const r of deferredRows) { const d = r.mcsa_update ? String(r.mcsa_update).slice(0, 10) : ""; if (d > max) max = d; }
     return max || "—";
-  }, [rows]);
+  }, [deferredRows]);
 
   const selectCls = "text-xs px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500";
   const hasFilter = filterDom.length > 0 || filterVA.length > 0 || filterSub.length > 0 || filterComp.length > 0 || filterLic.length > 0 || showOOC || showNeg;
+  const isFiltering = deferredRows !== rows;
 
   return (
     <div className="space-y-5">
-      <p className="text-[10px] text-gray-400 dark:text-gray-500">Last measurement: {lastUpdate}</p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[10px] text-gray-400 dark:text-gray-500">Last measurement: {lastUpdate}</p>
+        {isFiltering && (
+          <p className="text-[10px] text-blue-500 dark:text-blue-400">Optimizing report rendering…</p>
+        )}
+      </div>
 
       {/* ── 1. Filters ────────────────────────────────────────────────── */}
       <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 p-3">

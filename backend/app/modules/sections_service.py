@@ -856,14 +856,10 @@ def get_cisco_sa_usage(customer_id: Optional[int] = None) -> List[Dict]:
     """
     Returns Cisco Smart Account metering data for a specific client.
     Source: vwCiscoSAMeteringLatest WHERE mcsa_client_id = customer_id
-
-    Uses the backend's OWN connection pool (app.core.database) — guaranteed to work
-    since all other backend endpoints use the same pool successfully.
+    Uses app.core.database — the backend's own connection pool.
     """
     if not customer_id:
         return []
-
-    # ── Priority 1: backend native connection (no external path dependency) ──
     try:
         from app.core.database import get_db_connection
         conn = get_db_connection()
@@ -874,38 +870,15 @@ def get_cisco_sa_usage(customer_id: Optional[int] = None) -> List[Dict]:
                 (int(customer_id),)
             )
             rows = cursor.fetchall()
-            return [_ser(dict(r)) for r in rows]
+            logger.info(f"get_cisco_sa_usage: query returned {len(rows)} rows for customer_id={customer_id}")
+            result = [_ser(dict(r)) for r in rows]
+            logger.info(f"get_cisco_sa_usage: serialized {len(result)} records")
+            return result
         finally:
             cursor.close()
             conn.close()
-    except Exception as e1:
-        logger.warning(f"get_cisco_sa_usage native conn failed: {e1}\n{traceback.format_exc()}")
-
-    # ── Priority 2: sqlalchemy engine via src path ────────────────────────────
-    try:
-        from src.infrastructure.database.connection import get_sqlalchemy_engine
-        import pandas as pd
-        engine = get_sqlalchemy_engine()
-        df = pd.read_sql(
-            "SELECT * FROM vwCiscoSAMeteringLatest WHERE mcsa_client_id = %(cid)s",
-            engine,
-            params={"cid": int(customer_id)},
-        )
-        if df is not None and not df.empty:
-            return _df(df)
-    except Exception as e2:
-        logger.warning(f"get_cisco_sa_usage sqlalchemy failed: {e2}\n{traceback.format_exc()}")
-
-    # ── Priority 3: CiscoSARepository ────────────────────────────────────────
-    try:
-        from src.infrastructure.database.repositories.cisco_sa_repository import CiscoSARepository
-        repo = CiscoSARepository()
-        if hasattr(repo, "get_cisco_sa_metering_by_client_id"):
-            df = repo.get_cisco_sa_metering_by_client_id(client_id=customer_id, as_df=True)
-            return _df(df)
-    except Exception as e3:
-        logger.error(f"get_cisco_sa_usage repo failed: {e3}\n{traceback.format_exc()}")
-
+    except Exception as e:
+        logger.error(f"get_cisco_sa_usage ERROR (app.core.database): {e}\n{traceback.format_exc()}")
     return []
 
 

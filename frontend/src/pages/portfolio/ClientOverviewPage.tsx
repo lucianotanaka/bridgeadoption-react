@@ -126,10 +126,12 @@ export default function ClientOverviewPage() {
     enabled: loaded,
     staleTime: 5 * 60 * 1000,
   });
-  const initiatives = useMemo(
-    () => (initiativesQ.data ?? []).filter((r) => r.task_customer_name === clientName),
-    [initiativesQ.data, clientName]
-  );
+  const initiatives = useMemo(() => {
+    const normalizedClientName = clientName.trim().toLowerCase();
+    return (initiativesQ.data ?? []).filter((r) =>
+      String(r.task_customer_name ?? "").trim().toLowerCase() === normalizedClientName
+    );
+  }, [initiativesQ.data, clientName]);
 
   const teamQ = useQuery({
     queryKey: ["co-account-team"],
@@ -160,15 +162,46 @@ export default function ClientOverviewPage() {
 
   const saQ = useQuery({
     queryKey: ["co-sa", numericId],
-    queryFn: () => apiClient.get<Record<string, unknown>[]>(`/portfolio/cisco-sa/usage?customer_id=${numericId}`).then((r) => r.data),
-    enabled: loaded && !!numericId,
+    queryFn: () =>
+      apiClient
+        .get<Record<string, unknown>[]>(`/portfolio/cisco-sa/usage?customer_id=${numericId}`, {
+          timeout: 120000,
+        })
+        .then((r) => r.data),
+    enabled: loaded && !!numericId && activeSection === "sa",  // lazy: only fires when SA card is clicked
     staleTime: 5 * 60 * 1000,
+    retry: false,
   });
   const saRows = saQ.data ?? [];
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const activeTasks = useMemo(() => tasks.filter((t) => !CLOSED_IDS.has(Number(t.task_status_id ?? 0))), [tasks]);
-  const overdueTasks = useMemo(() => activeTasks.filter((t) => t.task_end && String(t.task_end).slice(0, 10) < TODAY), [activeTasks]);
+  const criticalAlerts = useMemo(() => {
+    return activeTasks
+      .filter((t) => {
+        const isN1 = String(t.critical_level ?? "").toUpperCase() === "N1";
+        const isExpense = String(t.task_finance_type ?? "").toUpperCase() === "EXPENSE";
+        const isServiceImpact = Number(t.is_service_impacting ?? 0) === 1;
+        return isN1 && (isExpense || isServiceImpact);
+      })
+      .sort((a, b) => {
+        const aExpense = String(a.task_finance_type ?? "").toUpperCase() === "EXPENSE";
+        const bExpense = String(b.task_finance_type ?? "").toUpperCase() === "EXPENSE";
+        if (aExpense !== bExpense) return aExpense ? -1 : 1;
+        const aDate = String(a.next_followup_any_effective ?? a.task_end ?? "9999-12-31");
+        const bDate = String(b.next_followup_any_effective ?? b.task_end ?? "9999-12-31");
+        if (aDate !== bDate) return aDate.localeCompare(bDate);
+        return (Number(b.task_value_brl ?? b.task_value_usd ?? 0) - Number(a.task_value_brl ?? a.task_value_usd ?? 0));
+      });
+  }, [activeTasks]);
+  const financeCriticalAlerts = useMemo(
+    () => criticalAlerts.filter((t) => String(t.task_finance_type ?? "").toUpperCase() === "EXPENSE"),
+    [criticalAlerts]
+  );
+  const serviceCriticalAlerts = useMemo(
+    () => criticalAlerts.filter((t) => Number(t.is_service_impacting ?? 0) === 1),
+    [criticalAlerts]
+  );
   const lciTasks = useMemo(() => tasks.filter((t) => [21, 22].includes(Number(t.task_tasktype_id ?? 0))), [tasks]);
   const lciActive = useMemo(() => lciTasks.filter((t) => !CLOSED_IDS.has(Number(t.task_status_id ?? 0))), [lciTasks]);
   const activeInitiatives = useMemo(() => initiatives.filter((r) => !CLOSED_IDS.has(Number(r.task_status_id ?? 0))), [initiatives]);
@@ -374,9 +407,9 @@ export default function ClientOverviewPage() {
             <KpiCard icon={<Activity size={16} />} label={t("portfolio.clientOverview.kpiLci")} value={lciActive.length}
               sub={t("portfolio.clientOverview.kpiSubTotal", { n: lciTasks.length })} color="text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20"
               active={activeSection === "lci"} viewingLabel={t("portfolio.clientOverview.viewing")} onClick={() => toggle("lci")} />
-            <KpiCard icon={<AlertTriangle size={16} />} label={t("portfolio.clientOverview.kpiOverdue")} value={overdueTasks.length}
+            <KpiCard icon={<AlertTriangle size={16} />} label={t("portfolio.clientOverview.kpiOverdue")} value={criticalAlerts.length}
               sub={t("portfolio.clientOverview.kpiSubPastDue")} color="text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20"
-              active={activeSection === "overdue"} alert={overdueTasks.length > 0} viewingLabel={t("portfolio.clientOverview.viewing")} onClick={() => toggle("overdue")} />
+              active={activeSection === "overdue"} alert={criticalAlerts.length > 0} viewingLabel={t("portfolio.clientOverview.viewing")} onClick={() => toggle("overdue")} />
             <KpiCard icon={<Zap size={16} />} label={t("portfolio.clientOverview.kpiInitiatives")} value={activeInitiatives.length}
               sub={t("portfolio.clientOverview.kpiSubTotal", { n: initiatives.length })} color="text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20"
               active={activeSection === "initiatives"} viewingLabel={t("portfolio.clientOverview.viewing")} onClick={() => toggle("initiatives")} />
@@ -494,33 +527,144 @@ export default function ClientOverviewPage() {
             </DetailPanel>
           )}
 
-          {/* Overdue Items */}
+          {/* Critical Alerts */}
           {activeSection === "overdue" && (
-            <DetailPanel title={`Overdue Items (${overdueTasks.length})`} icon={<AlertTriangle size={16} />} onClose={() => setActiveSection(null)}>
-              {overdueTasks.length === 0 ? <Empty msg="No overdue items — great!" /> : (
-                <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
-                  <table className="w-full text-xs">
-                    <thead><tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                      {["Type", "Owner", "Due Date", "Days Late", "Status", "%"].map((h) => (
-                        <th key={h} className="px-3 py-2 text-left font-semibold text-gray-600 dark:text-gray-300 whitespace-nowrap">{h}</th>
-                      ))}
-                    </tr></thead>
-                    <tbody>
-                      {overdueTasks.sort((a, b) => String(a.task_end ?? "").localeCompare(String(b.task_end ?? ""))).map((t, i) => {
-                        const daysLate = t.task_end ? Math.floor((new Date(TODAY).getTime() - new Date(String(t.task_end).slice(0, 10)).getTime()) / 86400000) : 0;
-                        return (
-                          <tr key={t.task_id ?? i} className="border-b border-gray-100 dark:border-gray-800 hover:bg-red-50 dark:hover:bg-red-900/10">
-                            <td className="px-3 py-2 font-medium text-gray-700 dark:text-gray-300">{t.task_type_name ?? "—"}</td>
-                            <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{t.task_owner_name ?? "—"}</td>
-                            <td className="px-3 py-2 text-red-600 dark:text-red-400 whitespace-nowrap font-medium">{fmt(t.task_end)}</td>
-                            <td className="px-3 py-2"><span className="font-bold text-red-600 dark:text-red-400">{daysLate}d</span></td>
-                            <td className="px-3 py-2"><span className={"text-[10px] font-semibold px-2 py-0.5 rounded-full " + badge(t.task_status_name ?? "")}>{t.task_status_name ?? "—"}</span></td>
-                            <td className="px-3 py-2 text-gray-500">{Number(t.task_completed ?? 0)}%</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+            <DetailPanel title={`Critical Alerts (${criticalAlerts.length})`} icon={<AlertTriangle size={16} />} onClose={() => setActiveSection(null)}>
+              {criticalAlerts.length === 0 ? <Empty msg="No critical alerts for this client" /> : (
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-red-300 dark:border-red-700 bg-gradient-to-r from-red-50 via-orange-50 to-red-50 dark:from-red-950/30 dark:via-orange-950/20 dark:to-red-950/30 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                        <AlertTriangle size={18} className="text-red-600 dark:text-red-400" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-bold text-red-700 dark:text-red-300">Immediate attention required</p>
+                        <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                          This panel highlights active <strong>N1</strong> tasks with financial and/or operational risk for the selected client.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="rounded-xl border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/10 p-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">Total Alerts</p>
+                      <p className="text-2xl font-bold text-red-700 dark:text-red-300 mt-1">{criticalAlerts.length}</p>
+                    </div>
+                    <div className="rounded-xl border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/10 p-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">Finance Impact</p>
+                      <p className="text-2xl font-bold text-red-700 dark:text-red-300 mt-1">{financeCriticalAlerts.length}</p>
+                    </div>
+                    <div className="rounded-xl border border-orange-300 dark:border-orange-700 bg-orange-50 dark:bg-orange-900/10 p-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-orange-600 dark:text-orange-400">Service Impact</p>
+                      <p className="text-2xl font-bold text-orange-700 dark:text-orange-300 mt-1">{serviceCriticalAlerts.length}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    <div className="rounded-xl border border-red-300 dark:border-red-700 overflow-hidden">
+                      <div className="px-4 py-3 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800">
+                        <p className="text-sm font-bold text-red-700 dark:text-red-300">Finance Impact</p>
+                        <p className="text-[11px] text-red-600 dark:text-red-400">N1 tasks with potential financial loss</p>
+                      </div>
+                      {financeCriticalAlerts.length === 0 ? (
+                        <Empty msg="No finance impact alerts" />
+                      ) : (
+                        <div className="divide-y divide-red-100 dark:divide-red-900/30">
+                          {financeCriticalAlerts.map((t) => (
+                            <div key={t.task_id} className="p-4 bg-white dark:bg-gray-900 hover:bg-red-50/40 dark:hover:bg-red-900/10 transition-colors">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700">N1</span>
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700">FINANCE</span>
+                                    <span className="text-[10px] text-gray-400 dark:text-gray-500">#{t.task_id}</span>
+                                  </div>
+                                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 mt-2">{t.task_type_name ?? "—"}</p>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Owner: {t.task_owner_name ?? "—"}</p>
+                                  {t.critical_reason && <p className="text-xs text-red-600 dark:text-red-400 mt-2">⚠ {String(t.critical_reason)}</p>}
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">Exposure</p>
+                                  <p className="text-sm font-bold text-red-700 dark:text-red-300">
+                                    {t.task_value_usd ? `USD ${Number(t.task_value_usd).toLocaleString("en-US")}` : t.task_value_brl ? `BRL ${Number(t.task_value_brl).toLocaleString("pt-BR")}` : "—"}
+                                  </p>
+                                  <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">Follow-up: {fmt(t.next_followup_any_effective ?? t.task_end)}</p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-xl border border-orange-300 dark:border-orange-700 overflow-hidden">
+                      <div className="px-4 py-3 bg-orange-50 dark:bg-orange-900/20 border-b border-orange-200 dark:border-orange-800">
+                        <p className="text-sm font-bold text-orange-700 dark:text-orange-300">Service Impact</p>
+                        <p className="text-[11px] text-orange-600 dark:text-orange-400">N1 tasks with potential operational disruption</p>
+                      </div>
+                      {serviceCriticalAlerts.length === 0 ? (
+                        <Empty msg="No service impact alerts" />
+                      ) : (
+                        <div className="divide-y divide-orange-100 dark:divide-orange-900/30">
+                          {serviceCriticalAlerts.map((t) => (
+                            <div key={t.task_id} className="p-4 bg-white dark:bg-gray-900 hover:bg-orange-50/40 dark:hover:bg-orange-900/10 transition-colors">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700">N1</span>
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-700">SERVICE</span>
+                                    <span className="text-[10px] text-gray-400 dark:text-gray-500">#{t.task_id}</span>
+                                  </div>
+                                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 mt-2">{t.task_type_name ?? "—"}</p>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Owner: {t.task_owner_name ?? "—"}</p>
+                                  {t.critical_reason && <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">⚠ {String(t.critical_reason)}</p>}
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">Status</p>
+                                  <p className="text-sm font-bold text-orange-700 dark:text-orange-300">{t.task_status_reclassified ?? t.task_status_name ?? "—"}</p>
+                                  <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">Follow-up: {fmt(t.next_followup_any_effective ?? t.task_end)}</p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
+                    <table className="w-full text-xs">
+                      <thead><tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                        {["Type", "Category", "Owner", "Status", "Follow-up", "Value / Exposure"].map((h) => (
+                          <th key={h} className="px-3 py-2 text-left font-semibold text-gray-600 dark:text-gray-300 whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr></thead>
+                      <tbody>
+                        {criticalAlerts.map((t, i) => {
+                          const isExpense = String(t.task_finance_type ?? "").toUpperCase() === "EXPENSE";
+                          const isService = Number(t.is_service_impacting ?? 0) === 1;
+                          return (
+                            <tr key={t.task_id ?? i} className="border-b border-gray-100 dark:border-gray-800 hover:bg-red-50/30 dark:hover:bg-red-900/10">
+                              <td className="px-3 py-2 font-medium text-gray-700 dark:text-gray-300">{t.task_type_name ?? "—"}</td>
+                              <td className="px-3 py-2">
+                                <div className="flex gap-1.5 flex-wrap">
+                                  {isExpense && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700">Finance</span>}
+                                  {isService && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-700">Service</span>}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{t.task_owner_name ?? "—"}</td>
+                              <td className="px-3 py-2"><span className={"text-[10px] font-semibold px-2 py-0.5 rounded-full " + badge(t.task_status_reclassified ?? t.task_status_name ?? "")}>{t.task_status_reclassified ?? t.task_status_name ?? "—"}</span></td>
+                              <td className="px-3 py-2 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmt(t.next_followup_any_effective ?? t.task_end)}</td>
+                              <td className="px-3 py-2 text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                                {t.task_value_usd ? `USD ${Number(t.task_value_usd).toLocaleString("en-US")}` : t.task_value_brl ? `BRL ${Number(t.task_value_brl).toLocaleString("pt-BR")}` : "—"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </DetailPanel>
@@ -849,9 +993,25 @@ export default function ClientOverviewPage() {
 
           {/* Cisco Smart Account — full SA report (migrated from Streamlit) */}
           {activeSection === "sa" && (
-            <DetailPanel title={`Cisco SA License Usage — ${clientName}`} icon={<Package size={16} />} onClose={() => setActiveSection(null)}>
+            <DetailPanel title={`Cisco Smart Accout License Usage — ${clientName}`} icon={<Package size={16} />} onClose={() => setActiveSection(null)}>
               {saQ.isLoading ? (
-                <div className="flex justify-center py-10"><Spinner /></div>
+                <div className="flex flex-col items-center justify-center gap-3 py-10">
+                  <Spinner />
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Loading Cisco SA usage data…</p>
+                </div>
+              ) : saQ.isError ? (
+                <div className="py-8 text-center">
+                  <p className="text-sm font-medium text-red-600 dark:text-red-400">Failed to load Cisco SA usage data.</p>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {saQ.error instanceof Error ? saQ.error.message : "Unexpected error while loading Cisco SA usage."}
+                  </p>
+                  <button
+                    onClick={() => void saQ.refetch()}
+                    className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
+                  >
+                    <Search size={12} /> Retry
+                  </button>
+                </div>
               ) : saRows.length === 0 ? (
                 <Empty msg="No Cisco SA data for this client" />
               ) : (
