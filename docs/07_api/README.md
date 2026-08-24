@@ -54,5 +54,6 @@ http://<servidor>/api
 | `adoption_initiatives_endpoints.md` | `/api/portfolio/adoption-tasks` | Adoption Initiatives — relatório via `vwTaskTechnologyAdoptionReport` |
 | `cisco_ea_endpoints.md` | `/api/portfolio/cisco-ea` | Cisco EA — metering, consolidated, True Forward |
 | `projects_endpoints.md` | `/api/projects` | Projects — listagem `vwProject`, equipe `vwProjectTeam` |
+| `tasks_endpoints.md` | `/api/tasks` + `/api/admin/tasks` | Tasks — overview, KPIs, filtros, detalhe, atividades, RACI, histórico, follow-up, LCI viability, reports, admin |
 
 > **Nota:** Use `/api/docs` (Swagger UI) ou `/api/redoc` para explorar os endpoints interativamente em ambiente de desenvolvimento.

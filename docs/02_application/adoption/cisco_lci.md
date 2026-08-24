@@ -2,7 +2,7 @@
 
 > **Rota frontend:** `/adoption/cisco-lci`
 > **resource_key:** `adoption.report_cisco_lci`
-> **Última atualização:** 2026-08-24 (v2.9)
+> **Última atualização:** 2026-08-24 (v2.10)
 
 ---
 
@@ -220,7 +220,17 @@ Colunas da tabela:
 - **Completion** = `termination_status` (ex: EARLY, ON-TIME, LATE)
 - **Value USD** = `stage_amount_usd` (approval_value para status 10, stage_value demais)
 
-**Export Excel:** botão exporta todos os 4 tabs de status (Approved, Awaiting, In Progress, Lost) em planilha multi-aba, respeitando os filtros ativos.
+**Export Excel:** botão exporta **5 abas** na planilha multi-aba, respeitando os filtros ativos:
+
+| Ordem | Aba | Conteúdo |
+|-------|-----|----------|
+| 1 | **All** | Todos os stages do FY, independente de status |
+| 2 | **Approved** | Stages aprovados (status 9, 10) |
+| 3 | **Awaiting** | Stages aguardando aprovação (status 1) |
+| 4 | **In Progress** | Stages em andamento (status 2, 3, 7, 8) |
+| 5 | **Lost** | Stages perdidos (status 6) |
+
+O arquivo gerado se chama `cisco_lci_report_fy_<FY>.xlsx`. Todos os 5 conjuntos de dados são buscados em paralelo e os filtros ativos (Client, Solution, Use Case, Task WS) são aplicados a todas as abas.
 
 #### Filtros em Cascata
 Os 4 filtros da tabela de stages são **dinâmicos em cascata** — cada filtro exibe somente opções válidas para a combinação dos outros 3 filtros ativos:

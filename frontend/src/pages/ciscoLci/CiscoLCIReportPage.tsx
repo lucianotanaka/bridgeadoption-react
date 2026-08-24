@@ -186,6 +186,9 @@ const EXPORT_TABS: { key: Exclude<StageFilter, "all">; sheetName: string }[] = [
   { key: "lost", sheetName: "Lost" },
 ];
 
+// "All" tab included separately in export
+const EXPORT_ALL_SHEET = "All";
+
 // ─── LCI Journey types & columns ──────────────────────────
 type LciJourneyRow = Record<string, unknown>;
 const LCI_JOURNEY_COLS: { key: string; label: string; num?: boolean; date?: boolean }[] = [
@@ -448,14 +451,23 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
   const handleExportAll = async () => {
     setIsExporting(true);
     try {
-      const results = await Promise.all(
-        EXPORT_TABS.map((t) => ciscoLciApi.getStages(selectedFY, t.key).then((r) => r.data))
-      );
-      const sheets = EXPORT_TABS.map((t, i) => ({
-        sheetName: t.sheetName,
-        rows: applyFilters(results[i]) as unknown as Record<string, unknown>[],
-        columns: STAGE_TABLE_COLUMNS,
-      }));
+      // Fetch the 4 status tabs + "all" in parallel
+      const [allResults, ...statusResults] = await Promise.all([
+        ciscoLciApi.getStages(selectedFY, "all").then((r) => r.data),
+        ...EXPORT_TABS.map((t) => ciscoLciApi.getStages(selectedFY, t.key).then((r) => r.data)),
+      ]);
+      const sheets = [
+        {
+          sheetName: EXPORT_ALL_SHEET,
+          rows: applyFilters(allResults) as unknown as Record<string, unknown>[],
+          columns: STAGE_TABLE_COLUMNS,
+        },
+        ...EXPORT_TABS.map((t, i) => ({
+          sheetName: t.sheetName,
+          rows: applyFilters(statusResults[i]) as unknown as Record<string, unknown>[],
+          columns: STAGE_TABLE_COLUMNS,
+        })),
+      ];
       exportToXlsxMultiSheet(sheets, `cisco_lci_report_fy_${selectedFY}`);
     } finally {
       setIsExporting(false);

@@ -63,8 +63,8 @@ O **Bridge Adoption** é um portal web interno NTT Data para gestão de adoção
 ### `02_application/` — Módulos por grupo
 
 #### Grupo Tasks
-- **`module_tasks.md`** — Visão geral do módulo Tasks (componentes, regras, endpoints)
-- *(detalhes internos em `05_deployment/task/`)*
+- **`module_tasks.md`** — Visão geral completa do módulo Tasks (componentes, regras de negócio, endpoints, permissões, troubleshooting)
+- **`tasks/admin_tasks.md`** — Admin Tasks: ajuste administrativo de tarefas via UI (campos editáveis, remoção em massa, endpoints admin)
 
 #### Grupo Adoption (`adoption/`)
 - **`adoption/forecast.md`** — Forecast: previsão backlog vs realizado vs meta
@@ -97,7 +97,11 @@ O **Bridge Adoption** é um portal web interno NTT Data para gestão de adoção
 
 ### `05_deployment/`
 - **`deployment_guide.md`** — Deploy completo: frontend + backend + Apache + systemd + checklist
-- `task/` — arquitetura e troubleshooting do módulo Tasks (5 arquivos)
+- `task/` — documentação de deploy/sustentação do módulo Tasks:
+  - **`task/task_overview.md`** — Visão geral React: abas, arquivos-chave, hierarquia, permissões, verificação pós-deploy
+  - **`task/task_database.md`** — Banco: tabelas (tbTask, tbTaskActivity, tbTaskRecord, tbTaskRACI), views, repositórios, queries de sustentação
+  - **`task/task_flows.md`** — Fluxos de negócio
+  - **`task/task_troubleshooting.md`** — Troubleshooting
 - `cisco_lci/` — Cisco LCI: guia de implantação, sustentação e troubleshooting
   - **`cisco_lci/cisco_lci_overview.md`** — Deploy, serviços, verificação de saúde, troubleshooting, histórico de versões
 
@@ -110,6 +114,7 @@ O **Bridge Adoption** é um portal web interno NTT Data para gestão de adoção
 - `README.md` — visão geral dos grupos de endpoints
 - **`auth_endpoints.md`** — Login, logout, language, theme
 - **`admin_endpoints.md`** — Usuários, roles, permissões, recursos, empresas
+- **`tasks_endpoints.md`** — Tasks: overview, KPIs, filtros, detalhe, atividades, RACI, histórico, follow-up, LCI viability, reports, admin tasks
 - **`cisco_lci_endpoints.md`** — Cisco LCI: todos os endpoints com parâmetros, respostas e exemplos
 - **`team_target_endpoints.md`** — Team Target: fiscal-years, targets enriquecidos, medição por target_id
 
@@ -129,6 +134,10 @@ O **Bridge Adoption** é um portal web interno NTT Data para gestão de adoção
 | Criar novo módulo | `08_frontend/architecture.md` + `06_security/authorization_rbac.md` |
 | Gerenciar permissões | `06_security/authorization_rbac.md` |
 | Entender a API | `07_api/auth_endpoints.md` + `07_api/admin_endpoints.md` |
+| **API Tasks** | `07_api/tasks_endpoints.md` |
+| **Módulo Tasks** | `02_application/module_tasks.md` |
+| **Admin Tasks (ajuste de dados)** | `02_application/tasks/admin_tasks.md` |
+| **Deploy/sustentação Tasks** | `05_deployment/task/task_overview.md` |
 | **API Cisco LCI** | `07_api/cisco_lci_endpoints.md` |
 | **API Team Target** | `07_api/team_target_endpoints.md` |
 | Adicionar tradução | `08_frontend/i18n.md` |

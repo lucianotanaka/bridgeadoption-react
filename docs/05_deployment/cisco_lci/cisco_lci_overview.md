@@ -2,7 +2,7 @@
 
 > **Módulo:** Cisco LCI (Life Cycle Incentive)
 > **Ambiente:** CentOS 9 + FastAPI + React + SQL Server
-> **Última atualização:** 2026-08-24 (v2.9)
+> **Última atualização:** 2026-08-24 (v2.8)
 
 ---
 
@@ -296,8 +296,6 @@ O frontend usa React Query com `staleTime: 5 minutos`. Para forçar atualizaçã
 
 | Data | Versão | Alteração |
 |------|--------|-----------|
-| 2026-08-24 | v2.9 | TaskDetailPanel inline (abaixo da tabela) — removido overlay/modal |
-| 2026-08-24 | v2.9 | Aviso de clique: ícone Info + i18n clickRowHint (EN/PT/ES) |
 | 2026-08-24 | v2.8 | Linhas clicáveis na tabela de stages com TaskDetailPanel (permissão task.task) |
 | 2026-08-24 | v2.8 | Filtro Task WS multiselect em cascata + Tab "All" na tabela de stages |
 | 2026-08-24 | v2.7 | find_all(task_eligible=None): tabela inclui todas as tasks LCI, não só elegíveis |

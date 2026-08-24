@@ -1,99 +1,167 @@
-# TASK – Visão Geral Funcional (Legado Streamlit)
+# Tasks — Visão Geral do Módulo (React)
 
-> ⚠️ **Este documento descreve a implementação original em Streamlit** (`webapp/pages/task/*.py`), mantida como referência histórica.
+> **Última atualização:** 2026-08-24
+> **Versão:** Bridge Adoption React
+> **Rota:** `/tasks`
+> **Audiência:** Implantação e sustentação
+
+---
 
 ## 1. Objetivo do Módulo
 
-O módulo TASK é responsável por:
+O módulo **Tasks** é o coração operacional do Bridge Adoption. Permite que os CSMs gerenciem tarefas de adoção tecnológica Cisco:
 
-- Gestão de Tasks (entidade pai)
-- Gestão de Activities (entidade filha)
-- Controle de status
-- Controle de Follow Up
-- Registro de histórico (log)
-- Geração de relatórios
-
----
-
-## 2. Estrutura Hierárquica
-
-```
-Task
- ├── Activity 1
- ├── Activity 2
- └── Activity N
-```
-
-- Uma Task pode ter múltiplas Activities.
-- Activities possuem histórico próprio.
-- Status de Task pode impactar edição de Activity.
+- Monitoramento de status e criticidade (Overview / KPIs)
+- Acompanhamento de próximos follow-ups agrupados por urgência
+- Filtros avançados em cascata para localizar tasks
+- Edição de dados da task: status, owner, datas, valores, projeto vinculado
+- Gestão de atividades (activities) vinculadas à task
+- Matriz RACI por task / atividade
+- Histórico de notas e eventos
+- Análise de viabilidade LCI (Cisco incentive)
+- Criação de novas tasks
+- Relatórios exportáveis (Task List / Task Details)
 
 ---
 
-## 3. Fluxo Funcional do Usuário
+## 2. Estrutura do Módulo
 
-### 1️⃣ Usuário acessa TASK
-Arquivo:
 ```
-task.py
-```
-
-### 2️⃣ Aplica filtros
-- Next Follow Up
-- Report Filter
-
-### 3️⃣ Seleciona Task
-Abre:
-```
-task_detail.py
-```
-
-### 4️⃣ Visualiza / edita Activities
-Lista:
-```
-task_activity.py
+Módulo Tasks
+├── Aba Overview          → KPIs, radar crítico, financeiro, serviço
+├── Aba Next Follow-Up    → Follow-ups por período (Delayed/Today/Week)
+├── Aba Filter            → Filtros em cascata + tabela de resultados
+├── Aba LCI Viability *   → Análise de elegibilidade para incentivo LCI
+├── Aba New Task          → Formulário de criação
+├── Aba Reports           → Task List + Task Details exportáveis
+└── TaskDetailPanel       → Painel de detalhe (abre abaixo da aba ativa)
+    ├── TaskEditForm      → Edição de campos
+    ├── ActivityRow       → Atividades (edição inline + nova atividade)
+    ├── RACIMatrix        → Gestão de responsabilidades
+    └── HistorySection    → Notas / histórico de eventos
 ```
 
-Detalhe:
-```
-task_activity_detail.py
-```
+> `*` A aba **LCI Viability** só aparece para usuários com permissão `task.task_lci_viability`.
 
-Nova:
+---
+
+## 3. Arquivos-Chave
+
+### Frontend
+
+| Arquivo | Função |
+|---------|--------|
+| `frontend/src/pages/tasks/TaskPage.tsx` | Hub principal — abas, TaskDetailPanel |
+| `frontend/src/pages/tasks/TaskOverview.tsx` | Painéis Overview (Monitoring/Finance/Service) |
+| `frontend/src/pages/tasks/TaskFilterTab.tsx` | Aba Filter — filtros + tabela |
+| `frontend/src/pages/tasks/NextFollowUpPanel.tsx` | Aba Follow-Up |
+| `frontend/src/pages/tasks/TaskDetailPanel.tsx` | Painel de detalhe + edição + RACI + histórico |
+| `frontend/src/pages/tasks/LCIViabilityPage.tsx` | Aba LCI Viability |
+| `frontend/src/pages/tasks/NewTaskForm.tsx` | Aba New Task |
+| `frontend/src/pages/tasks/TaskReportsTab.tsx` | Aba Reports |
+| `frontend/src/api/tasks.ts` | Funções de chamada à API |
+
+### Backend
+
+| Arquivo | Função |
+|---------|--------|
+| `backend/app/tasks/router.py` | Endpoints REST `/api/tasks/*` |
+| `backend/app/tasks/service.py` | Overview, KPIs, Action Queue |
+| `backend/app/tasks/filter_service.py` | Filtros, detalhe, update, atividades, RACI |
+| `backend/app/tasks/lci_viability_service.py` | Viabilidade LCI, grupos de status |
+| `backend/app/tasks/report_service.py` | Relatórios Task List / Task Details |
+| `backend/app/tasks/schemas.py` | Modelos Pydantic (TaskOverviewResponse, etc.) |
+
+### Admin (somente ADMIN)
+
+| Arquivo | Função |
+|---------|--------|
+| `frontend/src/pages/admin/AdminTasksPage.tsx` | Página Admin → Tasks |
+| `backend/app/modules/admin_task_service.py` | Service admin: filtro, edit, remove |
+| `backend/app/modules/sections_router.py` | Endpoints `/api/admin/tasks/*` |
+
+---
+
+## 4. Hierarquia de Dados
+
 ```
-task_activity_new.py
+Task (tbTask)
+  │
+  ├── Activity (tbTaskActivity)  ← n atividades por task
+  │     │
+  │     └── Record (tbTaskRecord, via activity_id)
+  │
+  ├── Record (tbTaskRecord, via task_id)   ← notas / follow-ups
+  │
+  └── RACI (tbTaskRACI)   ← responsáveis por task / atividade
 ```
 
 ---
 
-## 4. Conceitos Importantes
+## 5. Permissões
 
-### ✅ Follow Up
-- Obrigatório para status não finais
-- Gera histórico
+| resource_key | Acesso concedido |
+|---|---|
+| `task.task` | Módulo Tasks completo (todas as abas exceto LCI Viability) |
+| `task.task_lci_viability` | Aba LCI Viability |
+| `admin.admin_task` | Admin → Tasks (apenas Role ADMIN) |
 
-### ✅ Status Final
-IDs:
-```
-{4, 5, 6, 10}
-```
-Bloqueiam edição.
-
-### ✅ Permissões
-- ADMIN
-- Owner
-- Temp Owner
-- Manager
+Ver `docs/06_security/authorization_rbac.md` para detalhes do modelo RBAC.
 
 ---
 
-## 5. Principais Dependências
+## 6. Status Finais (bloqueiam edição)
 
-- session_state
-- Repositórios (Repository Pattern)
-- DataFrame sincronizado em memória
-- st.rerun()
+Tasks com `task_status_id` em `{4, 5, 6, 10}` são consideradas **finalizadas**:
+
+| ID | Status |
+|----|--------|
+| 4 | CANCELLED |
+| 5 | CLOSED |
+| 6 | DONE |
+| 10 | COMPLETED |
 
 ---
 
-Documento funcional para sustentação.
+## 7. Dependências de Banco de Dados
+
+| Objeto | Tipo | Uso |
+|--------|------|-----|
+| `tbTask` | Tabela | Entidade principal |
+| `tbTaskActivity` | Tabela | Atividades filhas |
+| `tbTaskRecord` | Tabela | Histórico / follow-ups |
+| `tbTaskRACI` | Tabela | Matriz RACI |
+| `tbTaskType` | Tabela | Tipos de task |
+| `tbTaskActivityTemplate` | Tabela | Templates para criação automática de atividades |
+| `tbStatusType` | Tabela | Catálogo de status |
+| `tbStatusTypeJustification` | Tabela | Justificativas por status |
+| `vwTask` | View | Task completa (joins com company, user, status) |
+| `vwFilterTask` | View | Filtros leves (sem todos os campos de vwTask) |
+| `vwFilterTaskOwner` | View | Owners para filtro de Reports |
+| `vwCustomerCiscoLCITrackProjectPM` | View | Dados para LCI Viability |
+
+---
+
+## 8. Verificação rápida pós-deploy
+
+```bash
+# 1. Health check da API
+curl -s http://localhost:8001/api/health | python3 -m json.tool
+
+# 2. Testar endpoint de overview (requer token)
+curl -s -H "Authorization: Bearer <TOKEN>" http://localhost:8001/api/tasks/kpi
+
+# 3. Testar filtro de opções
+curl -s -H "Authorization: Bearer <TOKEN>" http://localhost:8001/api/tasks/filter-options
+```
+
+---
+
+## 9. Referências
+
+- **Módulo completo:** `docs/02_application/module_tasks.md`
+- **API endpoints:** `docs/07_api/tasks_endpoints.md`
+- **Database:** `docs/05_deployment/task/task_database.md`
+- **Flows:** `docs/05_deployment/task/task_flows.md`
+- **Troubleshooting:** `docs/05_deployment/task/task_troubleshooting.md`
+- **Admin Tasks:** `docs/02_application/tasks/admin_tasks.md`
