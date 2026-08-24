@@ -2,7 +2,7 @@
 
 > **Base URL:** `/api/adoption/cisco-lci`
 > **Autenticação:** Bearer Token JWT (header `Authorization: Bearer <token>`)
-> **Última atualização:** 2026-08-24
+> **Última atualização:** 2026-08-24 (v2.8)
 
 ---
 
@@ -327,15 +327,16 @@ Tabela detalhada de estágios filtrada por categoria de status.
 | Param | Tipo | Obrigatório | Descrição |
 |-------|------|-------------|-----------|
 | `fy` | int | Não | Ano fiscal NTT |
-| `stage_status` | string | Não | `approved` \| `awaiting` \| `ongoing` \| `lost` (default: `approved`) |
+| `stage_status` | string | Não | `all` \| `approved` \| `awaiting` \| `ongoing` \| `lost` (default: `approved`) |
 
 **Mapeamento de status:**
-| `stage_status` | `lci_stage_status_id` |
-|---|---|
-| `approved` | 9, 10 |
-| `awaiting` | 1 |
-| `ongoing` | 2, 3, 7, 8 |
-| `lost` | 6 |
+| `stage_status` | `lci_stage_status_id` | Lógica de FY |
+|---|---|---|
+| `all` | todos (sem filtro de status) | `lci_effective_fy == fy OR lci_stage_approval_fy == fy` |
+| `approved` | 9, 10 | `lci_stage_approval_fy == fy` (fallback: `lci_effective_fy`) |
+| `awaiting` | 1 | `lci_effective_fy == fy` |
+| `ongoing` | 2, 3, 7, 8 | `lci_effective_fy == fy` |
+| `lost` | 6 | `lci_effective_fy == fy` |
 
 **Response:**
 ```json
@@ -438,5 +439,8 @@ Portfolio Burndown: evolução temporal acumulada de Opt In, Claim Approved e Pi
 
 - `frontend/src/api/ciscoLci.ts` centraliza os tipos e chamadas deste módulo
 - a tela principal `CiscoLCIReportPage` prioriza `GET /report-data`
-- o drill-down de task na tabela de estágios reutiliza o `TaskDetailPanel` do módulo Tasks; não existe endpoint específico novo no namespace Cisco LCI para essa interação
+- o endpoint `/stages` aceita agora `stage_status=all` para exibir todos os stages do FY sem filtro de status
+- o drill-down de task na tabela de estágios reutiliza o `TaskDetailPanel` via `GET /api/tasks/detail/{task_id}`; não existe endpoint específico novo no namespace Cisco LCI para essa interação
+- apenas usuários com permissão `task.task` veem linhas clicáveis e o modal de detalhe da task
 - a aba operacional também consome `GET /api/adoption/rebate/lci-journey?fy=<FY>` para a tabela analítica LCI Journey
+- os 4 filtros da tabela de stages (Client, Solution, Use Case, **Task WS**) são multiselect com cascata client-side — nenhuma chamada adicional ao backend é necessária para atualizar as opções de filtro

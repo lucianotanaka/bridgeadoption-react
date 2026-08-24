@@ -353,7 +353,8 @@
       "tooltipPbConvRate": "Conversion Rate = Claim Approved / Stage Opt In for the selected period.",
       "tooltipPbChart": "Blue area: accumulated Stage Opt In. Green line: accumulated Claim Approved. Orange dotted area: remaining Pipeline.",
       "tooltipPbMonthly": "Monthly non-cumulative view of new Stage Opt In and Claim Approved. Useful to identify when activity peaks occurred.",
-      "dataAvailable": "Data available"
+      "dataAvailable": "Data available",
+      "clickRowHint": "Click a row to open task details"
     },
     "csmAccount": {
       "title": "CSM Account",

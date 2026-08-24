@@ -852,15 +852,15 @@ export default function ClientOverviewPage() {
 
         {loaded && clientName && (
           <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
-            <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-end">
-              <div className="xl:col-span-4 flex items-center gap-2 min-w-0">
+            <div className="flex flex-col lg:flex-row lg:flex-nowrap gap-3 lg:gap-4 lg:items-end">
+              <div className="flex items-center gap-2 min-w-0 lg:flex-1">
                 <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center flex-shrink-0">
                   <Building2 size={16} className="text-blue-600 dark:text-blue-400" />
                 </div>
                 <p className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{clientName}</p>
               </div>
 
-              <div className="xl:col-span-2">
+              <div className="lg:w-40 lg:flex-shrink-0">
                 <div className="flex items-center gap-2">
                   <label className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Type</label>
                   <button
@@ -899,7 +899,7 @@ export default function ClientOverviewPage() {
                 )}
               </div>
 
-              <div className="xl:col-span-3">
+              <div className="lg:w-48 lg:flex-shrink-0">
                 <div className="flex items-center gap-2">
                   <label className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Vertical</label>
                   <button
@@ -938,7 +938,7 @@ export default function ClientOverviewPage() {
                 )}
               </div>
 
-              <div className="xl:col-span-2">
+              <div className="lg:w-44 lg:flex-shrink-0">
                 <label className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Latest NPS</label>
                 <div className="mt-1 px-3 py-2 min-h-[42px] flex flex-col justify-center">
                   <p className="text-sm font-semibold text-blue-600 dark:text-blue-400 leading-tight">{npsQ.data?.nps_survey_score ?? "—"}</p>

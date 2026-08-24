@@ -353,7 +353,8 @@
       "tooltipPbConvRate": "Taxa de Conversao = Claim Aprovado / Stage Opt In para o periodo selecionado.",
       "tooltipPbChart": "Area azul: Stage Opt In acumulado. Linha verde: Claim Aprovado. Area laranja: Pipeline restante.",
       "tooltipPbMonthly": "Visao mensal nao acumulada de Stage Opt In e Claim Aprovado.",
-      "dataAvailable": "Dados disponiveis"
+      "dataAvailable": "Dados disponiveis",
+      "clickRowHint": "Clique em uma linha para abrir os detalhes da task"
     },
     "csmAccount": {
       "title": "CSM Account",

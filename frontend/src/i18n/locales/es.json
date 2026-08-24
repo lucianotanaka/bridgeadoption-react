@@ -353,7 +353,8 @@
       "tooltipPbConvRate": "Tasa de Conversion = Claim Aprobado / Stage Opt In para el periodo seleccionado.",
       "tooltipPbChart": "Area azul: Stage Opt In acumulado. Linea verde: Claim Aprobado. Area naranja: Pipeline restante.",
       "tooltipPbMonthly": "Vista mensual no acumulada de Stage Opt In y Claim Aprobado.",
-      "dataAvailable": "Datos disponibles"
+      "dataAvailable": "Datos disponibles",
+      "clickRowHint": "Haz clic en una fila para abrir los detalles de la tarea"
     },
     "csmAccount": {
       "title": "CSM Account",

@@ -24,18 +24,19 @@ class CiscoLCIRepository:
 
     def find_all(
         self,
-        task_eligible: str,
+        task_eligible: str = None,
         as_df: bool = False
     ) -> Union[List[Dict], pd.DataFrame]:
         """
-        Retorna dados LCI filtrando por task_eligible ('Y' ou 'N').
+        Retorna dados LCI.
 
-        :param task_eligible: 'Y' ou 'N'
+        :param task_eligible: 'Y', 'N' ou None.
+                              Se None, não filtra por task_eligible.
         :param as_df: Se True retorna DataFrame, senão List[Dict]
         """
 
-        if task_eligible not in ("Y", "N"):
-            raise ValueError("task_eligible deve ser 'Y' ou 'N'.")
+        if task_eligible is not None and task_eligible not in ("Y", "N"):
+            raise ValueError("task_eligible deve ser 'Y', 'N' ou None.")
 
         query = """
             SELECT
@@ -68,10 +69,10 @@ class CiscoLCIRepository:
                 a.activity_backlog_value AS lci_stage_backlog_value,
                 a.activity_status AS lci_stage_status_id,
                 s.statustype_name AS lci_stage_status_name,
-                CASE 
+                CASE
                     WHEN a.activity_status IN (9, 10) THEN
                         CASE
-                            WHEN a.activity_end_performed IS NULL THEN 'ON-TME'
+                            WHEN a.activity_end_performed IS NULL THEN 'ON-TIME'
                             WHEN a.activity_end_performed < a.activity_end THEN 'EARLY'
                             WHEN a.activity_end_performed = a.activity_end THEN 'ON-TIME'
                             ELSE 'ON-TIME'
@@ -90,19 +91,28 @@ class CiscoLCIRepository:
             LEFT JOIN tbStatusType s
                 ON a.activity_status = s.statustype_id
             WHERE
-                t.task_eligible = %s
-                AND t.task_tasktype_id IN (21, 22)
+                t.task_tasktype_id IN (21, 22)
                 AND a.activity_ws IS NOT NULL
         """
 
+        params = []
+
+        if task_eligible is not None:
+            query += """
+                AND t.task_eligible = %s
+            """
+            params.append(task_eligible)
+
         conn = get_db_connection()
+        cursor = None
 
         try:
             if as_df:
-                return pd.read_sql(query, conn, params=[task_eligible])
+                return pd.read_sql(query, conn, params=params)
 
             cursor = conn.cursor(dictionary=True)
-            cursor.execute(query, (task_eligible,))
+            cursor.execute(query, tuple(params))
+
             return cursor.fetchall() or []
 
         except Exception as e:
@@ -112,16 +122,17 @@ class CiscoLCIRepository:
                 error_description=str(e),
                 error_traceback=traceback.format_exc()
             )
-            return [] if not as_df else pd.DataFrame()
+
+            return pd.DataFrame() if as_df else []
 
         finally:
             try:
-                if not as_df:
+                if cursor is not None:
                     cursor.close()
             except Exception:
                 pass
-            conn.close()
 
+            conn.close()
 
     # ==========================================================
     # LCI APROVADOS (COM VALOR DE APROVAÇÃO)

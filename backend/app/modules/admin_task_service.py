@@ -110,8 +110,8 @@ _RECORD_REMOVE_VALUES: Dict[str, Any] = {
 
 def admin_get_task_filter_options() -> Dict[str, List[str]]:
     """
-    Retorna opcoes distintas de ws/deal/track/subtrack da vwTask.
-    Espelha _load_filter_base() do Streamlit admin_task.py.
+    Retorna opcoes distintas de ws/deal/track/subtrack da vwFilterTask (+ tbTask para subtracks).
+    Usa load_for_filtering() — mesmo padrao de filter_service.py que funciona corretamente.
     """
     empty = {"ws_list": [], "deal_ids": [], "tracks": [], "subtracks": []}
     if not _REPOS_OK:
@@ -119,30 +119,47 @@ def admin_get_task_filter_options() -> Dict[str, List[str]]:
     try:
         import pandas as pd
         repo = TaskRepository()
-        df = repo.get_task_by_query(
-            columns=["task_id", "task_ws", "task_deal_id", "task_track", "task_subtrack"],
-            as_df=True,
-        )
+
+        # Step 1: use vwFilterTask (proven, no INFORMATION_SCHEMA overhead)
+        df = repo.load_for_filtering(as_df=True)
         if df is None or df.empty:
             return empty
 
-        if "task_id" in df.columns:
-            df = df.drop_duplicates(subset=["task_id"])
-
-        def _distinct(col: str) -> List[str]:
-            if col not in df.columns:
+        def _distinct(col: str, src_df=df) -> List[str]:
+            if col not in src_df.columns:
                 return []
             return sorted([
-                str(x) for x in df[col].dropna().unique()
+                str(x) for x in src_df[col].dropna().unique()
                 if str(x).strip() not in ("", "None", "nan")
             ])
 
-        return {
+        result: Dict[str, List[str]] = {
             "ws_list":   _distinct("task_ws"),
             "deal_ids":  _distinct("task_deal_id"),
             "tracks":    _distinct("task_track"),
-            "subtracks": _distinct("task_subtrack"),
+            "subtracks": _distinct("task_subtrack"),  # may not be in vwFilterTask
         }
+
+        # Step 2: if subtracks empty (vwFilterTask lacks task_subtrack), query tbTask directly
+        if not result["subtracks"]:
+            try:
+                from src.infrastructure.database.connection import get_sqlalchemy_engine
+                engine = get_sqlalchemy_engine()
+                df2 = pd.read_sql(
+                    "SELECT DISTINCT task_subtrack FROM tbTask "
+                    "WHERE task_subtrack IS NOT NULL AND task_subtrack <> '' "
+                    "ORDER BY task_subtrack",
+                    engine,
+                )
+                if df2 is not None and not df2.empty:
+                    result["subtracks"] = sorted([
+                        str(x) for x in df2["task_subtrack"].tolist()
+                        if str(x).strip() not in ("", "None", "nan")
+                    ])
+            except Exception as sub_err:
+                logger.warning(f"admin_get_task_filter_options subtracks fallback: {sub_err}")
+
+        return result
     except Exception as e:
         logger.error(f"admin_get_task_filter_options: {e}\n{traceback.format_exc()}")
         return empty
@@ -158,7 +175,10 @@ def admin_filter_tasks(
     subtracks: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Carrega todas as tarefas da vwTask e aplica filtros em pandas.
+    Filtra tarefas usando o mesmo padrao de filter_service.py:
+      1. Carrega vwFilterTask (load_for_filtering) — leve, sem overhead de INFORMATION_SCHEMA
+      2. Aplica filtros em pandas
+      3. Busca dados completos de vwTask via get_task(task_ids)
     Espelha _load_tasks() do Streamlit admin_task.py.
     """
     if not _REPOS_OK:
@@ -166,26 +186,43 @@ def admin_filter_tasks(
     try:
         import pandas as pd
         repo = TaskRepository()
-        df = repo.get_task_by_query(as_df=True)
-        if df is None or df.empty:
+
+        # Step 1: load filter base
+        filter_df = repo.load_for_filtering(as_df=True)
+        if filter_df is None or filter_df.empty:
             return []
 
-        if ws_list:
+        df = filter_df.copy()
+
+        # Step 2: apply cascading filters on vwFilterTask
+        if ws_list and "task_ws" in df.columns:
             df = df[df["task_ws"].isin(ws_list)]
-        if deal_ids:
+        if deal_ids and "task_deal_id" in df.columns:
             df = df[df["task_deal_id"].isin(deal_ids)]
-        if tracks:
+        if tracks and "task_track" in df.columns:
             df = df[df["task_track"].isin(tracks)]
         if subtracks:
-            df = df[df["task_subtrack"].isin(subtracks)]
+            if "task_subtrack" in df.columns:
+                df = df[df["task_subtrack"].isin(subtracks)]
+            # else: subtrack not in vwFilterTask — skip filter (show all)
 
-        if "task_id" in df.columns:
-            df = df.drop_duplicates(subset=["task_id"])
+        if df.empty:
+            return []
 
-        if task_id is not None:
-            df = df[df["task_id"] == task_id]
+        # Step 3: get full task rows from vwTask
+        selected_ids = df["task_id"].dropna().astype(int).drop_duplicates().tolist()
+        if not selected_ids:
+            return []
 
-        return _serialize_df(df.reset_index(drop=True))
+        # Direct client-side filter by task_id (numeric)
+        task_df = repo.get_task(task_id=selected_ids, as_df=True)
+        if task_df is None or task_df.empty:
+            return []
+
+        if task_id is not None and "task_id" in task_df.columns:
+            task_df = task_df[task_df["task_id"] == task_id]
+
+        return _serialize_df(task_df.reset_index(drop=True))
     except Exception as e:
         logger.error(f"admin_filter_tasks: {e}\n{traceback.format_exc()}")
         return []

@@ -169,7 +169,7 @@ def _load_all_enriched() -> List[Dict[str, Any]]:
 
         # Tentar modo DataFrame para vetorização
         try:
-            df = repo.find_all(task_eligible="Y", as_df=True)
+            df = repo.find_all(task_eligible=None, as_df=True)
             if df is None or df.empty:
                 result: List[Dict[str, Any]] = []
                 with _lci_cache_lock:
@@ -234,7 +234,7 @@ def _load_all_enriched() -> List[Dict[str, Any]]:
 
         except Exception as df_err:
             logger.warning(f"_load_all_enriched vectorized fallback: {df_err}")
-            rows = repo.find_all(task_eligible="Y", as_df=False) or []
+            rows = repo.find_all(task_eligible=None, as_df=False) or []
             enriched = [_enrich_row(dict(r)) for r in rows]
 
         with _lci_cache_lock:
@@ -1102,29 +1102,40 @@ def get_lci_stage_rows(fy: Optional[int], stage_status_filter: str) -> List[Dict
     }
 
     filter_key = stage_status_filter.lower()
-    target_statuses = status_map.get(filter_key, set())
 
-    if fy:
-        if filter_key == "approved":
+    # "all" tab — return every stage regardless of status
+    if filter_key == "all":
+        if fy:
             filtered = [
                 r for r in rows
-                if _safe_int(r.get("lci_stage_status_id")) in target_statuses
-                and (
-                    _safe_int(r.get("lci_stage_approval_fy")) == fy
-                    or (
-                        not _safe_int(r.get("lci_stage_approval_fy"))
-                        and r.get("lci_effective_fy") == fy
-                    )
-                )
+                if r.get("lci_effective_fy") == fy
+                or _safe_int(r.get("lci_stage_approval_fy")) == fy
             ]
         else:
-            filtered = [
-                r for r in rows
-                if _safe_int(r.get("lci_stage_status_id")) in target_statuses
-                and r.get("lci_effective_fy") == fy
-            ]
+            filtered = rows
     else:
-        filtered = [r for r in rows if _safe_int(r.get("lci_stage_status_id")) in target_statuses]
+        target_statuses = status_map.get(filter_key, set())
+        if fy:
+            if filter_key == "approved":
+                filtered = [
+                    r for r in rows
+                    if _safe_int(r.get("lci_stage_status_id")) in target_statuses
+                    and (
+                        _safe_int(r.get("lci_stage_approval_fy")) == fy
+                        or (
+                            not _safe_int(r.get("lci_stage_approval_fy"))
+                            and r.get("lci_effective_fy") == fy
+                        )
+                    )
+                ]
+            else:
+                filtered = [
+                    r for r in rows
+                    if _safe_int(r.get("lci_stage_status_id")) in target_statuses
+                    and r.get("lci_effective_fy") == fy
+                ]
+        else:
+            filtered = [r for r in rows if _safe_int(r.get("lci_stage_status_id")) in target_statuses]
 
     # Dedup by stage
     seen: Dict[int, Dict] = {}

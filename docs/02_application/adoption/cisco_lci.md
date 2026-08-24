@@ -2,7 +2,7 @@
 
 > **Rota frontend:** `/adoption/cisco-lci`
 > **resource_key:** `adoption.report_cisco_lci`
-> **Última atualização:** 2026-08-24
+> **Última atualização:** 2026-08-24 (v2.9)
 
 ---
 
@@ -208,7 +208,7 @@ A tabela detalhada de estágios no **Cisco LCI Report** agora pode abrir o compo
 - nenhum endpoint novo de tasks foi criado para essa integração
 
 ### 6.4 Tabela de Estágios
-Filtrável por Client, Solution, Use Case. Abas: **Approved (16) / Awaiting / In Progress / Lost**.
+Filtrável por Client, Solution, Use Case, **Task WS**. Abas: **All / Approved / Awaiting / In Progress / Lost**.
 
 Colunas da tabela:
 `Task | Client | Solution | Use Case | Task WS | Activity WS | CSM | Stage | Value USD | Status | Start Date | End Date | Completion`
@@ -220,7 +220,31 @@ Colunas da tabela:
 - **Completion** = `termination_status` (ex: EARLY, ON-TIME, LATE)
 - **Value USD** = `stage_amount_usd` (approval_value para status 10, stage_value demais)
 
-**Export Excel:** botão exporta todos os 4 tabs em planilha multi-aba.
+**Export Excel:** botão exporta todos os 4 tabs de status (Approved, Awaiting, In Progress, Lost) em planilha multi-aba, respeitando os filtros ativos.
+
+#### Filtros em Cascata
+Os 4 filtros da tabela de stages são **dinâmicos em cascata** — cada filtro exibe somente opções válidas para a combinação dos outros 3 filtros ativos:
+
+| Filtro | Campo de origem | Comportamento |
+|--------|----------------|---------------|
+| **Client** | `lci_client_name` | opções restritas por Solution + Use Case + Task WS |
+| **Solution** | `lci_track` | opções restritas por Client + Use Case + Task WS |
+| **Use Case** | `lci_use_case` | opções restritas por Client + Solution + Task WS |
+| **Task WS** | `lci_ws` | opções restritas por Client + Solution + Use Case |
+
+#### Tab "All"
+Aba adicional que exibe **todos os stages do FY** independente do status. O backend filtra por `lci_effective_fy == fy OR lci_stage_approval_fy == fy` para garantir cobertura total.
+
+#### Linhas Clicáveis (TaskDetailPanel)
+Usuários com permissão `task.task` podem clicar em qualquer linha da tabela para abrir o **painel de detalhes da task inline** (abaixo da tabela, na mesma página):
+
+- Painel renderizado **embaixo da tabela de stages**, no fluxo normal da página — não abre overlay/modal nem navega para outra página
+- Cabeçalho azul com ícone `ChevronDown`, título `Task Detail — #ID` e botão fechar (`X`)
+- Carrega dados via `GET /api/tasks/detail/{task_id}` (React Query, `staleTime: 2 min`)
+- Enquanto carrega: spinner. Em erro: mensagem de erro com o task_id
+- Após carregado: `TaskDetailPanel` completo com form de edição, atividades, RACI matrix e histórico
+- Usuários sem permissão `task.task` visualizam a tabela normalmente sem cursor de clique
+- Aviso de interação: `<Info size={11} /> "Clique em uma linha para abrir os detalhes da task"` (traduzido via i18n `adoption.ciscoLci.clickRowHint`)
 
 ---
 

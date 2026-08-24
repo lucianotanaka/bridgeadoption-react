@@ -2,7 +2,7 @@
 
 > **Módulo:** Cisco LCI (Life Cycle Incentive)
 > **Ambiente:** CentOS 9 + FastAPI + React + SQL Server
-> **Última atualização:** 2026-08-16
+> **Última atualização:** 2026-08-24 (v2.9)
 
 ---
 
@@ -163,8 +163,8 @@ cd /opt/bridgeadoption
 python3 -c "
 from src.infrastructure.database.repositories.cisco_lci_repository import CiscoLCIRepository
 repo = CiscoLCIRepository()
-rows = repo.find_all(task_eligible='Y', as_df=False)
-print(f'Estágios encontrados: {len(rows)}')
+rows = repo.find_all(task_eligible=None, as_df=False)
+print(f'Estágios encontrados (todas tasks LCI): {len(rows)}')
 "
 ```
 
@@ -231,6 +231,37 @@ sudo mkswap /swapfile
 sudo swapon /swapfile
 ```
 
+### 7.6 Tab "All" da tabela de stages retorna vazio
+
+**Sintoma:** aba **All** mostra "No data" mesmo com outros tabs exibindo dados.
+
+**Causa:** backend não foi reiniciado após a atualização do código (v2.8) que adicionou suporte ao `stage_status=all`.
+
+**Solução:**
+```bash
+systemctl restart bridgeadoption-backend
+```
+
+Aguardar 5 segundos e testar:
+```bash
+curl -s "http://127.0.0.1:8001/api/adoption/cisco-lci/stages?fy=2026&stage_status=all" \
+  -H "Authorization: Bearer <token>" | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); print(f'{len(d)} stages retornados')"
+```
+
+### 7.7 Clique na linha da tabela de stages não abre painel de task
+
+**Causas possíveis:**
+1. Usuário não possui permissão `task.task` — apenas usuários com essa role veem linhas clicáveis
+2. `lci_task_id` da linha é nulo — o stage não tem tarefa associada no banco
+3. Endpoint `/api/tasks/detail/{task_id}` retornou erro — verificar logs do backend
+
+**Verificar permissão do usuário:**
+```bash
+curl -s "http://127.0.0.1:8001/api/auth/me" \
+  -H "Authorization: Bearer <token>" | python3 -m json.tool | grep -i task
+```
+
 ### 7.5 Labels exibindo chave bruta (ex: `adoption.ciscoLci.portfolioBurndown`)
 
 Indica que as chaves i18n não foram adicionadas aos arquivos de locale:
@@ -265,6 +296,11 @@ O frontend usa React Query com `staleTime: 5 minutos`. Para forçar atualizaçã
 
 | Data | Versão | Alteração |
 |------|--------|-----------|
+| 2026-08-24 | v2.9 | TaskDetailPanel inline (abaixo da tabela) — removido overlay/modal |
+| 2026-08-24 | v2.9 | Aviso de clique: ícone Info + i18n clickRowHint (EN/PT/ES) |
+| 2026-08-24 | v2.8 | Linhas clicáveis na tabela de stages com TaskDetailPanel (permissão task.task) |
+| 2026-08-24 | v2.8 | Filtro Task WS multiselect em cascata + Tab "All" na tabela de stages |
+| 2026-08-24 | v2.7 | find_all(task_eligible=None): tabela inclui todas as tasks LCI, não só elegíveis |
 | 2026-08-16 | v2.5 | Documentação criada/atualizada |
 | 2026-08-14 | v2.5 | KPIs do Portfolio Burndown alinhados ao Cisco LCI Report (fy_summary) |
 | 2026-08-14 | v2.4 | Tabela Portfolio Burndown com Export Excel; FROM default = Abril do FY vigente |
