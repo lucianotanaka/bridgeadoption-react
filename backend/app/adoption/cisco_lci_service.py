@@ -16,7 +16,7 @@ import math
 import threading
 import traceback
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +109,10 @@ def _calculate_fy(dt) -> Optional[int]:
 def _current_fy() -> int:
     today = date.today()
     return today.year if today.month >= 4 else today.year - 1
+
+
+def _fy_bounds(fy: int) -> Tuple[date, date]:
+    return date(fy, 4, 1), date(fy + 1, 3, 31)
 
 
 def _enrich_row(r: Dict[str, Any]) -> Dict[str, Any]:
@@ -873,6 +877,210 @@ def get_lci_wallet_burndown(date_from: Optional[str], date_to: Optional[str], fy
         "data_min": data_min,
         "data_max": data_max,
         "fy_summary": fy_summary,
+    }
+
+
+def get_client_lci_report(company_id: int, client_name: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Client-scoped Adoption Cisco LCI report.
+
+    Source rules:
+    - tasks: tbTask equivalent feed via tasks API data already available in task repositories
+    - approved values: stage/activity approved values from LCI repository rows
+    - FY follows NTT calendar Apr -> Mar
+
+    Safety:
+    - does not alter existing Tasks or Cisco LCI report logic
+    - applies a fallback filter only for Client Overview report
+    """
+    rows = _load_all_enriched()
+
+    normalized_client_name = _safe_str(client_name).strip().lower()
+
+    def _row_matches_client(row: Dict[str, Any]) -> bool:
+        if _safe_int(row.get("lci_customer_id")) == company_id or _safe_int(row.get("lci_company_id")) == company_id:
+            return True
+        if not normalized_client_name:
+            return False
+
+        candidate_names = [
+            row.get("lci_client_name"),
+            row.get("lci_customer_name"),
+            row.get("company_name"),
+            row.get("customer_name"),
+            row.get("task_customer_name"),
+            row.get("task_company_name"),
+        ]
+        for value in candidate_names:
+            if _safe_str(value).strip().lower() == normalized_client_name:
+                return True
+        return False
+
+    client_rows = [r for r in rows if _row_matches_client(r)]
+
+    seen_stage: Dict[int, Dict[str, Any]] = {}
+    for r in client_rows:
+        sid = _safe_int(r.get("lci_stage_id"))
+        if sid and sid not in seen_stage:
+            seen_stage[sid] = r
+
+    fy_totals: Dict[int, float] = {}
+
+    for r in seen_stage.values():
+        status_id = _safe_int(r.get("lci_stage_status_id"))
+        approval_value = _safe_float(r.get("lci_stage_approval_value") or r.get("activity_approved_value"))
+        approval_fy = _safe_int(r.get("lci_stage_approval_fy") or r.get("activity_approval_fy"))
+        approval_date = r.get("lci_stage_approval_date") or r.get("activity_approval_date")
+
+        if not approval_fy and approval_date:
+            try:
+                import pandas as pd
+                approval_fy = _calculate_fy(pd.to_datetime(approval_date)) or 0
+            except Exception:
+                approval_fy = 0
+
+        if status_id in STATUS_APPROVED and approval_value > 0 and approval_fy:
+            fy_totals[approval_fy] = fy_totals.get(approval_fy, 0.0) + approval_value
+
+    chart = [
+        {"fy": fy, "label": f"FY {fy}", "approved_value_usd": round(value, 2)}
+        for fy, value in sorted(fy_totals.items())
+    ]
+
+    available_fys = sorted(set(fy_totals.keys()))
+    default_fy = available_fys[-1] if available_fys else _current_fy()
+
+    repo_task_rows: List[Dict[str, Any]] = []
+    if _REPO_OK:
+        try:
+            repo = CiscoLCIRepository()
+            repo_task_rows = repo.load_cisco_lci_all(fy=default_fy, as_df=False) or []
+        except Exception as e:
+            logger.warning(f"get_client_lci_report load_cisco_lci_all fallback: {e}")
+
+    task_type_by_id: Dict[int, str] = {}
+    task_owner_by_id: Dict[int, str] = {}
+    for r in client_rows:
+        task_id = _safe_int(r.get("lci_task_id"))
+        if not task_id:
+            continue
+        if r.get("lci_type"):
+            task_type_by_id[task_id] = r.get("lci_type")
+        if r.get("lci_csm_name"):
+            task_owner_by_id[task_id] = r.get("lci_csm_name")
+
+    def _task_matches_client(row: Dict[str, Any]) -> bool:
+        if _safe_int(row.get("task_customer_id")) == company_id:
+            return True
+        if not normalized_client_name:
+            return False
+        candidate_names = [
+            row.get("task_customer_name"),
+            row.get("customer_name"),
+            row.get("company_name"),
+        ]
+        for value in candidate_names:
+            if _safe_str(value).strip().lower() == normalized_client_name:
+                return True
+        return False
+
+    task_rows = []
+    seen_tasks: set[int] = set()
+    for r in sorted(repo_task_rows, key=lambda x: (_safe_str(x.get("task_end_date")), _safe_int(x.get("task_id")))):
+        if not _task_matches_client(r):
+            continue
+
+        task_id = _safe_int(r.get("task_id"))
+        if not task_id or task_id in seen_tasks:
+            continue
+        seen_tasks.add(task_id)
+
+        task_type_name = (
+            r.get("task_type_name")
+            or task_type_by_id.get(task_id)
+            or r.get("lci_type")
+        )
+
+        task_rows.append({
+            "task_id": task_id,
+            "task_type_name": task_type_name,
+            "task_ws": r.get("task_ws"),
+            "task_value": _safe_float(r.get("task_value")),
+            "task_status_id": _safe_int(r.get("task_status_id")) or None,
+            "owner_name": r.get("task_owner_name") or task_owner_by_id.get(task_id),
+            "status_name": r.get("task_status_name"),
+            "start_date": r.get("task_start_date"),
+            "end_date": r.get("task_end_date"),
+            "fy": _safe_int(r.get("task_end_data_fy")) or default_fy,
+        })
+
+    if not task_rows:
+        fy_start, fy_end = _fy_bounds(default_fy)
+        for r in sorted(client_rows, key=lambda x: (_safe_str(x.get("lci_task_end_date")), _safe_int(x.get("lci_task_id")))):
+            task_id = _safe_int(r.get("lci_task_id"))
+            if not task_id or task_id in seen_tasks:
+                continue
+            seen_tasks.add(task_id)
+            task_end = r.get("lci_task_end_date") or r.get("task_end_date") or r.get("stage_end_date")
+            task_fy = _safe_int(r.get("lci_task_end_fy"))
+            if not task_fy and task_end:
+                try:
+                    import pandas as pd
+                    task_fy = _calculate_fy(pd.to_datetime(task_end)) or 0
+                except Exception:
+                    task_fy = 0
+            if task_end:
+                try:
+                    import pandas as pd
+                    end_date = pd.to_datetime(task_end).date()
+                    if not (fy_start <= end_date <= fy_end):
+                        continue
+                except Exception:
+                    continue
+            task_rows.append({
+                "task_id": task_id,
+                "task_type_name": r.get("lci_type"),
+                "task_ws": r.get("lci_ws") or r.get("task_ws"),
+                "task_value": _safe_float(r.get("task_value")),
+                "task_status_id": _safe_int(r.get("lci_task_status") or r.get("task_status_id")) or None,
+                "owner_name": r.get("lci_csm_name"),
+                "status_name": r.get("lci_task_status_name") or r.get("task_status_name"),
+                "start_date": r.get("lci_task_start_date") or r.get("task_start_date"),
+                "end_date": task_end,
+                "fy": task_fy or None,
+            })
+
+    available_fys = sorted(set(fy_totals.keys()) | {row["fy"] for row in task_rows if row["fy"]})
+    default_fy = available_fys[-1] if available_fys else _current_fy()
+    fy_task_rows = [row for row in task_rows if row.get("fy") == default_fy]
+
+    approved_stage_count = 0
+    approved_total = 0.0
+    for r in seen_stage.values():
+        status_id = _safe_int(r.get("lci_stage_status_id"))
+        approval_value = _safe_float(r.get("lci_stage_approval_value") or r.get("activity_approved_value"))
+        approval_fy = _safe_int(r.get("lci_stage_approval_fy") or r.get("activity_approval_fy"))
+        approval_date = r.get("lci_stage_approval_date") or r.get("activity_approval_date")
+
+        if not approval_fy and approval_date:
+            try:
+                import pandas as pd
+                approval_fy = _calculate_fy(pd.to_datetime(approval_date)) or 0
+            except Exception:
+                approval_fy = 0
+
+        if status_id in STATUS_APPROVED and approval_value > 0 and approval_fy == default_fy:
+            approved_stage_count += 1
+            approved_total += approval_value
+
+    return {
+        "company_id": company_id,
+        "current_fy": default_fy,
+        "task_count": len(task_rows),
+        "approved_stage_count": approved_stage_count,
+        "approved_total_usd": round(approved_total, 2),
+        "chart": chart,
+        "tasks": fy_task_rows,
     }
 
 

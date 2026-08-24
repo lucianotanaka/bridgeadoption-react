@@ -674,6 +674,7 @@ class CiscoLCIRepository:
             SELECT
                 t.task_id,
                 t.task_tasktype_id AS task_type_id,
+                ty.tasktype_name AS task_type_name,
                 t.task_owner_id,
                 u.user_name AS task_owner_name,
                 t.task_customer_id,
@@ -716,6 +717,8 @@ class CiscoLCIRepository:
                 ON c.company_id = t.task_customer_id
             INNER JOIN tbStatusType s
                 ON s.statustype_id = t.task_status
+            INNER JOIN tbTaskType ty
+                ON t.task_tasktype_id = ty.tasktype_id
             INNER JOIN tbUser u
                 ON u.user_id = t.task_owner_id
             LEFT JOIN (

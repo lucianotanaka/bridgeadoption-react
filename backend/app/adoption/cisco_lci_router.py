@@ -26,6 +26,7 @@ from app.adoption.cisco_lci_service import (
     get_lci_lost_justification,
     get_lci_wallet_burndown,
     get_lci_report_data,
+    get_client_lci_report,
 )
 from app.core.security import decode_access_token
 
@@ -129,6 +130,15 @@ def lci_wallet_burndown(
     fy: Optional[int] = Query(None, description="NTT Fiscal Year for KPI summary alignment"),
 ):
     return get_lci_wallet_burndown(date_from, date_to, fy)
+
+
+@router.get("/client-report/{company_id}", response_model=Dict[str, Any])
+def lci_client_report(
+    company_id: int,
+    current_user: Annotated[dict, Depends(get_current_user)],
+    client_name: Optional[str] = Query(None),
+):
+    return get_client_lci_report(company_id, client_name)
 
 
 @router.get("/stages", response_model=List[Dict[str, Any]])

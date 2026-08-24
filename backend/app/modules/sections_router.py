@@ -23,6 +23,9 @@ from app.modules.sections_service import (
     get_account_team_companies,
     update_account_team_row, insert_account_team_row,
     get_adoption_tasks, get_cisco_sa_usage, get_cisco_true_forward,
+    get_client_overview_company, update_client_overview_company,
+    get_client_overview_nps, get_client_overview_stakeholders,
+    create_client_person, create_client_stakeholder, update_client_stakeholder,
     admin_search_companies, admin_get_company, admin_create_company,
     admin_update_company, admin_vacate_company,
     admin_get_company_tab, admin_get_company_tab_multi,
@@ -91,6 +94,69 @@ def portfolio_companies(
     search: Optional[str] = Query(None),
 ):
     return get_companies(search)
+
+@portfolio_router.get("/client-overview/company/{company_id}", response_model=Dict[str, Any])
+def portfolio_client_overview_company(
+    company_id: int,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    return get_client_overview_company(company_id)
+
+@portfolio_router.put("/client-overview/company/{company_id}", response_model=Dict[str, Any])
+def portfolio_client_overview_company_update(
+    company_id: int,
+    body: Dict[str, Any],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    result = update_client_overview_company(company_id, body)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@portfolio_router.get("/client-overview/nps/{company_id}", response_model=Dict[str, Any])
+def portfolio_client_overview_nps(
+    company_id: int,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    return get_client_overview_nps(company_id)
+
+@portfolio_router.get("/client-overview/stakeholders/{company_id}", response_model=List[Dict[str, Any]])
+def portfolio_client_overview_stakeholders(
+    company_id: int,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    return get_client_overview_stakeholders(company_id)
+
+@portfolio_router.post("/client-overview/person", response_model=Dict[str, Any])
+def portfolio_client_overview_create_person(
+    body: Dict[str, Any],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    result = create_client_person(body)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@portfolio_router.post("/client-overview/stakeholders", response_model=Dict[str, Any])
+def portfolio_client_overview_create_stakeholder(
+    body: Dict[str, Any],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    result = create_client_stakeholder(body)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@portfolio_router.put("/client-overview/stakeholders/{stakeholder_id}", response_model=Dict[str, Any])
+def portfolio_client_overview_update_stakeholder(
+    stakeholder_id: int,
+    body: Dict[str, Any],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    result = update_client_stakeholder(stakeholder_id, body)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
 
 @portfolio_router.get("/cisco-ea/metering", response_model=List[Dict[str, Any]])
 def portfolio_ea_metering(

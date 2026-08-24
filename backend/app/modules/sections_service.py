@@ -74,6 +74,24 @@ try:
     _COMPANY_OK = True
 except ImportError: _COMPANY_OK = False
 
+try:
+    from src.infrastructure.database.repositories.nps_repository import NPSRepository
+    _NPS_OK = True
+except ImportError:
+    _NPS_OK = False
+
+try:
+    from src.infrastructure.database.repositories.stakeholder_management_repository import StakeholderManagementRepository
+    _SH_OK = True
+except ImportError:
+    _SH_OK = False
+
+try:
+    from src.infrastructure.database.repositories.person_repository import PersonRepository
+    _PERSON_OK = True
+except ImportError:
+    _PERSON_OK = False
+
 def get_companies(search: Optional[str] = None) -> List[Dict]:
     if not _COMPANY_OK: return []
     try:
@@ -99,6 +117,108 @@ try:
     from src.infrastructure.database.repositories.cisco_ea_repository import CiscoEARepository
     _EA_OK = True
 except ImportError: _EA_OK = False
+
+def get_client_overview_company(company_id: int) -> Dict:
+    if not _COMPANY_OK:
+        return {}
+    try:
+        repo = CompanyRepository()
+        row = repo.find_by_id(company_id)
+        return _ser(dict(row)) if row else {}
+    except Exception as e:
+        logger.error(f"get_client_overview_company: {e}\n{traceback.format_exc()}")
+        return {}
+
+def update_client_overview_company(company_id: int, data: Dict[str, Any]) -> Dict:
+    if not _COMPANY_OK:
+        return {"error": "Repository not available"}
+    try:
+        allowed = {"company_type", "company_vertical", "vertical"}
+        payload = {}
+        if "company_type" in data:
+            payload["company_type"] = data.get("company_type")
+        if "company_vertical" in data:
+            payload["company_vertical"] = data.get("company_vertical")
+        if "vertical" in data:
+            payload["company_vertical"] = data.get("vertical")
+        payload = {k: v for k, v in payload.items() if k in allowed}
+        if not payload:
+            return {"error": "No updatable fields provided"}
+        repo = CompanyRepository()
+        repo.update_with_custom_where(payload, "company_id = %s", (company_id,))
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"update_client_overview_company: {e}\n{traceback.format_exc()}")
+        return {"error": str(e)}
+
+def get_client_overview_nps(company_id: int) -> Dict:
+    if not _NPS_OK:
+        return {}
+    try:
+        repo = NPSRepository()
+        row = repo.get_latest_by_company(company_id)
+        return _ser(dict(row)) if row else {}
+    except Exception as e:
+        logger.error(f"get_client_overview_nps: {e}\n{traceback.format_exc()}")
+        return {}
+
+def get_client_overview_stakeholders(company_id: int) -> List[Dict]:
+    if not _SH_OK:
+        return []
+    try:
+        repo = StakeholderManagementRepository()
+        rows = repo.list_by_company(company_id, as_df=False)
+        return [_ser(dict(r)) for r in rows]
+    except Exception as e:
+        logger.error(f"get_client_overview_stakeholders: {e}\n{traceback.format_exc()}")
+        return []
+
+def create_client_person(data: Dict[str, Any]) -> Dict:
+    if not _PERSON_OK:
+        return {"error": "Repository not available"}
+    try:
+        payload = {
+            "person_name": data.get("person_name"),
+            "person_email": data.get("person_email"),
+            "person_telephone": data.get("person_telephone"),
+            "person_cellphone": data.get("person_cellphone"),
+            "person_company_id": data.get("person_company_id"),
+            "person_department_id": data.get("person_department_id"),
+            "person_job_title": data.get("person_job_title"),
+            "person_type": data.get("person_type"),
+            "person_enabled": data.get("person_enabled", 1),
+        }
+        payload = {k: v for k, v in payload.items() if v is not None}
+        if not payload.get("person_name"):
+            return {"error": "person_name is required"}
+        repo = PersonRepository()
+        new_id = repo.insert(payload)
+        return {"person_id": new_id}
+    except Exception as e:
+        logger.error(f"create_client_person: {e}\n{traceback.format_exc()}")
+        return {"error": str(e)}
+
+def create_client_stakeholder(data: Dict[str, Any]) -> Dict:
+    if not _SH_OK:
+        return {"error": "Repository not available"}
+    try:
+        repo = StakeholderManagementRepository()
+        new_id = repo.insert(data)
+        return {"stakeholder_id": new_id}
+    except Exception as e:
+        logger.error(f"create_client_stakeholder: {e}\n{traceback.format_exc()}")
+        return {"error": str(e)}
+
+def update_client_stakeholder(stakeholder_id: int, data: Dict[str, Any]) -> Dict:
+    if not _SH_OK:
+        return {"error": "Repository not available"}
+    try:
+        repo = StakeholderManagementRepository()
+        repo.update_by_id(stakeholder_id, data)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"update_client_stakeholder: {e}\n{traceback.format_exc()}")
+        return {"error": str(e)}
 
 def get_cisco_ea_metering(customer_id: Optional[int] = None) -> List[Dict]:
     if not _EA_OK: return []
