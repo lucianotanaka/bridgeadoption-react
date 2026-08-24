@@ -2,7 +2,7 @@
 
 > **Rota frontend:** `/adoption/cisco-lci`
 > **resource_key:** `adoption.report_cisco_lci`
-> **Última atualização:** 2026-08-16
+> **Última atualização:** 2026-08-24
 
 ---
 
@@ -169,7 +169,45 @@ Cards KPI com valores do FY selecionado:
 ### 6.2 Visão Operacional (Operational Overview)
 Cards KPI com contagens operacionais + gráficos de distribuição por status e eficiência de execução.
 
-### 6.3 Tabela de Estágios
+Além dos cards operacionais, a aba exibe:
+- **Incentive Task History by Fiscal Year**: histórico de quantidade de incentive tasks por FY
+- **Value & Count by Stage Status**: gráfico combinado de valor total e quantidade por status de estágio
+- **LCI Approved — Termination**: distribuição de `termination_status` para estágios aprovados
+- **Effort by Client**: tabela com média, melhor e pior duração por cliente
+- **Effort by Use Case**: tabela com média, melhor e pior duração por caso de uso
+- **LCI Journey — FY**: tabela analítica carregada sob demanda na aba operacional, filtrada por `task_end_date` dentro do FY NTT
+
+#### LCI Journey
+A tabela **LCI Journey** utiliza o endpoint `/api/adoption/rebate/lci-journey?fy=<FY>` e apresenta visão detalhada por tarefa, incluindo:
+- dados básicos da task (`task_id`, cliente, owner/CSM, track, use case, WS, deal id)
+- datas e status da tarefa
+- valor total e backlog
+- status por estágio lógico (`onboard`, `use`, `engage`, `adopt`, `implement`, `optimize`)
+- valores aprovados por estágio
+
+A tabela possui:
+- paginação client-side
+- exportação para Excel em aba única
+- carregamento lazy, habilitado somente quando a aba operacional está ativa
+
+### 6.3 Visão Task Detail integrada à Tabela de Estágios
+A tabela detalhada de estágios no **Cisco LCI Report** agora pode abrir o componente compartilhado `TaskDetailPanel` do módulo **Tasks**, sem duplicação de lógica.
+
+**Comportamento:**
+- cada linha da tabela de stages pode representar uma task LCI relacionada
+- ao clicar em uma linha, o frontend mapeia a linha para um `TaskItem` mínimo e abre o `TaskDetailPanel`
+- o painel carrega os detalhes reais da task via APIs já existentes do módulo Tasks
+
+**Regra de autorização:**
+- o clique só abre o painel se o usuário possuir `hasPermission("TASK")`
+- usuários sem essa permissão continuam visualizando a tabela normalmente, porém sem drill-down
+
+**Escopo da integração:**
+- implementação localizada apenas em `frontend/src/pages/ciscoLci/CiscoLCIReportPage.tsx`
+- nenhum comportamento compartilhado do `TaskDetailPanel` foi alterado
+- nenhum endpoint novo de tasks foi criado para essa integração
+
+### 6.4 Tabela de Estágios
 Filtrável por Client, Solution, Use Case. Abas: **Approved (16) / Awaiting / In Progress / Lost**.
 
 Colunas da tabela:
@@ -253,6 +291,7 @@ fy_summary (quando fy fornecido):
 
 | Endpoint | Método | Parâmetros | Descrição |
 |----------|--------|------------|-----------|
+| `/report-data` | GET | `?fy=2026` | Endpoint unificado do Cisco LCI Report |
 | `/fiscal-years` | GET | — | Lista FYs disponíveis |
 | `/summary` | GET | `?fy=2026` | KPIs financeiros e operacionais |
 | `/total-eligibles` | GET | `?fy=2026` | Funil Elegíveis → Potencial → Opt In |
@@ -263,6 +302,10 @@ fy_summary (quando fy fornecido):
 | `/lost-justification` | GET | `?fy=2026` | Motivos de cancelamento de tarefas |
 | `/stages` | GET | `?fy=2026&stage_status=approved` | Tabela detalhada de estágios |
 | `/wallet-burndown` | GET | `?date_from=2026-04&date_to=2027-03&fy=2026` | Portfolio Burndown |
+| `/client-report/{company_id}` | GET | `?client_name=` | Report consolidado por cliente |
+
+Além dos endpoints com prefixo `/api/adoption/cisco-lci`, a aba operacional do report também consome:
+- `/api/adoption/rebate/lci-journey?fy=<FY>` para a tabela **LCI Journey**
 
 Todos os endpoints requerem autenticação via **Bearer Token JWT** (`Authorization: Bearer <token>`).
 
@@ -353,11 +396,12 @@ Backend FastAPI (cisco_lci_service.py + cisco_lci_router.py)
 | `backend/app/adoption/cisco_lci_router.py` | Python | Endpoints FastAPI |
 | `src/infrastructure/database/repositories/cisco_lci_repository.py` | Python | Repositório DB |
 | `frontend/src/pages/ciscoLci/CiscoLCIPage.tsx` | TypeScript | Composição das abas |
-| `frontend/src/pages/ciscoLci/CiscoLCIReportPage.tsx` | TypeScript | Aba Report |
+| `frontend/src/pages/ciscoLci/CiscoLCIReportPage.tsx` | TypeScript | Aba Report, incluindo integração com TaskDetailPanel |
 | `frontend/src/pages/ciscoLci/CiscoLCIPortfolioBurndownPage.tsx` | TypeScript | Aba Burndown |
 | `frontend/src/pages/ciscoLci/CiscoLCIEligibleStatusPage.tsx` | TypeScript | Aba Eligible Status |
 | `frontend/src/pages/ciscoLci/CiscoLCISolutionVsProjectPage.tsx` | TypeScript | Aba Solution vs Project |
-| `frontend/src/api/ciscoLci.ts` | TypeScript | Chamadas API + tipos |
+| `frontend/src/api/ciscoLci.ts` | TypeScript | Chamadas API + tipos do módulo Cisco LCI |
+| `frontend/src/pages/tasks/TaskDetailPanel.tsx` | TypeScript | Painel reutilizado para drill-down de task a partir da tabela de stages |
 | `frontend/src/i18n/locales/en.json` | JSON | Textos em inglês |
 | `frontend/src/i18n/locales/pt.json` | JSON | Textos em português |
 | `frontend/src/i18n/locales/es.json` | JSON | Textos em espanhol |

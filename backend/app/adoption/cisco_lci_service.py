@@ -1085,10 +1085,14 @@ def get_client_lci_report(company_id: int, client_name: Optional[str] = None) ->
 
 
 def get_lci_stage_rows(fy: Optional[int], stage_status_filter: str) -> List[Dict[str, Any]]:
-    """Returns stage rows filtered by status category."""
+    """Returns stage rows filtered by status category.
+
+    Important:
+    - keep FY filtering aligned with summary/report cards
+    - approved stages are scoped by approval FY when available
+    - non-approved stages remain scoped by effective FY
+    """
     rows = _load_all_enriched()
-    if fy:
-        rows = [r for r in rows if r.get("lci_effective_fy") == fy]
 
     status_map = {
         "approved": STATUS_APPROVED,
@@ -1097,8 +1101,30 @@ def get_lci_stage_rows(fy: Optional[int], stage_status_filter: str) -> List[Dict
         "lost": STATUS_LOST,
     }
 
-    target_statuses = status_map.get(stage_status_filter.lower(), set())
-    filtered = [r for r in rows if _safe_int(r.get("lci_stage_status_id")) in target_statuses]
+    filter_key = stage_status_filter.lower()
+    target_statuses = status_map.get(filter_key, set())
+
+    if fy:
+        if filter_key == "approved":
+            filtered = [
+                r for r in rows
+                if _safe_int(r.get("lci_stage_status_id")) in target_statuses
+                and (
+                    _safe_int(r.get("lci_stage_approval_fy")) == fy
+                    or (
+                        not _safe_int(r.get("lci_stage_approval_fy"))
+                        and r.get("lci_effective_fy") == fy
+                    )
+                )
+            ]
+        else:
+            filtered = [
+                r for r in rows
+                if _safe_int(r.get("lci_stage_status_id")) in target_statuses
+                and r.get("lci_effective_fy") == fy
+            ]
+    else:
+        filtered = [r for r in rows if _safe_int(r.get("lci_stage_status_id")) in target_statuses]
 
     # Dedup by stage
     seen: Dict[int, Dict] = {}
