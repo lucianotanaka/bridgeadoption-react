@@ -290,24 +290,32 @@ def get_project_customers() -> List[Dict]:
     """
     Returns unique customers that have projects (all statuses).
     Used to populate the CUSTOMER dropdown in ProjectsPage.
+
+    Uses get_db_connection() with parameterized query to avoid the %% escaping
+    issue that occurs when using pd.read_sql(sql, engine) with LIKE clauses.
+
     Returns: [{ project_customer_id, project_customer_name }]
     """
     try:
-        from src.infrastructure.database.connection import get_sqlalchemy_engine
-        import pandas as pd
-        engine = get_sqlalchemy_engine()
-        sql = """
-            SELECT DISTINCT
-                project_customer_id,
-                project_customer_name
-            FROM vwProject
-            WHERE project_customer_id > 0
-              AND project_customer_name IS NOT NULL
-              AND project_ov NOT LIKE 'VAGO%%'
-            ORDER BY project_customer_name
-        """
-        df = pd.read_sql(sql, engine)
-        return _df(df)
+        from src.infrastructure.database.connection import get_db_connection
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT DISTINCT
+                    project_customer_id,
+                    project_customer_name
+                FROM vwProject
+                WHERE project_customer_id > 0
+                  AND project_customer_name IS NOT NULL
+                  AND project_ov NOT LIKE %s
+                ORDER BY project_customer_name
+            """, ("VAGO%",))
+            rows = cursor.fetchall()
+            return [_ser(dict(r)) for r in rows]
+        finally:
+            cursor.close()
+            conn.close()
     except Exception as e:
         logger.error(f"get_project_customers: {e}\n{traceback.format_exc()}"); return []
 

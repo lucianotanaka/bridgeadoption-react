@@ -706,5 +706,45 @@
     "forbidden": "Sem permissão para esta ação",
     "serverError": "Erro interno do servidor",
     "accessDenied": "Acesso negado"
+  },
+  "today": {
+    "greetingMorning": "Bom dia",
+    "greetingAfternoon": "Boa tarde",
+    "greetingEvening": "Boa noite",
+    "portfolio": "CARTEIRA",
+    "accounts": "CONTAS",
+    "actionsCount_one": "{{count}} ação pra hoje",
+    "actionsCount_other": "{{count}} ações pra hoje",
+    "actionsToImplement": "— ações do dia a implementar",
+    "accountsNeedAttention": "— contas precisam da sua atenção",
+    "scheduleQbr": "Agendar QBR",
+    "submitEvidence": "Submeter evidência",
+    "kpi": {
+      "incentivesAtRisk": "INCENTIVOS EM RISCO",
+      "capturedYtd": "CAPTURADOS (YTD)",
+      "renewalValue": "VALOR EM RENOVAÇÃO",
+      "linesAtRisk": "LINHAS EM RISCO",
+      "toImplement": "a implementar"
+    },
+    "yourTasks": "Suas tarefas",
+    "allAccounts": "todas as contas",
+    "overdue": "VENCIDAS",
+    "noOverdueTasks": "Sem tarefas vencidas — fonte de dados a implementar",
+    "welcome": {
+      "subtitle": "Bem-vindo ao Bridge Adoption — NTT DATA",
+      "moduleTitle": "Módulo Today",
+      "moduleDesc": "O painel de tarefas diárias está disponível apenas para usuários com acesso ao módulo Task. Utilize o menu lateral para acessar os módulos disponíveis para o seu perfil.",
+      "portfolioSection": "Portfolio",
+      "portfolioLink": "Farol de contas →",
+      "adoptionSection": "Adoption",
+      "forecastLink": "Forecast →"
+    },
+    "rightPanel": {
+      "title": "Atenção imediata",
+      "immediateActions": "Ações Imediatas",
+      "noImmediateActions": "Nenhuma ação imediata — a implementar",
+      "accountsAtRisk": "Contas em risco",
+      "noAccountsAtRisk": "Nenhuma conta em risco — a implementar"
+    }
   }
 }

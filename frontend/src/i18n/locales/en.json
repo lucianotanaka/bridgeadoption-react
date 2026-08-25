@@ -706,5 +706,45 @@
     "forbidden": "No permission for this action",
     "serverError": "Internal server error",
     "accessDenied": "Access denied"
+  },
+  "today": {
+    "greetingMorning": "Good morning",
+    "greetingAfternoon": "Good afternoon",
+    "greetingEvening": "Good evening",
+    "portfolio": "PORTFOLIO",
+    "accounts": "ACCOUNTS",
+    "actionsCount_one": "{{count}} action for today",
+    "actionsCount_other": "{{count}} actions for today",
+    "actionsToImplement": "— daily actions to be implemented",
+    "accountsNeedAttention": "— accounts need your attention",
+    "scheduleQbr": "Schedule QBR",
+    "submitEvidence": "Submit evidence",
+    "kpi": {
+      "incentivesAtRisk": "INCENTIVES AT RISK",
+      "capturedYtd": "CAPTURED (YTD)",
+      "renewalValue": "RENEWAL VALUE",
+      "linesAtRisk": "LINES AT RISK",
+      "toImplement": "to be implemented"
+    },
+    "yourTasks": "Your tasks",
+    "allAccounts": "all accounts",
+    "overdue": "OVERDUE",
+    "noOverdueTasks": "No overdue tasks — data source to be implemented",
+    "welcome": {
+      "subtitle": "Welcome to Bridge Adoption — NTT DATA",
+      "moduleTitle": "Today Module",
+      "moduleDesc": "The daily task panel is available only for users with access to the Task module. Use the side menu to access the modules available for your profile.",
+      "portfolioSection": "Portfolio",
+      "portfolioLink": "Account Beacon →",
+      "adoptionSection": "Adoption",
+      "forecastLink": "Forecast →"
+    },
+    "rightPanel": {
+      "title": "Immediate attention",
+      "immediateActions": "Immediate Actions",
+      "noImmediateActions": "No immediate actions — to be implemented",
+      "accountsAtRisk": "Accounts at risk",
+      "noAccountsAtRisk": "No accounts at risk — to be implemented"
+    }
   }
 }

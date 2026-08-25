@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { AlertTriangle, Zap, TrendingDown } from "lucide-react";
 
 export interface ImmediateAction { id: number; label: string; description: string; type: "warning" | "danger" | "info"; }
@@ -6,11 +7,12 @@ export interface AccountAtRisk { id: number; name: string; reason: string; value
 interface Props { immediateActions: ImmediateAction[]; accountsAtRisk: AccountAtRisk[]; }
 
 export default function TodayRightPanel({ immediateActions, accountsAtRisk }: Props) {
+  const { t } = useTranslation();
   return (
     <div className="w-72 xl:w-80 shrink-0 space-y-4">
-      {/* Section heading — alinhado com "Suas tarefas" na coluna esquerda */}
+      {/* Section heading */}
       <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-0">
-        Atenção imediata
+        {t("today.rightPanel.title")}
       </h2>
 
       {/* Ações Imediatas — TODO: GET /today/immediate-actions */}
@@ -18,14 +20,14 @@ export default function TodayRightPanel({ immediateActions, accountsAtRisk }: Pr
         <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Zap size={14} className="text-amber-500" />
-            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Ações Imediatas</h3>
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">{t("today.rightPanel.immediateActions")}</h3>
           </div>
           {immediateActions.length > 0 && (
             <span className="text-[11px] font-bold bg-amber-500 text-white rounded-full px-2 py-0.5">{immediateActions.length}</span>
           )}
         </div>
         {immediateActions.length === 0 ? (
-          <p className="px-4 py-5 text-xs text-gray-400 dark:text-gray-500 italic text-center">Nenhuma ação imediata — a implementar</p>
+          <p className="px-4 py-5 text-xs text-gray-400 dark:text-gray-500 italic text-center">{t("today.rightPanel.noImmediateActions")}</p>
         ) : (
           <div className="divide-y divide-gray-100 dark:divide-gray-800">
             {immediateActions.map((a) => (
@@ -48,14 +50,14 @@ export default function TodayRightPanel({ immediateActions, accountsAtRisk }: Pr
         <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <TrendingDown size={14} className="text-rose-500" />
-            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Contas em risco</h3>
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">{t("today.rightPanel.accountsAtRisk")}</h3>
           </div>
           {accountsAtRisk.length > 0 && (
             <span className="text-[11px] font-bold bg-rose-500 text-white rounded-full px-2 py-0.5">{accountsAtRisk.length}</span>
           )}
         </div>
         {accountsAtRisk.length === 0 ? (
-          <p className="px-4 py-5 text-xs text-gray-400 dark:text-gray-500 italic text-center">Nenhuma conta em risco — a implementar</p>
+          <p className="px-4 py-5 text-xs text-gray-400 dark:text-gray-500 italic text-center">{t("today.rightPanel.noAccountsAtRisk")}</p>
         ) : (
           <div className="divide-y divide-gray-100 dark:divide-gray-800">
             {accountsAtRisk.map((acct) => (
