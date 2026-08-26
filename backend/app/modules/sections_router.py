@@ -10,7 +10,8 @@ from pydantic import BaseModel
 
 from app.modules.sections_service import (
     get_farol, get_farol_clients, get_companies, get_cisco_ea_metering, get_cisco_ea_consolidated,
-    get_projects, get_project_customers, get_project_team, get_account_team_allocated, get_renewals,
+    get_projects, get_project_customers, get_project_team, get_project_by_id,
+    get_departments, save_project, get_account_team_allocated, get_renewals,
     get_users, search_users, get_user_by_id, update_user, search_persons, create_user,
     get_csm_active, get_roles, get_admin_companies,
     get_user_roles, assign_role_to_user, remove_role_from_user,
@@ -309,6 +310,60 @@ def project_account_team(
     """
     return get_account_team_allocated(customer_id)
 
+@projects_router.get("/departments", response_model=List[Dict[str, Any]])
+def list_departments(
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """
+    Returns list of departments from tbDepartment for the project_owner dropdown.
+    Returns: [{ department_id, department_name }]
+    """
+    return get_departments()
+
+@projects_router.get("/{project_id}/detail", response_model=Dict[str, Any])
+def get_project_detail(
+    project_id: int,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """
+    Returns a single project row from tbProject for the edit form.
+    Uses /detail suffix to avoid conflicts with /{project_id}/team.
+    """
+    result = get_project_by_id(project_id)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
+    return result
+
+@projects_router.put("/{project_id}", response_model=Dict[str, Any])
+def update_project_endpoint(
+    project_id: int,
+    body: Dict[str, Any],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """
+    Updates a project in tbProject.
+    Requires ADMIN role (checked in the service via canEdit on frontend;
+    backend guard for extra safety).
+    """
+    result = save_project(project_id, body)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@projects_router.post("", response_model=Dict[str, Any])
+def create_project_endpoint(
+    body: Dict[str, Any],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """
+    Creates a new project in tbProject.
+    Required fields: project_ov, project_customer_id.
+    """
+    result = save_project(None, body)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
 @projects_router.get("", response_model=List[Dict[str, Any]])
 def list_projects(
     current_user: Annotated[dict, Depends(get_current_user)],
@@ -331,6 +386,72 @@ def project_team(
     Columns: projteam_member_name (NAME), projteam_level_name (TYPE), etc.
     """
     return get_project_team(project_id)
+
+
+@projects_router.get("/levels", response_model=List[Dict[str, Any]])
+def get_resource_levels_endpoint(
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Returns all resource levels from tbResourceLevel for the team member Level dropdown."""
+    from app.modules.sections_service import get_resource_levels
+    return get_resource_levels()
+
+
+@projects_router.get("/persons", response_model=List[Dict[str, Any]])
+def search_project_persons_endpoint(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    search: str = "",
+):
+    """Search persons for project team member assignment."""
+    from app.modules.sections_service import search_project_persons
+    return search_project_persons(search)
+
+
+@projects_router.post("/{project_id}/team-member", response_model=Dict[str, Any])
+def add_project_team_member_endpoint(
+    project_id: int,
+    body: Dict[str, Any],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Add a new member to a project team. Requires ADMIN role."""
+    if "ADMIN" not in (current_user.get("roles") or []):
+        raise HTTPException(status_code=403, detail="ADMIN role required")
+    from app.modules.sections_service import save_project_team_member
+    result = save_project_team_member(project_id, None, body)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@projects_router.put("/team-member/{projteam_id}", response_model=Dict[str, Any])
+def update_project_team_member_endpoint(
+    projteam_id: int,
+    body: Dict[str, Any],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Update a project team member. Requires ADMIN role."""
+    if "ADMIN" not in (current_user.get("roles") or []):
+        raise HTTPException(status_code=403, detail="ADMIN role required")
+    from app.modules.sections_service import save_project_team_member
+    result = save_project_team_member(0, projteam_id, body)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@projects_router.delete("/team-member/{projteam_id}", response_model=Dict[str, Any])
+def delete_project_team_member_endpoint(
+    projteam_id: int,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Remove a project team member. Requires ADMIN role."""
+    if "ADMIN" not in (current_user.get("roles") or []):
+        raise HTTPException(status_code=403, detail="ADMIN role required")
+    from app.modules.sections_service import delete_project_team_member
+    result = delete_project_team_member(projteam_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
 
 
 # ─── Renewals ─────────────────────────────────────────────

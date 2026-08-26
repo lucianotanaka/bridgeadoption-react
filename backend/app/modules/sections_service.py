@@ -286,6 +286,173 @@ def get_account_team_allocated(customer_id: int) -> List[Dict]:
         return []
 
 
+def get_resource_levels() -> List[Dict]:
+    """
+    Returns list of resource levels from tbResourceLevel.
+    Used to populate the Level dropdown in the project team member form.
+
+    Uses get_db_connection() directly — does NOT depend on ProjectRepository
+    so it works without deploying the updated project_repository.py.
+    Only requires Gunicorn restart after sections_service.py is deployed.
+
+    Returns: [{ level_id, level_name, level_type }]
+    """
+    try:
+        from src.infrastructure.database.connection import get_db_connection
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT level_id, level_name, level_type
+                FROM tbResourceLevel
+                WHERE level_name IS NOT NULL AND level_name <> ''
+                ORDER BY level_name
+            """)
+            rows = cursor.fetchall()
+            return [_ser(dict(r)) for r in rows]
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"get_resource_levels: {e}\n{traceback.format_exc()}"); return []
+
+
+def search_project_persons(search: str = "") -> List[Dict]:
+    """
+    Search persons for project team assignment (NTT internal people).
+    Returns: [{ person_id, person_name, person_email, person_job_title }]
+    """
+    try:
+        from src.infrastructure.database.connection import get_db_connection
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor(dictionary=True)
+            if search.strip():
+                cursor.execute("""
+                    SELECT person_id, person_name, person_email, person_job_title
+                    FROM tbPerson
+                    WHERE person_enabled = 1
+                      AND (person_name LIKE %s OR person_email LIKE %s)
+                    ORDER BY person_name
+                    LIMIT 50
+                """, (f"%{search}%", f"%{search}%"))
+            else:
+                cursor.execute("""
+                    SELECT person_id, person_name, person_email, person_job_title
+                    FROM tbPerson
+                    WHERE person_enabled = 1
+                    ORDER BY person_name
+                    LIMIT 100
+                """)
+            rows = cursor.fetchall()
+            return [_ser(dict(r)) for r in rows]
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"search_project_persons: {e}\n{traceback.format_exc()}"); return []
+
+
+def save_project_team_member(project_id: int, projteam_id: Optional[int], data: Dict) -> Dict:
+    """
+    Add (projteam_id=None) or update (projteam_id=int) a project team member.
+    Returns {projteam_id, success} or {error}.
+    """
+    if not _PROJ_OK: return {"error": "Repository not available"}
+    try:
+        repo = ProjectRepository()
+        if projteam_id:
+            ok = repo.update_project_team_member(projteam_id, data)
+            return {"projteam_id": projteam_id, "success": ok}
+        else:
+            new_id = repo.add_project_team_member(project_id, data)
+            if new_id:
+                return {"projteam_id": new_id, "success": True}
+            return {"error": "Failed to add team member — projteam_person_id is required"}
+    except Exception as e:
+        logger.error(f"save_project_team_member: {e}\n{traceback.format_exc()}")
+        return {"error": str(e)}
+
+
+def delete_project_team_member(projteam_id: int) -> Dict:
+    """Remove a project team member. Returns {success} or {error}."""
+    if not _PROJ_OK: return {"error": "Repository not available"}
+    try:
+        repo = ProjectRepository()
+        ok = repo.remove_project_team_member(projteam_id)
+        return {"success": ok}
+    except Exception as e:
+        logger.error(f"delete_project_team_member: {e}\n{traceback.format_exc()}")
+        return {"error": str(e)}
+
+
+def get_departments() -> List[Dict]:
+    """
+    Returns list of departments from tbDepartment.
+    Used to populate project_owner dropdown in ProjectsPage edit/add form.
+
+    Uses get_db_connection() directly — does NOT depend on ProjectRepository.get_departments()
+    so it works without deploying the updated project_repository.py to the server.
+    Only requires Gunicorn restart after sections_service.py is deployed.
+
+    Returns: [{ department_id, department_name }]
+    """
+    try:
+        from src.infrastructure.database.connection import get_db_connection
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT department_id, department_name
+                FROM tbDepartment
+                WHERE department_name IS NOT NULL
+                  AND department_name <> ''
+                ORDER BY department_name
+            """)
+            rows = cursor.fetchall()
+            return [_ser(dict(r)) for r in rows]
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"get_departments: {e}\n{traceback.format_exc()}"); return []
+
+
+def get_project_by_id(project_id: int) -> Dict:
+    """
+    Returns a single project row from tbProject by project_id.
+    Used by the edit form in ProjectsPage.
+    """
+    if not _PROJ_OK: return {}
+    try:
+        repo = ProjectRepository()
+        row = repo.get_project_by_id(project_id)
+        return _ser(dict(row)) if row else {}
+    except Exception as e:
+        logger.error(f"get_project_by_id: {e}\n{traceback.format_exc()}"); return {}
+
+
+def save_project(project_id: Optional[int], data: Dict) -> Dict:
+    """
+    Create (project_id=None) or update (project_id=int) a project.
+    Returns {project_id, success} or {error}.
+    """
+    if not _PROJ_OK: return {"error": "Repository not available"}
+    try:
+        repo = ProjectRepository()
+        if project_id:
+            ok = repo.update_project(project_id, data)
+            return {"project_id": project_id, "success": ok}
+        else:
+            new_id = repo.create_project(data)
+            if new_id:
+                return {"project_id": new_id, "success": True}
+            return {"error": "Failed to create project — check required fields (project_ov, project_customer_id)"}
+    except Exception as e:
+        logger.error(f"save_project: {e}\n{traceback.format_exc()}")
+        return {"error": str(e)}
+
+
 def get_project_customers() -> List[Dict]:
     """
     Returns unique customers that have projects (all statuses).

@@ -643,7 +643,26 @@
     "colEnd": "End",
     "colName": "Name",
     "colType": "Type",
-    "colDept": "Dept"
+    "colDept": "Dept",
+    "addProject": "Add Project",
+    "editProject": "Edit Project",
+    "selectCustomer": "Select a customer...",
+    "formLabelOv": "OV *",
+    "formOvPlaceholder": "Ex: 52757 or #68924_#69056",
+    "formLabelProjectName": "Project Name",
+    "formLabelOwner": "Owner (Department)",
+    "formLabelCustomer": "Customer",
+    "formLabelMethodology": "Methodology",
+    "formSelectMethodology": "— Select methodology —",
+    "formLabelAction": "Action",
+    "formLabelDates": "Dates",
+    "formLabelInternalizationDate": "Internalization Date",
+    "formLabelStartDate": "Start Date",
+    "formLabelEndDate": "End Date",
+    "formLabelDetails": "Project Details",
+    "formLabelFinancial": "Financial",
+    "addTeamMember": "Add Member",
+    "editTeamMember": "Edit Member"
   },
   "public": {
     "csmAccount": {
