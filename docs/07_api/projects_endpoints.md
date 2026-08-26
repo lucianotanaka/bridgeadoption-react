@@ -1,6 +1,6 @@
 # API — Projects Endpoints
 
-> **Última atualização:** 2026-08-26 (v4: CRUD completo + team member management)  
+> **Última atualização:** 2026-08-26 (v5: OV Search global, direct SQL, Account Team em modo OV)  
 > **Router:** `backend/app/modules/sections_router.py` → `projects_router`  
 > **Prefix:** `/api/projects`  
 > **Service:** `backend/app/modules/sections_service.py`  
@@ -161,14 +161,22 @@ LIMIT 50
 
 Retorna projetos da view `vwProject`.
 
-**Query params:** `customer_id` (int, opcional)
+**Query params:**
 
-**Comportamento por filtro de status:**
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `customer_id` | int | ❌ | Filtrar por cliente |
+| `ov_search` | string | ❌ | Busca global por OV via `tbProjectOV` |
 
-| Cenário | Status retornados |
+**Comportamento por modo:**
+
+| Cenário | Comportamento |
 |---|---|
-| Sem `customer_id` | `Business Model`, `In progress`, `Not started`, `Unidentified` |
-| Com `customer_id` | **Todos** — sem filtro de status |
+| `ov_search` informado | Busca `tbProjectOV WHERE ov_project_ov IN (tokens)` → retorna `vwProject WHERE project_id IN (...)`. `customer_id` pode ser combinado. Usa **direct SQL** — não depende de `_PROJ_OK`. |
+| `customer_id` only | Retorna todos os status do cliente (sem filtro de status) |
+| Nenhum | `["Business Model", "In progress", "Not started", "Unidentified"]` |
+
+**Normalização de `ov_search`:** remove `#`, remove espaços, split por `_`. Ex: `#68924_#69056` → tokens `["68924", "69056"]`
 
 ```json
 [
@@ -538,6 +546,7 @@ WHERE TABLE_SCHEMA = 'bridgeadoption' AND TABLE_NAME = 'tbProject';
 
 | Data | Versão | Descrição |
 |---|---|---|
+| 2026-08-26 | 5.0 | **OV Search.** `GET /api/projects?ov_search=X` usa direct SQL sem dependência de `_PROJ_OK` ou `project_repository.py` atualizado: `tbProjectOV WHERE ov_project_ov IN (tokens)` → `vwProject WHERE project_id IN (...)`. Pode ser combinado com `customer_id`. `get_projects(ov_search)` reescrito completamente para evitar `AttributeError` em servidores com repositório antigo. |
 | 2026-08-26 | 4.0 | **CRUD completo.** Novos endpoints: `GET /departments`, `GET /levels`, `GET /persons`, `GET /{id}/detail`, `POST /` (create), `PUT /{id}` (update), `POST /{pid}/team-member`, `PUT /team-member/{id}`, `DELETE /team-member/{id}`. `get_departments()` e `get_resource_levels()` reescritos com direct SQL sem `_PROJ_OK`. Checklist de deploy atualizado. |
 | 2026-08-22 | 3.0 | Adicionado `GET /account-team` com filtro `accountteam_allocated != 0`. |
 | 2026-08-22 | 2.0 | Adicionado `GET /customers`. `GET` com `customer_id` retorna todos os status. |

@@ -1,10 +1,10 @@
 # Módulo Projects — Bridge Adoption React
 
-> **Última atualização:** 2026-08-26  
+> **Última atualização:** 2026-08-26 (v5: OV Search global, OV Filter por cliente, Account Team em modo OV)  
 > **Rota:** `/projects`  
 > **resource_key:** `project.project`  
 > **Arquivo frontend:** `frontend/src/pages/projects/ProjectsPage.tsx`  
-> **Status:** ✅ v4 — CRUD completo (edit/add project + team member management)  
+> **Status:** ✅ v5 — CRUD completo + busca por OV  
 > **Audiência:** Desenvolvimento e sustentação
 
 ---
@@ -16,12 +16,19 @@ Portfólio de projetos de clientes (**Customer Projects Portfolio**). Permite qu
 ### Fluxo de uso
 
 ```
-1. Usuário seleciona CUSTOMER no dropdown pesquisável (todos os clientes válidos)
-2. Sistema carrega ACCOUNT TEAM do cliente (badges de membros alocados)
-3. PROJECT DETAIL exibe projetos do cliente com filtro STATUS no cabeçalho
-4. Ao clicar em uma linha: PROJECT TEAM exibe equipe do projeto
-5. ADMIN: botão ✏️ edita projeto | botão ➕ adiciona projeto
-6. ADMIN: botões ✏️/🗑️ na equipe | botão ➕ adiciona membro
+MODO 1 — Com cliente selecionado:
+1. Usuário seleciona CUSTOMER no dropdown pesquisável
+2. Sistema carrega ACCOUNT TEAM do cliente (badges)
+3. OV Filter (select) aparece com as OVs do cliente para filtro adicional
+4. PROJECT DETAIL exibe projetos do cliente com filtro STATUS
+5. Ao clicar em uma linha: PROJECT TEAM exibe equipe do projeto
+6. ADMIN: editar/adicionar projeto | gerenciar membros da equipe
+
+MODO 2 — Busca global por OV (sem cliente):
+1. Usuário digita OV no campo "OV Search" + clica Search (ou Enter)
+2. Backend busca em tbProjectOV e retorna o(s) projeto(s) encontrado(s)
+3. Account Team do cliente do projeto é exibido automaticamente
+4. PROJECT DETAIL exibe o(s) projeto(s) encontrado(s)
 ```
 
 ---
@@ -69,10 +76,22 @@ if "ADMIN" not in (current_user.get("roles") or []):
 #### CUSTOMER — searchable single-select
 - Dropdown pesquisável com **todos os clientes válidos** (exclui VAGO, PF, nulos, UNIDENTIFIED)
 - Fonte: `GET /api/portfolio/account-team/companies` → `CompanyRepository.list_available_companies()`
-- Ao limpar (✕): reseta tudo (STATUS, PROJECT DETAIL, PROJECT TEAM, formulários)
+- Ao limpar (✕): reseta tudo (STATUS, PROJECT DETAIL, PROJECT TEAM, formulários, OV)
+
+#### OV Search (sem cliente selecionado)
+- Campo de texto livre + botão **Search** (mínimo 2 caracteres)
+- Normalização automática: remove `#`, remove espaços, split por `_`
+- Busca global em `tbProjectOV` via direct SQL
+- Account Team do projeto encontrado é exibido automaticamente (`derivedCustomerId`)
+- Exemplos aceitos: `81822`, `#68924`, `#68924_#69056`, `_5678`
+
+#### OV Filter (com cliente selecionado)
+- Select dropdown com as OVs dos projetos do cliente (derivado de `allProjects`)
+- Filtragem **client-side** — sem nova requisição ao backend
+- Selecionar uma OV → filtra PROJECT DETAIL para mostrar somente aquela OV
 
 #### CLEAR FILTERS
-- Aparece quando `selectedCustomer !== null` OU `selectedStatus !== ""`
+- Aparece quando há cliente selecionado, status selecionado, OV digitada ou OV selecionada
 - Reseta todos os estados de seleção e formulários
 
 ### 4.2 Account Team panel
@@ -245,9 +264,21 @@ Componentes internos:
 | `["project-departments"]` | `GET /api/projects/departments` | 30 min | ADMIN only |
 | `["project-levels"]` | `GET /api/projects/levels` | 60 min | ADMIN only |
 | `["project-persons", search]` | `GET /api/projects/persons?search=X` | 2 min | ADMIN + search.length ≥ 2 |
-| `["projects-by-customer", id]` | `GET /api/projects?customer_id=X` | 5 min | Quando customer selecionado |
-| `["account-team-for-projects", id]` | `GET /api/projects/account-team?customer_id=X` | 5 min | Quando customer selecionado |
+| `["projects-by-customer", id, ovSearch]` | `GET /api/projects?customer_id=X` ou `?ov_search=X` | 5 min | Customer selecionado OU ovMode |
+| `["account-team-for-projects", derivedCustomerId]` | `GET /api/projects/account-team?customer_id=X` | 5 min | `derivedCustomerId !== null` |
 | `["project-team", id]` | `GET /api/projects/{id}/team` | 5 min | Quando projeto selecionado |
+
+### Derivações `derivedCustomerId` / `derivedCustomerName`
+
+Quando em modo OV search (sem cliente selecionado):
+```tsx
+derivedCustomerId  = allProjects[0].project_customer_id   // customer do projeto encontrado
+derivedCustomerName = allProjects[0].project_customer_name
+```
+
+Usado por:
+- `accountTeamQ` → busca Account Team do cliente do projeto encontrado
+- Header do painel Account Team → exibe nome do cliente
 
 ### Mutations React Query
 
@@ -427,6 +458,7 @@ mysql -u user -p bridgeadoption -e "SELECT COUNT(*) FROM tbResourceLevel;"
 
 | Data | Versão | Descrição |
 |---|---|---|
+| 2026-08-26 | 5.0 | **Busca por OV.** OV Search global (texto + botão Search): busca `tbProjectOV` via direct SQL, retorna projetos de qualquer cliente. OV Filter (select): quando cliente selecionado, filtra client-side as OVs do cliente. Account Team exibido automaticamente no modo OV search via `derivedCustomerId/Name`. `get_projects(ov_search=...)` reescrito com direct SQL sem dependência de `_PROJ_OK` — solução para servidores com `project_repository.py` antigo. Service name corrigido: `bridgeadoption-backend.service`. |
 | 2026-08-26 | 4.0 | **CRUD completo.** CUSTOMER dropdown passa a usar `list_available_companies()` (todos os clientes válidos). STATUS movido para dentro do header do PROJECT DETAIL. Formulário de projeto com ADMIN gate: edit/add com seções colapsáveis (Basic, Dates, Details, Financial), select Methodology, select Owner. `create_project()` delega para `insert()` com normalização OV + sync `tbProjectOV`. `update_project()` normaliza OV e sincroniza `tbProjectOV`. Team member management: add/edit/delete (ADMIN), `TeamMemberForm` com busca de pessoa, selects Department/Level, Technical Lead, Working Time, datas. `get_departments()` e `get_resource_levels()` reescritos com direct SQL sem dependência de `_PROJ_OK`. 4 novos métodos em `ProjectRepository`: `get_resource_levels`, `add/update/remove_project_team_member`. 9 novos endpoints. i18n: 16 novas chaves. |
 | 2026-08-22 | 3.0 | Paginação (5/10/25/50). Botão "Clear all filters". Endpoint `/projects/account-team` com filtro `accountteam_allocated != 0`. i18n completo. |
 | 2026-08-22 | 2.0 | CustomerSelect pesquisável. StatusSelect por cliente. Account Team panel. PROJECT DETAIL clicável. PROJECT TEAM lateral. Novo endpoint `GET /api/projects/customers`. |

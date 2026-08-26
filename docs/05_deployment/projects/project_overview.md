@@ -1,7 +1,7 @@
 # Deploy — Módulo Projects (v4)
 
-> **Última atualização:** 2026-08-26  
-> **Versão:** v4 — CRUD completo (edit/add project + team member management)  
+> **Última atualização:** 2026-08-26 (v5: OV Search, direct SQL, Account Team em modo OV, service name corrigido)  
+> **Versão:** v5 — CRUD completo + busca por OV  
 > **Audiência:** Time de implementação e sustentação
 
 ---
@@ -12,6 +12,10 @@ O módulo Projects v4 introduziu as seguintes funcionalidades que requerem deplo
 
 | Funcionalidade | Arquivo(s) alterado(s) | Impacto |
 |---|---|---|
+| **v5** OV Search global (texto + botão) | `frontend/src/pages/projects/ProjectsPage.tsx` | Frontend |
+| **v5** OV Filter (select por cliente) | `frontend/src/pages/projects/ProjectsPage.tsx` | Frontend |
+| **v5** Account Team em modo OV (derivedCustomerId) | `frontend/src/pages/projects/ProjectsPage.tsx` | Frontend |
+| **v5** `get_projects(ov_search)` direct SQL | `backend/app/modules/sections_service.py` | Backend React |
 | CUSTOMER dropdown — todos os clientes | `frontend/src/pages/projects/ProjectsPage.tsx` | Frontend |
 | STATUS filtro dentro do PROJECT DETAIL | `frontend/src/pages/projects/ProjectsPage.tsx` | Frontend |
 | Formulário Editar/Adicionar Projeto | `frontend/src/pages/projects/ProjectsPage.tsx` | Frontend |
@@ -195,14 +199,32 @@ scp -r dist/* usuario@servidor:/var/www/bridgeadoption/
 
 1. Acessar `http://172.30.100.3/bridgeadoption/projects`
 2. Verificar que o CUSTOMER dropdown carrega (deve mostrar **todos** os clientes, não só os com projetos)
-3. Selecionar um cliente → verificar Account Team panel
-4. Verificar que o STATUS está no header do PROJECT DETAIL (não no painel superior)
-5. Clicar em ✏️ em um projeto → verificar que o formulário abre com os dados preenchidos
-6. Clicar em uma linha → selecionar projeto → verificar botão "+ Add Member" no header do PROJECT TEAM
-7. Clicar em ✏️ em um membro → verificar que:
+3. **Testar OV Search (sem cliente):**
+   - Digitar `81822` no campo OV Search
+   - Clicar no botão **Search**
+   - Deve retornar o projeto "Cotação Horizon" do BANCO BRADESCO
+   - Account Team do BANCO BRADESCO deve aparecer automaticamente
+4. Selecionar um cliente → verificar Account Team panel
+5. Verificar que o **OV Filter** (select) aparece com as OVs do cliente
+6. Verificar que o STATUS está no header do PROJECT DETAIL (não no painel superior)
+7. Clicar em ✏️ em um projeto → verificar que o formulário abre com os dados preenchidos
+8. Clicar em uma linha → selecionar projeto → verificar botão "+ Add Member" no header do PROJECT TEAM
+9. Clicar em ✏️ em um membro → verificar que:
    - Nome aparece **uma vez** como read-only
    - Select Level tem opções carregadas
-8. Testar criação de novo projeto (botão "+ Add Project")
+10. Testar criação de novo projeto (botão "+ Add Project")
+
+### Diagnóstico OV Search
+
+```bash
+# Testar busca por OV diretamente na API
+curl -s "http://172.30.100.3/bridgeadoption/api/projects?ov_search=81822" \
+  -H "Authorization: Bearer {TOKEN}" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'{len(d)} projects, first={d[0][\"project_ov\"] if d else None}')"
+
+# Verificar no banco
+mysql -u user -p bridgeadoption -e "SELECT ov_project_id, ov_project_ov FROM tbProjectOV WHERE ov_project_ov = '81822';"
+```
 
 ---
 
