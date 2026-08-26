@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Users, FolderOpen, X, Plus, Pencil, Save, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
@@ -222,6 +222,9 @@ export default function ProjectsPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<ProjectCustomer | null>(null);
   const [selectedStatus, setSelectedStatus] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const [ovSearch, setOvSearch] = useState("");       // committed global OV search (no customer)
+  const [ovInputText, setOvInputText] = useState(""); // text input value before search button
+  const [selectedOv, setSelectedOv] = useState("");   // OV select when customer is selected
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(5);
   const [formMode, setFormMode] = useState<"none" | "edit" | "add">("none");
@@ -235,8 +238,38 @@ export default function ProjectsPage() {
   const departmentsQ = useQuery({ queryKey: ["project-departments"], queryFn: () => apiClient.get<Department[]>("/projects/departments").then(r => r.data), staleTime: 30 * 60 * 1000, enabled: canEdit });
   const levelsQ = useQuery({ queryKey: ["project-levels"], queryFn: () => apiClient.get<ResourceLevel[]>("/projects/levels").then(r => r.data), staleTime: 60 * 60 * 1000, enabled: canEdit });
   const personsQ = useQuery({ queryKey: ["project-persons", personSearch], queryFn: () => apiClient.get<ProjectPerson[]>("/projects/persons", { params: { search: personSearch } }).then(r => r.data), staleTime: 2 * 60 * 1000, enabled: canEdit && personSearch.length >= 2 });
-  const projectsQ = useQuery({ queryKey: ["projects-by-customer", selectedCustomer?.project_customer_id], queryFn: () => apiClient.get<ProjectRow[]>("/projects", { params: { customer_id: selectedCustomer!.project_customer_id } }).then(r => r.data), enabled: !!selectedCustomer, staleTime: 5 * 60 * 1000 });
-  const accountTeamQ = useQuery({ queryKey: ["account-team-for-projects", selectedCustomer?.project_customer_id], queryFn: () => apiClient.get<AccountTeamMember[]>("/projects/account-team", { params: { customer_id: selectedCustomer!.project_customer_id } }).then(r => r.data), enabled: !!selectedCustomer, staleTime: 5 * 60 * 1000 });
+
+  // Global OV search mode: no customer, ovSearch committed (button clicked)
+  const ovMode = !selectedCustomer && ovSearch.length >= 2;
+  const projectsQ = useQuery({
+    queryKey: ["projects-by-customer", selectedCustomer?.project_customer_id, selectedCustomer ? "" : ovSearch],
+    queryFn: () => apiClient.get<ProjectRow[]>("/projects", {
+      params: {
+        ...(selectedCustomer ? { customer_id: selectedCustomer.project_customer_id } : {}),
+        ...(!selectedCustomer && ovSearch ? { ov_search: ovSearch } : {}),
+      }
+    }).then(r => r.data),
+    enabled: !!selectedCustomer || ovMode,
+    staleTime: 5 * 60 * 1000,
+  });
+  // Derive customer from OV search results (no customer selected)
+  const derivedCustomerId = useMemo(() => {
+    if (selectedCustomer) return selectedCustomer.project_customer_id;
+    if (ovMode && projectsQ.data && projectsQ.data.length > 0) {
+      const cid = (projectsQ.data[0] as Record<string, unknown>).project_customer_id;
+      return cid ? Number(cid) : null;
+    }
+    return null;
+  }, [selectedCustomer, ovMode, projectsQ.data]);
+  const derivedCustomerName = useMemo(() => {
+    if (selectedCustomer) return selectedCustomer.project_customer_name;
+    if (ovMode && projectsQ.data && projectsQ.data.length > 0) {
+      const cn = (projectsQ.data[0] as Record<string, unknown>).project_customer_name;
+      return cn ? String(cn) : "";
+    }
+    return "";
+  }, [selectedCustomer, ovMode, projectsQ.data]);
+  const accountTeamQ = useQuery({ queryKey: ["account-team-for-projects", derivedCustomerId], queryFn: () => apiClient.get<AccountTeamMember[]>("/projects/account-team", { params: { customer_id: derivedCustomerId } }).then(r => r.data), enabled: derivedCustomerId !== null, staleTime: 5 * 60 * 1000 });
   const teamQ = useQuery({ queryKey: ["project-team", selectedProjectId], queryFn: () => apiClient.get<TeamMember[]>("/projects/" + selectedProjectId + "/team").then(r => r.data), enabled: selectedProjectId !== null, staleTime: 5 * 60 * 1000 });
 
   const saveMut = useMutation({
@@ -260,14 +293,25 @@ export default function ProjectsPage() {
   const departments = useMemo(() => { const api = departmentsQ.data ?? []; if (api.length > 0) return api; const names = new Set<string>(["PMO"]); for (const p of allProjects) { const ow = (p as Record<string, unknown>).project_owner; if (ow && typeof ow === "string" && ow.trim()) names.add(ow.trim()); } return [...names].sort().map((n, i) => ({ department_id: i, department_name: n })); }, [departmentsQ.data, allProjects]);
   const levels = levelsQ.data ?? [];
   const persons = personsQ.data ?? [];
+  // OV select options — unique OVs from projects of selected customer
+  const customerOvOptions = useMemo(() => {
+    if (!selectedCustomer || allProjects.length === 0) return [];
+    return [...new Set(allProjects.map(p => p.project_ov).filter(Boolean) as string[])].sort();
+  }, [allProjects, selectedCustomer]);
+
   const statusOptions = useMemo(() => [...new Set(allProjects.map(p => p.project_status).filter(Boolean) as string[])].sort(), [allProjects]);
-  const filteredProjects = useMemo(() => !selectedStatus ? allProjects : allProjects.filter(p => p.project_status === selectedStatus), [allProjects, selectedStatus]);
+  const filteredProjects = useMemo(() => {
+    let result = allProjects;
+    if (selectedStatus) result = result.filter(p => p.project_status === selectedStatus);
+    if (selectedCustomer && selectedOv) result = result.filter(p => p.project_ov === selectedOv);
+    return result;
+  }, [allProjects, selectedStatus, selectedCustomer, selectedOv]);
   useMemo(() => { setPage(1); }, [filteredProjects.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const paginated = useMemo(() => filteredProjects.slice((page - 1) * pageSize, page * pageSize), [filteredProjects, page, pageSize]);
   const hasFilters = selectedCustomer !== null || selectedStatus !== "";
 
-  function handleCustomerChange(c: ProjectCustomer | null) { setSelectedCustomer(c); setSelectedStatus(""); setSelectedProjectId(null); setPage(1); setFormMode("none"); setFormInitial(null); setTeamFormMode("none"); setTeamFormInitial(null); setPersonSearch(""); }
-  function clearFilters() { handleCustomerChange(null); }
+  function handleCustomerChange(c: ProjectCustomer | null) { setSelectedCustomer(c); setSelectedStatus(""); setSelectedProjectId(null); setSelectedOv(""); setPage(1); setFormMode("none"); setFormInitial(null); setTeamFormMode("none"); setTeamFormInitial(null); setPersonSearch(""); }
+  function clearFilters() { handleCustomerChange(null); setOvInputText(""); setOvSearch(""); setSelectedOv(""); }
 
   async function handleEditClick(pid: number) {
     setSelectedProjectId(null); setFormMode("none");
@@ -280,7 +324,7 @@ export default function ProjectsPage() {
   function handleAddTeamMember() { setTeamFormMode("add"); setTeamFormInitial(null); setPersonSearch(""); }
   function handleEditTeamMember(m: TeamMember) { setTeamFormMode("edit"); setTeamFormInitial(m); setPersonSearch(m.projteam_member_name ? String(m.projteam_member_name) : ""); }
 
-  function getPersonName(m: AccountTeamMember): string { for (const k of Object.keys(m)) { if (k.includes("person_name") || k.includes("member_name")) { const v = m[k]; if (v && typeof v === "string") return v; } } return "—"; }
+  function getPersonName(m: AccountTeamMember): string { for (const k of Object.keys(m)) { if (k.includes("person_name") || k.includes("member_name") || k.includes("user_name") || k.includes("full_name")) { const v = m[k]; if (v && typeof v === "string") return v; } } return "—"; }
   function getPersonType(m: AccountTeamMember): string { const v = m.accountteam_person_type ?? (m as Record<string, unknown>).accountteam_user_type; return v ? String(v) : "—"; }
   function fmtDate(d: string | null | undefined) { return d ? String(d).slice(0, 10) : "—"; }
 
@@ -289,25 +333,62 @@ export default function ProjectsPage() {
       <div><h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("projects.title")}</h1><p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{t("projects.subtitle")}</p></div>
 
       <div className={card}>
-        <div className="flex flex-wrap gap-6 items-end">
+        <div className="flex flex-wrap gap-4 items-end">
           <CustomerSelect customers={customersQ.data ?? []} value={selectedCustomer} onChange={handleCustomerChange} loading={customersQ.isLoading} />
-          {hasFilters && (<div className="flex flex-col justify-end"><button type="button" onClick={clearFilters} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg transition-colors"><X size={12} /> {t("common.clearFilters")}</button></div>)}
+          {/* OV filter — text+button when no customer, select when customer selected */}
+          {!selectedCustomer ? (
+            <div className="flex flex-col gap-1 min-w-[220px]">
+              <label className={labelCls + " mb-1 block"}>OV Search</label>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={ovInputText}
+                  onChange={e => setOvInputText(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && ovInputText.trim().length >= 2) { setOvSearch(ovInputText.trim()); setSelectedProjectId(null); setPage(1); } }}
+                  placeholder="Ex: 52757, #68924"
+                  className={inputCls}
+                />
+                <button
+                  type="button"
+                  disabled={ovInputText.trim().length < 2}
+                  onClick={() => { setOvSearch(ovInputText.trim()); setSelectedProjectId(null); setPage(1); }}
+                  className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg transition-colors whitespace-nowrap"
+                >
+                  Search
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1 min-w-[200px]">
+              <label className={labelCls + " mb-1 block"}>OV Filter</label>
+              <select
+                value={selectedOv}
+                onChange={e => { setSelectedOv(e.target.value); setSelectedProjectId(null); setPage(1); }}
+                className={inputCls}
+              >
+                <option value="">— All OVs —</option>
+                {customerOvOptions.map(ov => <option key={ov} value={ov}>{ov}</option>)}
+              </select>
+            </div>
+          )}
+          {(hasFilters || ovInputText || selectedOv) && (<div className="flex flex-col justify-end"><button type="button" onClick={clearFilters} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg transition-colors"><X size={12} /> {t("common.clearFilters")}</button></div>)}
         </div>
         {customersQ.isError && <p className="text-xs text-red-500 mt-2">{t("errors.generic")}</p>}
+        {ovMode && projectsQ.isFetching && <p className="text-xs text-blue-500 mt-2">{t("common.loading")}</p>}
       </div>
 
-      {selectedCustomer && (
+      {(selectedCustomer !== null || (ovMode && derivedCustomerId !== null)) && (
         <div className={card}>
-          <div className="flex items-center gap-2 mb-3"><Users size={14} className="text-blue-500" /><p className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide">{t("projects.accountTeamTitle")} — {selectedCustomer.project_customer_name}</p>{accountTeamQ.isLoading && <Spin />}</div>
+          <div className="flex items-center gap-2 mb-3"><Users size={14} className="text-blue-500" /><p className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide">{t("projects.accountTeamTitle")} — {derivedCustomerName}</p>{accountTeamQ.isLoading && <Spin />}</div>
           {!accountTeamQ.isLoading && accountTeam.length === 0 && <p className="text-xs text-gray-400">{t("projects.noAccountTeam")}</p>}
           {accountTeam.length > 0 && (<div className="flex flex-wrap gap-2">{accountTeam.map((m, i) => (<div key={i} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800"><span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase">{getPersonType(m)}</span><span className="text-xs text-gray-700 dark:text-gray-300">{getPersonName(m)}</span></div>))}</div>)}
         </div>
       )}
 
-      {!selectedCustomer && (<div className={card}><div className="flex flex-col items-center justify-center py-12 gap-3 text-gray-400 dark:text-gray-500"><FolderOpen size={36} className="opacity-40" /><p className="text-sm">{t("projects.selectCustomerHint")}</p></div></div>)}
-      {selectedCustomer && projectsQ.isLoading && (<div className={card + " flex items-center justify-center gap-3 py-10"}><Spin /><span className="text-sm text-gray-500">{t("common.loading")}</span></div>)}
+      {!selectedCustomer && !ovMode && (<div className={card}><div className="flex flex-col items-center justify-center py-12 gap-3 text-gray-400 dark:text-gray-500"><FolderOpen size={36} className="opacity-40" /><p className="text-sm">{t("projects.selectCustomerHint")}</p></div></div>)}
+      {(selectedCustomer || ovMode) && projectsQ.isLoading && (<div className={card + " flex items-center justify-center gap-3 py-10"}><Spin /><span className="text-sm text-gray-500">{t("common.loading")}</span></div>)}
 
-      {selectedCustomer && !projectsQ.isLoading && (
+      {(selectedCustomer || ovMode) && !projectsQ.isLoading && (
         <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4">
           <div className={card}>
             <div className="flex items-center justify-between mb-3">

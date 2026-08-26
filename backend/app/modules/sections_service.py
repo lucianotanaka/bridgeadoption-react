@@ -487,18 +487,63 @@ def get_project_customers() -> List[Dict]:
         logger.error(f"get_project_customers: {e}\n{traceback.format_exc()}"); return []
 
 
-def get_projects(customer_id: Optional[int] = None, status: Optional[List[str]] = None) -> List[Dict]:
+def get_projects(customer_id: Optional[int] = None, status: Optional[List[str]] = None, ov_search: Optional[str] = None) -> List[Dict]:
     """
     Returns projects from vwProject.
-    - When customer_id is provided: returns ALL statuses (no default filter).
-    - When no customer_id: applies default active-status filter.
+
+    Modes:
+    - ov_search provided: busca via tbProjectOV com direct SQL (independente de _PROJ_OK)
+      - customer_id pode ser combinado para filtrar ainda mais
+    - customer_id only: retorna todos os status do cliente
+    - Nenhum: filtro padrão de status ativos
     """
+    # OV search mode — direct SQL, não depende de _PROJ_OK nem do project_repository.py atualizado
+    if ov_search and ov_search.strip():
+        try:
+            from src.infrastructure.database.connection import get_db_connection
+            raw = ov_search.strip()
+            # Normalizar: remove #, remove espaços, split por _
+            normalized = raw.replace("#", "").replace(" ", "")
+            tokens = [t for t in normalized.split("_") if t.strip()]
+            if not tokens:
+                return []
+            conn = get_db_connection()
+            try:
+                cursor = conn.cursor(dictionary=True)
+                # Passo 1: buscar project_ids via tbProjectOV
+                ph = ", ".join(["%s"] * len(tokens))
+                cursor.execute(
+                    f"SELECT DISTINCT ov_project_id FROM tbProjectOV WHERE ov_project_ov IN ({ph}) AND ov_project_id > 0",
+                    tuple(tokens)
+                )
+                rows = cursor.fetchall()
+                project_ids = [r["ov_project_id"] for r in rows if r.get("ov_project_id")]
+                if not project_ids:
+                    return []
+                # Passo 2: buscar projetos em vwProject
+                id_ph = ", ".join(["%s"] * len(project_ids))
+                conditions = [f"project_id IN ({id_ph})"]
+                params = list(project_ids)
+                if customer_id is not None:
+                    conditions.append("project_customer_id = %s")
+                    params.append(customer_id)
+                cursor.execute(
+                    f"SELECT * FROM vwProject WHERE {' AND '.join(conditions)} ORDER BY project_customer_name, project_id",
+                    tuple(params)
+                )
+                result = cursor.fetchall()
+                return [_ser(dict(r)) for r in result]
+            finally:
+                cursor.close()
+                conn.close()
+        except Exception as e:
+            logger.error(f"get_projects(ov_search): {e}\n{traceback.format_exc()}"); return []
+
     if not _PROJ_OK: return []
     try:
         repo = ProjectRepository()
         if customer_id is not None:
-            # Return ALL statuses for a specific customer
-            status_list = status  # None = no status filter
+            status_list = status  # None = sem filtro = todos os status
         else:
             status_list = status or ["Business Model", "In progress", "Not started", "Unidentified"]
         df = repo.get_project(customer_id=customer_id, project_status=status_list, as_df=True)

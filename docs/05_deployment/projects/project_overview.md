@@ -148,11 +148,11 @@ cp sections_router.py  /opt/bridge-adoption-react/backend/app/modules/
 cp project_repository.py /opt/bridgeadoption/src/infrastructure/database/repositories/
 
 # 1c. Reiniciar Gunicorn
-sudo systemctl restart bridgeadoption-api
+sudo systemctl restart bridgeadoption-backend.service
 
 # 1d. Aguardar inicialização (≈5s) e verificar
-sudo systemctl status bridgeadoption-api
-sudo journalctl -u bridgeadoption-api -n 50
+sudo systemctl status bridgeadoption-backend.service
+sudo journalctl -u bridgeadoption-backend.service -n 50
 ```
 
 ### Passo 2 — Verificar endpoints
@@ -220,7 +220,7 @@ cp /opt/bridgeadoption/src/infrastructure/database/repositories/project_reposito
    /opt/bridgeadoption/src/infrastructure/database/repositories/project_repository.py
 
 # Reiniciar
-sudo systemctl restart bridgeadoption-api
+sudo systemctl restart bridgeadoption-backend.service
 
 # Restaurar frontend anterior (se houver backup do dist/)
 ```
@@ -231,22 +231,22 @@ sudo systemctl restart bridgeadoption-api
 
 | Sintoma | Causa provável | Ação |
 |---|---|---|
-| OWNER select vazio | Gunicorn não reiniciado | `sudo systemctl restart bridgeadoption-api` |
+| OWNER select vazio | Gunicorn não reiniciado | `sudo systemctl restart bridgeadoption-backend.service` |
 | LEVEL select vazio | Idem | Idem |
 | Formulário não abre dados ao editar | Cache do browser | Limpar cache ou aguardar `staleTime` (5 min) |
 | "ADMIN role required" ao salvar membro | Role ADMIN não atribuída ao usuário | Verificar `tbUserRole` + `tbRole` |
 | `_PROJ_OK = False` no log | `project_repository.py` não deployado | Verificar `/opt/bridgeadoption/src/...` |
-| Erro 500 ao criar projeto | Repositório com erro | Ver `sudo journalctl -u bridgeadoption-api -n 100` |
+| Erro 500 ao criar projeto | Repositório com erro | Ver `sudo journalctl -u bridgeadoption-backend.service -n 100` |
 | Nome do membro aparece duas vezes | Frontend antigo no cache do browser | Hard refresh (Ctrl+Shift+R) ou limpar cache |
 
 ### Verificar logs do Gunicorn
 
 ```bash
 # Últimas 100 linhas
-sudo journalctl -u bridgeadoption-api -n 100
+sudo journalctl -u bridgeadoption-backend.service -n 100
 
 # Logs em tempo real
-sudo journalctl -u bridgeadoption-api -f
+sudo journalctl -u bridgeadoption-backend.service -f
 
 # Erros de import do ProjectRepository
-sudo journalctl -u bridgeadoption-api -n 100 | grep -i "project_repository\|_PROJ_OK"
+sudo journalctl -u bridgeadoption-backend.service -n 100 | grep -i "project_repository\|_PROJ_OK"

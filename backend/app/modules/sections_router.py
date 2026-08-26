@@ -368,13 +368,18 @@ def create_project_endpoint(
 def list_projects(
     current_user: Annotated[dict, Depends(get_current_user)],
     customer_id: Optional[int] = Query(None),
+    ov_search: Optional[str] = Query(None),
 ):
     """
     Returns projects from vwProject.
-    When customer_id is provided, returns ALL statuses (including Closed/Canceled).
-    When no customer_id, applies default active-status filter.
+
+    Modes:
+    - ov_search: busca global por OV via tbProjectOV (independente de customer_id)
+      - customer_id pode ser combinado para filtrar dentro do cliente
+    - customer_id only: retorna todos os status do cliente
+    - Nenhum: filtro padrão de status ativos
     """
-    return get_projects(customer_id=customer_id)
+    return get_projects(customer_id=customer_id, ov_search=ov_search)
 
 @projects_router.get("/{project_id}/team", response_model=List[Dict[str, Any]])
 def project_team(
