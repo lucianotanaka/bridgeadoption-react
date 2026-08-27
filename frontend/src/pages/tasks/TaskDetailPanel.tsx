@@ -4,6 +4,10 @@ import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight, Save, History, X, Edit2, Users, Info, Plus } from "lucide-react";
 import { tasksApi } from "@/api/tasks";
 import type { TaskItem, ActivityItem, HistoryItem, CSMItem, StatusType, RACIItem, PersonItem, CompanyItem, StatusJustificationItem, ProjectItem, ProjectTeamItem } from "@/api/tasks";
+import { useAuthStore } from "@/store/authStore";
+
+// IDs de status que encerram a task — usados para filtrar opções (Regra 2 e 3)
+const CLOSING_STATUS_IDS = new Set([4, 6, 10]);
 
 interface Props {
   tasks: TaskItem[];
@@ -184,8 +188,15 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isS
   const [saved, setSaved] = useState(false);
 
   const pct = Math.min(100, Math.max(0, ((act.activity_completed ?? 0) <= 1 ? (act.activity_completed ?? 0) * 100 : act.activity_completed ?? 0)));
-  const statusId = act.activity_status ?? 0;
+  // Suporta tanto 'activity_status' (tbTaskActivity) quanto 'activity_status_id' (vwTaskActivity)
+  // Number() garante que strings "10" ou floats 10.0 sejam tratados corretamente
+  const statusId = Number((act.activity_status ?? (act as Record<string, unknown>).activity_status_id) ?? 0);
   const isClosed = CLOSED_STATUS.has(statusId);
+  // Se activity_status_name não vier da API (SELECT * FROM tbTaskActivity não tem essa coluna),
+  // resolve o nome a partir do catálogo de statusTypes já carregado no componente pai
+  const resolvedStatusName = act.activity_status_name
+    ?? statusTypes.find((sx) => sx.statustype_id === statusId)?.statustype_name
+    ?? null;
   const bucket = isClosed ? "future" : deadlineBucket(fmtDate(act.activity_end_performed ?? act.activity_end) || null);
 
   const g = (k: string, fallback: string = ""): string => k in edits ? edits[k] : String((act as Record<string, unknown>)[k] ?? fallback);
@@ -197,8 +208,9 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isS
       const changes: string[] = [];
       const seq = parseInt(edits.activity_seq ?? "");
       if (!isNaN(seq) && seq !== act.activity_seq) data.activity_seq = seq;
-      if ("activity_status_name" in edits && edits.activity_status_name !== act.activity_status_name) {
+      if ("activity_status_name" in edits && edits.activity_status_name !== (resolvedStatusName ?? "")) {
         const found = statusTypes.find((sx) => sx.statustype_name === edits.activity_status_name);
+        // Envia SOMENTE activity_status (INT FK) — tbTaskActivity não tem coluna activity_status_name
         if (found) { data.activity_status = found.statustype_id; changes.push(`Status → ${edits.activity_status_name}`); }
       }
       if ("activity_completed_pct" in edits) {
@@ -261,7 +273,7 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isS
         {bucket === "delayed"
           ? <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500/15 text-red-500 dark:text-red-400 border border-red-500/40 animate-pulse shrink-0">ATRASADO</span>
           : <span className="text-sm shrink-0">{DEADLINE_ICON[bucket] ?? ""}</span>}
-        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${isClosed ? "bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-300" : "bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300"}`}>{act.activity_status_name ?? "—"}</span>
+        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${isClosed ? "bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-300" : "bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300"}`}>{resolvedStatusName ?? "—"}</span>
         <span className="text-[10px] text-gray-400 dark:text-gray-500 hidden sm:block">{fmtDate(act.activity_end_performed ?? act.activity_end) || "—"}</span>
         <Edit2 size={11} className="text-gray-400 shrink-0" />
       </button>
@@ -284,7 +296,7 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isS
             <LabelInput label={t("task.formCompleted")}><Sel value={g("activity_completed_pct", pctLabel(act.activity_completed))} onChange={(v) => s("activity_completed_pct", v)} options={PROGRESS_OPTIONS} disabled={isClosed} /></LabelInput>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <LabelInput label={t("task.formStatus")}><Sel value={g("activity_status_name", act.activity_status_name ?? "")} onChange={(v) => s("activity_status_name", v)} options={statusOptions} disabled={isClosed} /></LabelInput>
+            <LabelInput label={t("task.formStatus")}><Sel value={g("activity_status_name", resolvedStatusName ?? "")} onChange={(v) => s("activity_status_name", v)} options={statusOptions} disabled={isClosed} /></LabelInput>
             <LabelInput label={t("task.formDealId")}><Inp value={g("activity_deal_id", String(act.activity_deal_id ?? ""))} onChange={(v) => s("activity_deal_id", v)} disabled={isClosed} /></LabelInput>
             <LabelInput label="WS"><Inp value={g("activity_ws", String(act.activity_ws ?? ""))} onChange={(v) => s("activity_ws", v)} disabled={isClosed} /></LabelInput>
           </div>
@@ -330,10 +342,20 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isS
   );
 }
 
-function TaskEditForm({ task, csms, statusTypes, onSaved, showCreationInfo }: { task: TaskItem; csms: CSMItem[]; statusTypes: StatusType[]; onSaved: () => void; showCreationInfo: boolean }) {
+function TaskEditForm({ task, csms, statusTypes, activities, canEdit, canClose, onSaved, showCreationInfo }: {
+  task: TaskItem; csms: CSMItem[]; statusTypes: StatusType[]; activities: ActivityItem[];
+  canEdit: boolean; canClose: boolean; onSaved: () => void; showCreationInfo: boolean;
+}) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const isClosed = CLOSED_STATUS.has(task.task_status_id ?? 0);
+  // Regra 1: somente dono/dono-temp/admin/permissão-full pode editar
+  const isReadOnly = isClosed || !canEdit;
+  // Regra 3: verifica se há activities abertas (impedindo opções de encerramento)
+  const hasOpenActivities = activities.some((a) => {
+    const sid = Number((a.activity_status ?? (a as Record<string, unknown>).activity_status_id) ?? 0);
+    return !CLOSED_STATUS.has(sid);
+  });
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
   const [showProjectTeam, setShowProjectTeam] = useState(false);
@@ -342,7 +364,11 @@ function TaskEditForm({ task, csms, statusTypes, onSaved, showCreationInfo }: { 
   const s = (k: string, v: string) => { setEdits((p) => ({ ...p, [k]: v })); setSaved(false); };
 
   const csmOptions = ["", ...csms.map((c) => c.csm_name)];
-  const statusOptions = statusTypes.filter((st) => st.statustype_id !== 5).map((st) => st.statustype_name);
+  // Regras 2 e 3: filtra opções de encerramento com base em permissão e activities abertas
+  const statusOptions = statusTypes
+    .filter((st) => st.statustype_id !== 5)
+    .filter((st) => CLOSING_STATUS_IDS.has(st.statustype_id) ? (canClose && !hasOpenActivities) : true)
+    .map((st) => st.statustype_name);
   const TASK_CURRENCY_OPTIONS = ["BRL", "USD", "EUR"];
   const PCT_OPTIONS = ["0%", "25%", "50%", "75%", "100%"];
   const taskTypeId = Number(task.task_type_id ?? 0);
@@ -419,10 +445,35 @@ function TaskEditForm({ task, csms, statusTypes, onSaved, showCreationInfo }: { 
       mapField("task_deal_id", "Deal ID");
       mapField("task_value", "Value", (v) => parseFloat(v) || 0);
       mapField("task_currency", "Currency");
-      mapField("task_start_performed", "Start");
-      mapField("task_end_performed", "End");
       mapField("task_remark", "Remark");
       mapField("task_description", "Description");
+      // Regras 4 e 5: datas de início/fim derivadas das activities (se existirem)
+      if (activities.length > 0) {
+        const startCandidates = activities
+          .map((a) => a.activity_start_performed || a.activity_start)
+          .filter(Boolean)
+          .map((d) => String(d).slice(0, 10))
+          .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+          .sort();
+        if (startCandidates.length > 0) {
+          data.task_start_performed = startCandidates[0]; // menor data
+          changes.push(`Start → ${startCandidates[0]}`);
+        }
+        const endCandidates = activities
+          .map((a) => a.activity_end_performed || a.activity_end)
+          .filter(Boolean)
+          .map((d) => String(d).slice(0, 10))
+          .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+          .sort();
+        if (endCandidates.length > 0) {
+          data.task_end_performed = endCandidates[endCandidates.length - 1]; // maior data
+          changes.push(`End → ${endCandidates[endCandidates.length - 1]}`);
+        }
+      } else {
+        // Sem activities: permite edição manual das datas
+        mapField("task_start_performed", "Start");
+        mapField("task_end_performed", "End");
+      }
       const remark = changes.join("; ");
       const history = remark ? { taskrecord_remark: remark } : undefined;
       return tasksApi.updateTask(task.task_id, data, history).then((r) => r.data);
@@ -444,16 +495,23 @@ function TaskEditForm({ task, csms, statusTypes, onSaved, showCreationInfo }: { 
         </div>
       )}
 
+      {/* Indicador de somente-leitura (Regra 1) */}
+      {!canEdit && !isClosed && (
+        <div className="px-2 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 text-[10px] text-amber-700 dark:text-amber-300">
+          ⚠️ Somente o responsável ou administrador pode editar esta tarefa.
+        </div>
+      )}
+
       {/* Owner + Status */}
       <div className="grid grid-cols-2 gap-3">
-        <LabelInput label={t("task.formOwner")}><Sel value={g("task_owner_name", task.task_owner_name ?? "")} onChange={(v) => s("task_owner_name", v)} options={csmOptions} disabled={isClosed} /></LabelInput>
-        <LabelInput label={t("task.formStatus")}><Sel value={g("task_status_name", task.task_status_name ?? "")} onChange={(v) => s("task_status_name", v)} options={statusOptions} disabled={isClosed} /></LabelInput>
+        <LabelInput label={t("task.formOwner")}><Sel value={g("task_owner_name", task.task_owner_name ?? "")} onChange={(v) => s("task_owner_name", v)} options={csmOptions} disabled={isReadOnly} /></LabelInput>
+        <LabelInput label={t("task.formStatus")}><Sel value={g("task_status_name", task.task_status_name ?? "")} onChange={(v) => s("task_status_name", v)} options={statusOptions} disabled={isReadOnly} /></LabelInput>
       </div>
 
       {/* Status Justification */}
       {needsJustification && (
         <LabelInput label="Justificativa ⚠️">
-          <select value={g("task_status_justification", task.task_status_justification ?? "")} onChange={(e) => s("task_status_justification", e.target.value)} disabled={isClosed}
+          <select value={g("task_status_justification", task.task_status_justification ?? "")} onChange={(e) => s("task_status_justification", e.target.value)} disabled={isReadOnly}
             className="w-full text-xs px-2 py-1.5 border border-orange-400 dark:border-orange-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-orange-500 disabled:opacity-60">
             <option value="">Selecione uma justificativa...</option>
             {justifications.map((j) => <option key={j} value={j}>{j}</option>)}
@@ -463,19 +521,19 @@ function TaskEditForm({ task, csms, statusTypes, onSaved, showCreationInfo }: { 
 
       {/* Temp Owner + Priority */}
       <div className="grid grid-cols-2 gap-3">
-        <LabelInput label={t("task.formTempOwner")}><Sel value={g("task_temp_owner_name", task.task_temp_owner_name ?? "")} onChange={(v) => s("task_temp_owner_name", v)} options={csmOptions} disabled={isClosed} /></LabelInput>
-        <LabelInput label={t("task.formPriority")}><Sel value={g("task_priority", task.task_priority ?? "LOW")} onChange={(v) => s("task_priority", v)} options={PRIORITY_OPTIONS} disabled={isClosed} /></LabelInput>
+        <LabelInput label={t("task.formTempOwner")}><Sel value={g("task_temp_owner_name", task.task_temp_owner_name ?? "")} onChange={(v) => s("task_temp_owner_name", v)} options={csmOptions} disabled={isReadOnly} /></LabelInput>
+        <LabelInput label={t("task.formPriority")}><Sel value={g("task_priority", task.task_priority ?? "LOW")} onChange={(v) => s("task_priority", v)} options={PRIORITY_OPTIONS} disabled={isReadOnly} /></LabelInput>
       </div>
 
       {/* Reference (full width) */}
-      <LabelInput label={t("task.formReference")}><Inp value={g("task_reference", task.task_reference ?? "")} onChange={(v) => s("task_reference", v)} disabled={isClosed} /></LabelInput>
+      <LabelInput label={t("task.formReference")}><Inp value={g("task_reference", task.task_reference ?? "")} onChange={(v) => s("task_reference", v)} disabled={isReadOnly} /></LabelInput>
 
       {/* WS/Subscr. + Deal ID + Value + Moeda */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <LabelInput label="WS / Subscr."><Inp value={g("task_ws", task.task_ws ?? "")} onChange={(v) => s("task_ws", v)} disabled={isClosed} /></LabelInput>
-        <LabelInput label={t("task.formDealId")}><Inp value={g("task_deal_id", task.task_deal_id ?? "")} onChange={(v) => s("task_deal_id", v)} disabled={isClosed} /></LabelInput>
-        <LabelInput label={t("task.formValue")}><Inp value={g("task_value", String(task.task_value ?? "0"))} onChange={(v) => s("task_value", v)} disabled={isClosed} type="number" /></LabelInput>
-        <LabelInput label={t("task.formCurrency")}><Sel value={g("task_currency", task.task_currency ?? "USD")} onChange={(v) => s("task_currency", v)} options={CURRENCY_OPTIONS} disabled={isClosed} /></LabelInput>
+        <LabelInput label="WS / Subscr."><Inp value={g("task_ws", task.task_ws ?? "")} onChange={(v) => s("task_ws", v)} disabled={isReadOnly} /></LabelInput>
+        <LabelInput label={t("task.formDealId")}><Inp value={g("task_deal_id", task.task_deal_id ?? "")} onChange={(v) => s("task_deal_id", v)} disabled={isReadOnly} /></LabelInput>
+        <LabelInput label={t("task.formValue")}><Inp value={g("task_value", String(task.task_value ?? "0"))} onChange={(v) => s("task_value", v)} disabled={isReadOnly} type="number" /></LabelInput>
+        <LabelInput label={t("task.formCurrency")}><Sel value={g("task_currency", task.task_currency ?? "USD")} onChange={(v) => s("task_currency", v)} options={CURRENCY_OPTIONS} disabled={isReadOnly} /></LabelInput>
       </div>
 
       {/* Track + Subtrack (read-only, always shown) */}
@@ -485,21 +543,27 @@ function TaskEditForm({ task, csms, statusTypes, onSaved, showCreationInfo }: { 
       {/* Start + End + Concluído % */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <LabelInput label={t("task.formStart")}>
-          <Inp value={g("task_start_performed", fmtDate(task.task_start_performed))} onChange={(v) => s("task_start_performed", v)} disabled={isClosed} type="date" />
-          <p className="text-[10px] text-gray-400 mt-0.5">{t("task.formExpected")} {fmtDateDisplay(task.task_start)}</p>
+          {/* Regra 4: leitura automática das activities quando existirem */}
+          <Inp value={g("task_start_performed", fmtDate(task.task_start_performed))} onChange={(v) => s("task_start_performed", v)} disabled={isReadOnly || activities.length > 0} type="date" />
+          {activities.length > 0
+            ? <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">Auto: menor data das atividades</p>
+            : <p className="text-[10px] text-gray-400 mt-0.5">{t("task.formExpected")} {fmtDateDisplay(task.task_start)}</p>}
         </LabelInput>
         <LabelInput label={t("task.formEnd")}>
-          <Inp value={g("task_end_performed", fmtDate(task.task_end_performed))} onChange={(v) => s("task_end_performed", v)} disabled={isClosed} type="date" />
-          <p className="text-[10px] text-gray-400 mt-0.5">{t("task.formExpected")} {fmtDateDisplay(task.task_end)}</p>
+          {/* Regra 5: leitura automática das activities quando existirem */}
+          <Inp value={g("task_end_performed", fmtDate(task.task_end_performed))} onChange={(v) => s("task_end_performed", v)} disabled={isReadOnly || activities.length > 0} type="date" />
+          {activities.length > 0
+            ? <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">Auto: maior data das atividades</p>
+            : <p className="text-[10px] text-gray-400 mt-0.5">{t("task.formExpected")} {fmtDateDisplay(task.task_end)}</p>}
         </LabelInput>
-        <LabelInput label={t("task.completedPct")}><Sel value={g("task_completed_pct", completedToLabel(task.task_completed))} onChange={(v) => s("task_completed_pct", v)} options={PCT_OPTIONS} disabled={isClosed} /></LabelInput>
+        <LabelInput label={t("task.completedPct")}><Sel value={g("task_completed_pct", completedToLabel(task.task_completed))} onChange={(v) => s("task_completed_pct", v)} options={PCT_OPTIONS} disabled={isReadOnly} /></LabelInput>
       </div>
 
       {/* Project */}
       <div className="flex items-end gap-2">
         <div className="flex-1">
           <LabelInput label={t("task.fieldProject")}>
-            <select value={g("task_project_id", String(task.task_project_id ?? ""))} onChange={(e) => s("task_project_id", e.target.value)} disabled={isClosed || !projects.length}
+            <select value={g("task_project_id", String(task.task_project_id ?? ""))} onChange={(e) => s("task_project_id", e.target.value)} disabled={isReadOnly || !projects.length}
               className="w-full text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60">
               <option value="">{t("task.noProject")}</option>
               {projects.map((p) => <option key={p.project_id} value={String(p.project_id)}>{p.project_ov_name ?? p.project_name ?? `#${p.project_id}`}</option>)}
@@ -526,7 +590,7 @@ function TaskEditForm({ task, csms, statusTypes, onSaved, showCreationInfo }: { 
 
       {/* Description */}
       <LabelInput label={t("common.description")}>
-        <Textarea value={g("task_description", task.task_description ?? "")} onChange={(v) => s("task_description", v)} disabled={isClosed} placeholder={t("task.descriptionPlaceholder")} rows={2} />
+        <Textarea value={g("task_description", task.task_description ?? "")} onChange={(v) => s("task_description", v)} disabled={isReadOnly} placeholder={t("task.descriptionPlaceholder")} rows={2} />
       </LabelInput>
 
       {/* For type 21/22: LCI/EA fields (read-only) */}
@@ -552,7 +616,7 @@ function TaskEditForm({ task, csms, statusTypes, onSaved, showCreationInfo }: { 
       <div className="flex items-center justify-end gap-3 pt-1">
         {saved && <p className="text-xs text-green-600 dark:text-green-400">Salvo!</p>}
         {saveMut.isError && <p className="text-xs text-red-600 dark:text-red-400">Erro ao salvar</p>}
-        <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}
+        <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || isReadOnly}
           className="flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white transition-colors">
           {saveMut.isPending ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Save size={12} />}
           {saveMut.isPending ? "Salvando..." : "Salvar"}
@@ -1265,6 +1329,18 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, onClose }: Pr
   const csms = csmQuery.data ?? [];
   const statusTypes = statusQuery.data ?? [];
 
+  // ── Regras 1 e 2: permissões do usuário atual ──
+  const currentUser = useAuthStore.getState().user;
+  const isAdmin = useAuthStore.getState().hasRole("ADMIN");
+  const hasTaskEdit = useAuthStore.getState().hasPermission("task.edit");
+  const currentUserId = currentUser?.id ?? 0;
+  const isOwner = currentUserId === task.task_owner_id;
+  const isTempOwner = currentUserId === task.task_temp_owner_id;
+  // Regra 1: dono, dono temporário, admin ou permissão task.edit podem editar
+  const canEdit = isOwner || isTempOwner || isAdmin || hasTaskEdit;
+  // Regra 2: somente dono (não temp), admin ou permissão task.edit podem encerrar
+  const canClose = isOwner || isAdmin || hasTaskEdit;
+
   const critColor = (lvl?: string) => lvl === "N1" ? "text-red-600 dark:text-red-400" : lvl === "N2" ? "text-orange-600 dark:text-orange-400" : "";
 
   const totalPages = Math.ceil(tasks.length / TABLE_PAGE_SIZE);
@@ -1353,7 +1429,12 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, onClose }: Pr
             </button>
           </div>
 
-          <TaskEditForm task={task} csms={csms} statusTypes={statusTypes} showCreationInfo={showCreationInfo} onSaved={() => { void qc.invalidateQueries({ queryKey: ["task-activities", taskId] }); }} />
+          <TaskEditForm
+            task={task} csms={csms} statusTypes={statusTypes} activities={activities}
+            canEdit={canEdit} canClose={canClose}
+            showCreationInfo={showCreationInfo}
+            onSaved={() => { void qc.invalidateQueries({ queryKey: ["task-activities", taskId] }); }}
+          />
         </div>
 
         {/* RIGHT: activities */}

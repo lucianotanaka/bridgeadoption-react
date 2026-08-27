@@ -1,6 +1,6 @@
 # Módulo Tasks — Bridge Adoption React
 
-> **Última atualização:** 2026-08  
+> **Última atualização:** 2026-08-27  
 > **Rota:** `/tasks`  
 > **resource_key principal:** `task.task`  
 > **resource_key (sub-permissão):** `task.task_lci_viability`  
@@ -56,10 +56,12 @@ frontend/src/pages/tasks/
 
 ### `TaskDetailPanel.tsx`
 - Tabela paginada com as tasks carregadas (do Overview/Filter/Follow-Up/New Task), permitindo navegar entre elas sem fechar o painel.
-- **Edição da task** (`TaskEditForm`): owner, status (com justificativa quando necessário), temp owner, prioridade, referência, WS, deal ID, valor/moeda, datas performed, % concluído, projeto vinculado, descrição, campos read-only de EA/LCI para tipos especiais.
-- **Atividades** (`ActivityRow` + `AddActivityForm`): lista expansível de atividades com edição inline (datas, esforço, % concluído, status, valor/aprovação, track/subtrack, objetivo/escopo/resultados esperados) e criação de novas atividades.
-- **Matriz RACI** (`RACIMatrix`): gestão de responsáveis por task/atividade (R/A/C/I), com busca de pessoa por empresa e criação de nova pessoa inline.
-- **Histórico** (`HistorySection`): notas/eventos por task ou atividade, com filtro por tipo (INFO/ISSUE/BLOCKER/LOG) e paginação incremental.
+- **Edição da task** (`TaskEditForm`): owner, status, temp owner, prioridade, referência, WS, deal ID, valor/moeda, datas performed (auto-calculadas das atividades quando existem), % concluído, projeto vinculado, descrição.
+- **Controle de acesso por regras de negócio** — ver seção 4.3 abaixo.
+- **Atividades** (`ActivityRow` + `AddActivityForm`): lista expansível com edição inline completa e criação de novas atividades.
+- **Matriz RACI** (`RACIMatrix`): gestão de responsáveis por task/atividade (R/A/C/I).
+- **Histórico** (`HistorySection`): notas/eventos por task ou atividade, com filtro por tipo e paginação incremental.
+- **Ver:** `docs/02_application/tasks/task_detail_panel.md` para documentação detalhada.
 
 ### `LCIViabilityPage.tsx`
 - Lista de registros elegíveis a partir de `vwCustomerCiscoLCITrackProjectPM` (`tasksApi`/`lciApi.getList()`), navegável e filtrável por Client/Solution-Track/PM.
@@ -194,6 +196,32 @@ Prioridades (`HIGH` / `MEDIUM` / `LOW`) são traduzíveis via i18n e coloridas p
 Ao alterar `task_status` sem informar `task_completed` explicitamente, o backend calcula automaticamente:
 - Sem atividades: status `2`/`3` → 25%; status `10` → 100%.
 - Com atividades: status `10` → 100%; caso contrário → média de `activity_completed`.
+
+### 4.3 Regras de edição do `TaskDetailPanel` (implementadas em 2026-08-27)
+
+As seguintes regras de negócio foram implementadas no componente `TaskEditForm` dentro de `TaskDetailPanel.tsx`:
+
+#### Regra 1 — Controle de edição por propriedade
+Somente o **dono** (`task_owner_id`) **ou dono temporário** (`task_temp_owner_id`) da task, ou usuários com role `ADMIN` ou permissão `task.edit`, podem editar qualquer campo da task. Demais usuários veem os campos como somente-leitura, com banner de aviso.
+
+```typescript
+const canEdit = isOwner || isTempOwner || isAdmin || hasPermission("task.edit");
+const isReadOnly = isClosed || !canEdit;
+```
+
+#### Regra 2 — Controle de encerramento por propriedade
+Somente o **dono** (não o dono temporário), `ADMIN` ou `task.edit` podem alterar o status para valores de encerramento (`CANCELLED=4`, `CLOSED=6`, `COMPLETED/CLOSED=10`). Opções de encerramento são removidas do select de status para quem não tem esse acesso.
+
+#### Regra 3 — Encerramento bloqueado com activities abertas
+Enquanto houver ao menos uma activity com status fora de `{4, 5, 6, 10}` (aberta/em andamento), as opções de encerramento (`CLOSING_STATUS_IDS = {4, 6, 10}`) ficam ocultas no select de status da task.
+
+#### Regra 4 — `task_start_performed` auto-calculado
+Quando a task possui activities, o campo `task_start_performed` é calculado automaticamente como a **menor data** entre todos os `activity_start_performed` (ou `activity_start` quando `activity_start_performed` é nulo) das atividades filhas. O campo fica bloqueado para edição manual.
+
+#### Regra 5 — `task_end_performed` auto-calculado
+Quando a task possui activities, o campo `task_end_performed` é calculado automaticamente como a **maior data** entre todos os `activity_end_performed` (ou `activity_end` quando `activity_end_performed` é nulo) das atividades filhas. O campo fica bloqueado para edição manual.
+
+> Quando não há activities, os campos de data voltam a ser editáveis manualmente.
 
 ---
 

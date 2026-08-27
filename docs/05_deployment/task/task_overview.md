@@ -1,6 +1,6 @@
 # Tasks — Visão Geral do Módulo (React)
 
-> **Última atualização:** 2026-08-24
+> **Última atualização:** 2026-08-27
 > **Versão:** Bridge Adoption React
 > **Rota:** `/tasks`
 > **Audiência:** Implantação e sustentação
@@ -35,7 +35,7 @@ Módulo Tasks
 ├── Aba New Task          → Formulário de criação
 ├── Aba Reports           → Task List + Task Details exportáveis
 └── TaskDetailPanel       → Painel de detalhe (abre abaixo da aba ativa)
-    ├── TaskEditForm      → Edição de campos
+    ├── TaskEditForm      → Edição de campos (Regras 1-5 de controle)
     ├── ActivityRow       → Atividades (edição inline + nova atividade)
     ├── RACIMatrix        → Gestão de responsabilidades
     └── HistorySection    → Notas / histórico de eventos
@@ -104,9 +104,22 @@ Task (tbTask)
 |---|---|
 | `task.task` | Módulo Tasks completo (todas as abas exceto LCI Viability) |
 | `task.task_lci_viability` | Aba LCI Viability |
+| `task.edit` | Edição de tasks sem ser dono/dono-temp (Regra 1 do TaskDetailPanel) |
 | `admin.admin_task` | Admin → Tasks (apenas Role ADMIN) |
 
 Ver `docs/06_security/authorization_rbac.md` para detalhes do modelo RBAC.
+
+### Regras de edição do TaskDetailPanel (2026-08-27)
+
+| # | Regra | Controla |
+|---|-------|----------|
+| 1 | Edição por propriedade | Somente dono/dono-temp/ADMIN/`task.edit` podem editar campos da task |
+| 2 | Encerramento por propriedade | Somente dono/ADMIN/`task.edit` veem CANCELLED/CLOSED/COMPLETED no select |
+| 3 | Encerramento bloqueado com activities abertas | Opções de encerramento ocultas enquanto houver activity não finalizada |
+| 4 | `task_start_performed` auto-calculado | MIN(activity_start_performed \|\| activity_start) quando há activities |
+| 5 | `task_end_performed` auto-calculado | MAX(activity_end_performed \|\| activity_end) quando há activities |
+
+Ver `docs/02_application/tasks/task_detail_panel.md` para documentação detalhada.
 
 ---
 
@@ -160,6 +173,7 @@ curl -s -H "Authorization: Bearer <TOKEN>" http://localhost:8001/api/tasks/filte
 ## 9. Referências
 
 - **Módulo completo:** `docs/02_application/module_tasks.md`
+- **TaskDetailPanel:** `docs/02_application/tasks/task_detail_panel.md` ← **NOVO**
 - **API endpoints:** `docs/07_api/tasks_endpoints.md`
 - **Database:** `docs/05_deployment/task/task_database.md`
 - **Flows:** `docs/05_deployment/task/task_flows.md`
