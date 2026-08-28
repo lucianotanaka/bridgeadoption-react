@@ -22,7 +22,8 @@ docs/
 ├── 05_deployment/      Deploy — React build, FastAPI, systemd
 ├── 06_security/        Autenticação, RBAC, permissões (JWT)
 ├── 07_api/             Endpoints FastAPI — referência da API REST
-└── 08_frontend/        Frontend React — padrões, componentes, estado
+├── 08_frontend/        Frontend React — padrões, componentes, estado
+└── 09_usuarios/        Documentação para usuários finais (CSMs, GMs, AMs)
 ```
 
 ---
@@ -124,6 +125,16 @@ O **Bridge Adoption** é um portal web interno NTT Data para gestão de adoção
 - **`state_management.md`** — authStore, themeStore, TanStack Query, estado local
 - **`i18n.md`** — Internacionalização: configuração, uso, tradução, troubleshooting
 
+### `09_usuarios/` *(Documentação para Usuários Finais)*
+- **`README.md`** — Índice da documentação para usuários
+- `01_primeiros_passos/acesso_e_navegacao.md` — Acesso ao portal e navegação
+- `02_dashboard/dashboard.md` — Página inicial (Dashboard)
+- `03_tarefas/` — Módulo de Tarefas (visão geral, gerenciamento, atividades, follow-up, relatórios)
+- `04_portfolio/` — Módulo Portfolio (Farol, Assets, Account Team, Cisco EA, Client Overview)
+- `05_adoption/` — Módulo Adoption (Forecast, LCI, CSM Account, Team Target, Rebate)
+- `06_projetos/projetos.md` — Projetos de Clientes
+- `07_faq/faq.md` — Perguntas Frequentes
+
 ---
 
 ## Links rápidos por tarefa
@@ -149,3 +160,4 @@ O **Bridge Adoption** é um portal web interno NTT Data para gestão de adoção
 | Entender arquitetura geral | `01_architecture/architecture_overview.md` |
 | Troubleshooting deploy/backend | `05_deployment/deployment_guide.md` |
 | **Troubleshooting Cisco LCI** | `05_deployment/cisco_lci/cisco_lci_overview.md#7-troubleshooting-comum` |
+| **📖 Documentação para Usuários** | `09_usuarios/README.md` |
