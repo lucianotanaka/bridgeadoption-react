@@ -13,6 +13,7 @@ import TaskPage from "@/pages/tasks/TaskPage";
 
 // Adoption
 import CiscoLCIPage from "@/pages/ciscoLci/CiscoLCIPage";
+import CpiAdoptPage from "@/pages/cisco/CpiAdoptPage";
 import CsmAccountPage from "@/pages/adoption/CsmAccountPage";
 import TeamTargetPage from "@/pages/adoption/TeamTargetPage";
 import RebatePage from "@/pages/adoption/RebatePage";
@@ -99,6 +100,9 @@ export default function App() {
                   }
                 >
                   <Route path="/adoption/cisco-lci" element={<CiscoLCIPage />} />
+                </Route>
+                <Route element={<PermissionRoute resourceKey="cisco.cpi_adopt" />}>
+                  <Route path="/cisco/cpi-adopt" element={<CpiAdoptPage />} />
                 </Route>
                 <Route element={<PermissionRoute resourceKey="adoption.report_csm_account" />}>
                   <Route path="/adoption/csm-account" element={<CsmAccountPage />} />

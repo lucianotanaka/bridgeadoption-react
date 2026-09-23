@@ -1,0 +1,63 @@
+2026-09-17: Nova view vwCiscoCPIAdopt
+
+2026-09-17: Nova view vwCiscoCPIAdoptStages
+
+2026-09-18: Nova tabela tbTaskRecordTemplate
+
+2026-09-20: Alterações em views
+
+vwCiscoCPIAdopt:
+- Inclusão das colunas:
+  `info`.`taskrecord_remark` AS `lastest_info`,
+  `info`.`taskrecord_next_followup` AS `next_follow_up_info`
+  `issue`.`taskrecord_remark` AS `lastest_issue`,
+  `issue`.`taskrecord_status` AS `lastest_issue_status`,
+  `issue`.`taskrecord_next_followup` AS `next_follow_up_issue`
+  `blocker`.`taskrecord_remark` AS `lastest_blocker`,
+  `blocker`.`taskrecord_status` AS `lastest_blocker_status`,
+  `blocker`.`taskrecord_next_followup` AS `next_follow_up_blocker`
+
+vwCiscoCPIAdoptStages:
+- Inclusão das colunas:
+  `info`.`taskrecord_remark` AS `lastest_info`,
+  `info`.`taskrecord_next_followup` AS `next_follow_up_info`
+  `issue`.`taskrecord_remark` AS `lastest_issue`,
+  `issue`.`taskrecord_remark` AS `lastest_issue_status`,
+  `issue`.`taskrecord_next_followup` AS `next_follow_up_issue`
+  `blocker`.`taskrecord_remark` AS `lastest_blocker`,
+  `blocker`.`taskrecord_remark` AS `lastest_blocker_status`,
+  `blocker`.`taskrecord_next_followup` AS `next_follow_up_blocker`
+
+2026-09-20: Ajustes de base analítica da vwCiscoCPIAdopt para suportar KPI de Lost / encerramento operacional
+
+vwCiscoCPIAdopt:
+- Mantido `lost_amount_usd` apenas como perda explícita por `Opted Out`, com exclusão da justificativa `OPT OUT: OPTED IN FOR ANOTHER WS`
+- Inclusão da coluna original da task:
+  `t`.`task_end_performed` AS `task_end_performed`
+- Inclusão de indicadores auxiliares de expiração da task:
+  `task_is_expired_without_completion`
+- Inclusão de agregados de activities:
+  `activity_count`
+  `closed_activity_count`
+  `cancelled_activity_count`
+  `expired_open_activity_count`
+  `max_activity_end`
+  `max_activity_end_performed`
+  `expired_open_activity_amount_usd`
+- Inclusão de flag de existência de filhas:
+  `has_child_activities`
+- Inclusão de data derivada de encerramento real da task:
+  `task_end_performed_derived`
+- Inclusão de data final de referência da task:
+  `task_final_reference_date`
+- Inclusão de flag de task encerrada:
+  `task_is_closed`
+- Inclusão de flag para tasks com todas as activities canceladas ou expiradas:
+  `task_all_activities_cancelled_or_expired`
+
+Regras registradas para a view:
+- Quando a task possui activities, ela só é considerada encerrada se todas as activities estiverem encerradas
+- A data de encerramento real da task deve ser a maior `activity_end_performed`, mas somente quando todas as activities estiverem encerradas
+- Quando a task possuir activities e todas estiverem canceladas ou expiradas, a `task_end` passa a ser a data final de referência do ciclo
+- `activity_end` não deve ser tratada como evidência de conclusão real; ela permanece como prazo oficial
+- A view foi enriquecida para servir de base ao cálculo no backend/service, sem concentrar nela toda a regra final de Potential, Lost, At Risk e Pipeline

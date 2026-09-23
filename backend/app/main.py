@@ -12,6 +12,7 @@ from app.auth.router import router as auth_router
 from app.tasks.router import router as tasks_router
 from app.adoption.forecast_router import router as forecast_router
 from app.adoption.cisco_lci_router import router as cisco_lci_router
+from app.cisco.cpi_adopt_router import router as cpi_adopt_router
 from app.adoption.extras_router import (
     csm_router, target_router, lci_status_router, rebate_router, usecase_router,
 )
@@ -63,6 +64,7 @@ app.include_router(auth_router)
 app.include_router(tasks_router)
 app.include_router(forecast_router)
 app.include_router(cisco_lci_router)
+app.include_router(cpi_adopt_router)
 app.include_router(csm_router)
 app.include_router(target_router)
 app.include_router(lci_status_router)

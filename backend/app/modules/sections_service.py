@@ -356,19 +356,97 @@ def search_project_persons(search: str = "") -> List[Dict]:
 def save_project_team_member(project_id: int, projteam_id: Optional[int], data: Dict) -> Dict:
     """
     Add (projteam_id=None) or update (projteam_id=int) a project team member.
-    Returns {projteam_id, success} or {error}.
+    Persists directly to tbProjectTeam because the current ProjectRepository
+    only supports vwProject/vwProjectTeam reads plus project insert/upsert.
     """
-    if not _PROJ_OK: return {"error": "Repository not available"}
     try:
-        repo = ProjectRepository()
-        if projteam_id:
-            ok = repo.update_project_team_member(projteam_id, data)
-            return {"projteam_id": projteam_id, "success": ok}
-        else:
-            new_id = repo.add_project_team_member(project_id, data)
-            if new_id:
-                return {"projteam_id": new_id, "success": True}
-            return {"error": "Failed to add team member — projteam_person_id is required"}
+        from src.infrastructure.database.connection import get_db_connection
+
+        payload = dict(data or {})
+        person_id = payload.get("projteam_person_id")
+        if not person_id:
+            return {"error": "projteam_person_id is required"}
+
+        level_id = payload.get("projteam_level_id")
+        if not level_id:
+            return {"error": "projteam_level_id is required"}
+
+        department_id = payload.get("projteam_department_id")
+        if department_id in ("", None):
+            department_id = None
+
+        working_time = payload.get("projteam_working_time")
+        if working_time in ("", None):
+            working_time = 0
+
+        is_tech_lead = payload.get("projteam_technical_lead", payload.get("projteam_is_tech_lead", 0))
+        if isinstance(is_tech_lead, bool):
+            is_tech_lead = 1 if is_tech_lead else 0
+
+        allocation_start = payload.get("projteam_allocation_start") or None
+        allocation_end = payload.get("projteam_allocation_end") or None
+
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor()
+
+            if projteam_id:
+                cursor.execute(
+                    """
+                    UPDATE tbProjectTeam
+                    SET projteam_person_id = %s,
+                        projteam_department_id = %s,
+                        projteam_level_id = %s,
+                        projteam_working_time = %s,
+                        projteam_technical_lead = %s,
+                        projteam_allocation_start = %s,
+                        projteam_allocation_end = %s
+                    WHERE projteam_id = %s
+                    """,
+                    (
+                        person_id,
+                        department_id,
+                        level_id,
+                        working_time,
+                        is_tech_lead,
+                        allocation_start,
+                        allocation_end,
+                        projteam_id,
+                    ),
+                )
+                conn.commit()
+                return {"projteam_id": projteam_id, "success": True}
+
+            cursor.execute(
+                """
+                INSERT INTO tbProjectTeam (
+                    projteam_project_id,
+                    projteam_person_id,
+                    projteam_department_id,
+                    projteam_level_id,
+                    projteam_working_time,
+                    projteam_technical_lead,
+                    projteam_allocation_start,
+                    projteam_allocation_end
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    project_id,
+                    person_id,
+                    department_id,
+                    level_id,
+                    working_time,
+                    is_tech_lead,
+                    allocation_start,
+                    allocation_end,
+                ),
+            )
+            conn.commit()
+            return {"projteam_id": int(cursor.lastrowid), "success": True}
+        finally:
+            cursor.close()
+            conn.close()
     except Exception as e:
         logger.error(f"save_project_team_member: {e}\n{traceback.format_exc()}")
         return {"error": str(e)}
@@ -376,11 +454,21 @@ def save_project_team_member(project_id: int, projteam_id: Optional[int], data: 
 
 def delete_project_team_member(projteam_id: int) -> Dict:
     """Remove a project team member. Returns {success} or {error}."""
-    if not _PROJ_OK: return {"error": "Repository not available"}
     try:
-        repo = ProjectRepository()
-        ok = repo.remove_project_team_member(projteam_id)
-        return {"success": ok}
+        from src.infrastructure.database.connection import get_db_connection
+
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM tbProjectTeam WHERE projteam_id = %s",
+                (projteam_id,),
+            )
+            conn.commit()
+            return {"success": True}
+        finally:
+            cursor.close()
+            conn.close()
     except Exception as e:
         logger.error(f"delete_project_team_member: {e}\n{traceback.format_exc()}")
         return {"error": str(e)}
@@ -436,18 +524,31 @@ def save_project(project_id: Optional[int], data: Dict) -> Dict:
     """
     Create (project_id=None) or update (project_id=int) a project.
     Returns {project_id, success} or {error}.
+
+    The current ProjectRepository implementation exposes `insert(...)`
+    as an upsert entrypoint for tbProject/tbProjectOV. Older helper
+    methods like `create_project` / `update_project` are not available,
+    which caused the 400 error when saving from the Projects screen.
     """
-    if not _PROJ_OK: return {"error": "Repository not available"}
+    if not _PROJ_OK:
+        return {"error": "Repository not available"}
     try:
         repo = ProjectRepository()
+
+        payload = dict(data or {})
         if project_id:
-            ok = repo.update_project(project_id, data)
-            return {"project_id": project_id, "success": ok}
-        else:
-            new_id = repo.create_project(data)
-            if new_id:
-                return {"project_id": new_id, "success": True}
-            return {"error": "Failed to create project — check required fields (project_ov, project_customer_id)"}
+            payload["project_id"] = project_id
+
+        for date_key in ("project_internalization_date", "project_start_date", "project_end_date"):
+            if payload.get(date_key) == "":
+                payload[date_key] = None
+
+        saved_id = repo.insert(payload)
+        if saved_id:
+            return {"project_id": int(saved_id), "success": True}
+
+        action = "update" if project_id else "create"
+        return {"error": f"Failed to {action} project — check required fields and repository validation"}
     except Exception as e:
         logger.error(f"save_project: {e}\n{traceback.format_exc()}")
         return {"error": str(e)}
@@ -883,14 +984,49 @@ def toggle_resource_active(resource_id: int) -> Dict:
 
 # ─── Admin: Team Goals ────────────────────────────────────
 def get_team_goals(fy: Optional[int] = None) -> List[Dict]:
-    """Returns team goals (from TeamTargetRepository or similar)."""
+    """
+    Returns admin Team Goals rows.
+
+    Previous behavior incorrectly called load_fiscal_year(team_id),
+    which only returns the distinct `target_fy` values for a specific team.
+    The admin grid needs the full target dataset, so we now:
+    - when `fy` is informed: return full rows for that fiscal year
+    - when `fy` is not informed: return all rows from tbTeamTarget
+    """
     try:
         from src.infrastructure.database.repositories.team_target_repository import TeamTargetRepository
         repo = TeamTargetRepository()
-        df = repo.load_fiscal_year(fy or 30, as_df=True)
+
+        if fy is not None:
+            df = repo.get_team_target_by_fy(fy=fy, team_id=None, as_df=True)
+            return _df(df)
+
+        from src.infrastructure.database.connection import get_sqlalchemy_engine
+        import pandas as pd
+
+        engine = get_sqlalchemy_engine()
+        query = """
+            SELECT
+                target_id AS ID,
+                target_fy AS FY,
+                target_name AS TARGET,
+                target_description AS DESCRIPTION,
+                target_team_id AS TEAM,
+                target_users_list AS USERS,
+                target_tasks_list AS TASKS,
+                target_measurement_by_counting AS MEASURE_BY_COUNTING,
+                target_measurement_by_sum AS MEASURE_BY_SUM,
+                target_point AS POINTS,
+                target_multiplier AS MULTIPLIER,
+                target_value AS VALUE,
+                target_individual AS INDIVIDUAL
+            FROM tbTeamTarget
+            ORDER BY target_fy DESC, target_team_id, target_id
+        """
+        df = pd.read_sql(query, engine)
         return _df(df)
     except Exception as e:
-        logger.error(f"get_team_goals: {e}"); return []
+        logger.error(f"get_team_goals: {e}\n{traceback.format_exc()}"); return []
 
 
 # ─── Admin: Companies (admin view) ───────────────────────

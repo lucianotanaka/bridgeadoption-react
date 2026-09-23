@@ -1,0 +1,30 @@
+2026-09-18: pxp_import_activity_5890.py
+- Adicionado histórico automático de mudança de status em `_apply_status_update_if_needed(...)`, logo após `repo_activity.update(...)`: quando `activity_status` muda, grava `tbTaskRecord` com `taskrecord_type = "STATUS CHANGE"` e `taskrecord_remark = nome do novo status`.
+- Adicionado mapa `ACTIVITY_STATUS_LABELS` próximo às constantes `ACTIVITY_STATUS_*` para converter o ID do novo status em texto (`OPEN`, `IN PROGRESS`, `ON HOLD`, `CANCELLED`, `DECLINED`, `EXPIRED`, `SUBMITTED`, `RESUBMITTED`, `APPROVED TO CLOSE`, `CLOSED`).
+- Adicionada a função `_insert_status_change_history(...)` próxima de `_insert_history(...)` para centralizar a inserção do histórico com `taskrecord_date = datetime.now()`.
+- Mantida a regra de histórico tipificado por `Stage` em `_apply_stage_status_history_if_needed(...)`, com `Activity` usando `taskrecord_type = "STAGES STATUS"`.
+
+2026-09-18: pxp_import_task_6702.py
+- Ajustado o fluxo de `Lifecycle Opt-In Status = Opted Out` em `_process_single_row(...)`: nova task agora é criada com `task_status = 4 (CANCELLED)` e `task_status_justification = "OPT OUT: JUSTIFICATION MISSING"` em vez de usar status 11.
+- Ajustada a função `_close_task_as_opted_out(...)`: task existente opted-out agora é atualizada com `task_status = 4 (CANCELLED)`, `task_forecast = 0`, `task_eligible = "N"` e `task_status_justification = "OPT OUT: JUSTIFICATION MISSING"`.
+- Mantido o histórico `OPT IN STATUS` via `_save_opt_in_status_history(...)`, comparando o último `taskrecord_remark` com a coluna `Lifecycle Opt-In Status` antes de inserir novo registro.
+- Adicionado histórico automático de mudança de status de activity em `_close_open_activities_with_status(...)`, logo após `repo_activity.update(...)`: quando `activity_status` muda, grava `tbTaskRecord` com `taskrecord_type = "STATUS CHANGE"` e `taskrecord_remark = nome do novo status`.
+- Adicionadas as funções `_get_activity_status_name(...)` e `_insert_activity_status_change_history(...)` próximas de `_insert_task_history(...)` para mapear o código do novo status (`OPEN`, `IN PROGRESS`, `ON HOLD`, `CANCELLED`, `DECLINED`, `EXPIRED`, `SUBMITTED`, `RESUBMITTED`, `APPROVED TO CLOSE`, `COMPLETED`) e centralizar a gravação com `taskrecord_date = datetime.now()`.
+
+2026-09-18: pxp_import_task_19849.py
+- Adicionadas as funções `_activity_status_name(...)` e `_insert_activity_status_change_history(...)` logo após `_sync_opt_in_status_history(...)` para mapear o novo `activity_status` para texto e gravar `tbTaskRecord` com `taskrecord_type = "STATUS CHANGE"` e `taskrecord_date = datetime.now()`.
+- Ajustado o fluxo `_close_open_activities_as_cancelled(...)`: logo após `repo_activity.update(...)`, quando a activity é cancelada por Opted Out, agora grava histórico `STATUS CHANGE` com o novo status `CANCELLED`, além do `LOG` existente `Opt-Out was performed for this task`.
+- Ajustado o fluxo `_create_missing_implement_activity(...)`: logo após o `insert` da nova activity `Implement`, agora grava histórico `STATUS CHANGE` com o status inicial criado (`IN PROGRESS` ou `COMPLETED`) antes do histórico descritivo da criação.
+- Ajustado `_update_activity_from_stage(...)`: após `repo_activity.update(...)`, se `activity_status` estiver presente em `updates` e o valor novo for diferente do anterior, grava automaticamente histórico `STATUS CHANGE`; o bloco está preparado para futuras regras que passem a atualizar `activity_status` nesse fluxo.
+
+2026-09-21: cisco_subscription_ccw.py
+- Alterada a origem do valor financeiro do importador Cisco Subscription CCW de `Monthly Charge` para `TF Overage` no payload de EA: `ea_mrc` agora é preenchido com `to_float(row.get("TF Overage"))`.
+- Ajustado o fluxo `_handle_over_consumed(...)` para calcular `task_value` a partir de `payload.get("ea_tf_overage")` em vez de `payload.get("ea_mrc")`.
+- Com essa mudança, os campos persistidos `tbCiscoEA.ea_mrc`, `tbTask.task_value` (task tipo 35 / Over Consumed) e `tbTaskActivity.activity_value` (activities do fluxo Over Consumed) passam a refletir o valor de `TF Overage`.
+- Ajustada também a comparação usada para decidir a criação de nova activity em task existente no fluxo Over Consumed, passando a comparar o valor derivado de `TF Overage` com o `activity_value` atual.
+
+2026-09-23: cisco_subscription_ccw.py
+- Corrigido o lookup de cliente a partir de `End Customer` em `_get_customer_id_from_end_customer(...)` para tratar diferenças de caixa entre o Excel e `tbCompanyListName`.
+- O importador continua tentando primeiro o valor normalizado original, mas agora faz fallback adicional com `name.upper()` antes de concluir que a empresa não foi encontrada.
+- A correção resolve casos como `Crefisa` no Excel versus `CREFISA` em `tbCompanyListName`, evitando falso erro `Customer não encontrado a partir de 'End Customer'`.
+- Adicionados logs de execução para indicar quando o cliente foi resolvido pelo fallback em maiúsculas e também quais variantes foram tentadas quando a empresa realmente não é encontrada.

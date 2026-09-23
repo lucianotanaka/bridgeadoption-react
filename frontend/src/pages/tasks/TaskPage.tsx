@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { BarChart3, Filter, Plus, Activity, RefreshCw, ArrowUp } from "lucide-react";
+import { BarChart3, Filter, Plus, Activity, RefreshCw, ChevronUp } from "lucide-react";
 import { tasksApi } from "@/api/tasks";
 import type { TaskItem, TaskKPI } from "@/api/tasks";
 import { useAuthStore } from "@/store/authStore";
@@ -59,7 +59,7 @@ export default function TaskPage() {
     queryKey: ["tasks", "dashboard"],
     queryFn: () => tasksApi.getDashboard(10).then((res) => res.data),
     staleTime: 2 * 60 * 1000,
-    enabled: activeTab === "overview",
+    enabled: activeTab === "overview" || activeTab === "filter",
   });
 
   const kpi: TaskKPI | undefined = dashboardQuery.data?.kpi;
@@ -113,8 +113,57 @@ export default function TaskPage() {
     scrollToDetailPanel();
   };
 
-  const handleTaskSelectFromQueue = (task: TaskItem) => {
-    setDetailTasks([task]);
+  const detailTaskIds = useMemo(
+    () => Array.from(new Set((detailTasks ?? []).map((task) => task.task_id).filter((id): id is number => typeof id === "number"))),
+    [detailTasks]
+  );
+
+  const detailActivitiesQuery = useQuery({
+    queryKey: ["task-activities-batch", detailTaskIds],
+    queryFn: async () => {
+      const results = await Promise.all(
+        detailTaskIds.map((taskId) => tasksApi.getActivities(taskId).then((res) => [taskId, res.data] as const))
+      );
+      return Object.fromEntries(results) as Record<number, NonNullable<typeof results[number]>[1]>;
+    },
+    enabled: detailTaskIds.length > 0,
+    staleTime: 2 * 60 * 1000,
+  });
+
+  const attachPreloadedActivities = (tasks: TaskItem[]): TaskItem[] =>
+    tasks.map((task) => ({
+      ...task,
+      task_activities_preloaded: detailActivitiesQuery.data?.[task.task_id] ?? task.task_activities_preloaded ?? [],
+    }));
+
+  const buildTaskForDetailPanel = async (task: TaskItem): Promise<TaskItem> => {
+    const taskId = Number(task.task_id);
+    const [taskDetailRes, activitiesRes] = await Promise.allSettled([
+      tasksApi.getTask(taskId),
+      tasksApi.getActivities(taskId),
+    ]);
+
+    const taskDetail =
+      taskDetailRes.status === "fulfilled"
+        ? taskDetailRes.value.data
+        : {};
+
+    const preloadedActivities =
+      activitiesRes.status === "fulfilled"
+        ? activitiesRes.value.data
+        : [];
+
+    return {
+      ...task,
+      ...taskDetail,
+      task_id: taskId,
+      task_activities_preloaded: preloadedActivities,
+    };
+  };
+
+  const handleTaskSelectFromQueue = async (task: TaskItem) => {
+    const detailTask = await buildTaskForDetailPanel(task);
+    setDetailTasks(attachPreloadedActivities([detailTask]));
     setDetailIndex(0);
     scrollToDetailPanel();
   };
@@ -245,7 +294,7 @@ export default function TaskPage() {
           {detailTasks && activeTab === "overview" && (
             <div ref={detailPanelRef}>
               <TaskDetailPanel
-                tasks={detailTasks}
+                tasks={attachPreloadedActivities(detailTasks)}
                 initialIndex={detailIndex}
                 onClose={() => setDetailTasks(null)}
               />
@@ -261,7 +310,7 @@ export default function TaskPage() {
           {detailTasks && (
             <div ref={detailPanelRef}>
               <TaskDetailPanel
-                tasks={detailTasks}
+                tasks={attachPreloadedActivities(detailTasks)}
                 initialIndex={detailIndex}
                 onClose={() => setDetailTasks(null)}
               />
@@ -274,6 +323,7 @@ export default function TaskPage() {
       {activeTab === "filter" && (
         <>
           <TaskFilterTab
+            initialTasks={activeTasks}
             onTasksLoaded={(tasks) => {
               setFilterResults(tasks);
               if (tasks.length > 0) {
@@ -288,7 +338,7 @@ export default function TaskPage() {
           {detailTasks && (
             <div ref={detailPanelRef}>
               <TaskDetailPanel
-                tasks={detailTasks}
+                tasks={attachPreloadedActivities(detailTasks)}
                 initialIndex={detailIndex}
                 onClose={() => setDetailTasks(null)}
               />
@@ -310,7 +360,7 @@ export default function TaskPage() {
           {detailTasks && (
             <div ref={detailPanelRef}>
               <TaskDetailPanel
-                tasks={detailTasks}
+                tasks={attachPreloadedActivities(detailTasks)}
                 initialIndex={detailIndex}
                 onClose={() => setDetailTasks(null)}
               />
@@ -332,7 +382,7 @@ export default function TaskPage() {
           title={t("task.backToTop", { defaultValue: "Voltar ao topo" })}
           className="fixed bottom-6 right-6 z-50 flex items-center justify-center w-11 h-11 rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-lg transition-all hover:scale-105"
         >
-          <ArrowUp size={18} />
+          <ChevronUp size={18} />
         </button>
       )}
     </div>

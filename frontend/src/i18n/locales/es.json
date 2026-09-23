@@ -266,7 +266,13 @@
     "activityNamePlaceholder": "Nombre de la actividad...",
     "activityNameRequired": "El nombre de la actividad es obligatorio",
     "activityCreated": "Actividad creada con éxito",
-    "activityCreateFailed": "Error al crear la actividad"
+    "activityCreateFailed": "Error al crear la actividad",
+    "predefinedNote": "Nota predefinida",
+    "noTemplateManual": "Sin plantilla (escribir manualmente)",
+    "selectAnnotation": "Seleccione una anotación...",
+    "addingNoteToTask": "Agregando nota a la Tarea #{{taskId}}",
+    "addingNoteToActivity": "Agregando nota a: {{activityName}}",
+    "activityFallback": "actividad"
   },
   "adoption": {
     "forecast": {

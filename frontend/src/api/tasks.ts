@@ -78,6 +78,7 @@ export interface TaskItem {
   task_cr_party_id?: string;
   task_cr_party_name?: string;
   task_tasktype_id?: number;
+  task_activities_preloaded?: ActivityItem[];
   __score?: number;
   [key: string]: unknown;
 }
@@ -188,6 +189,14 @@ export interface HistoryItem {
   taskrecord_date?: string;
   taskrecord_updated_by?: string;
   taskrecord_next_followup?: string;
+  [key: string]: unknown;
+}
+
+export interface TaskRecordTemplateItem {
+  taskrecordtemplate_id?: number;
+  taskrecordtemplate_remark?: string;
+  taskrecordtemplate_type?: string;
+  taskrecordtemplate_enabled?: number;
   [key: string]: unknown;
 }
 
@@ -365,6 +374,13 @@ export const tasksApi = {
       taskrecord_task_id: taskId,
       ...record,
     }),
+  getRecordTemplates: (templateType?: string, enabledOnly = true) => {
+    const params = new URLSearchParams();
+    if (templateType) params.set("template_type", templateType);
+    params.set("enabled_only", String(enabledOnly));
+    const query = params.toString();
+    return apiClient.get<TaskRecordTemplateItem[]>(`/tasks/record-templates${query ? `?${query}` : ""}`);
+  },
 
   // Support lists
   getCsmList: () => apiClient.get<CSMItem[]>("/tasks/csm-list"),

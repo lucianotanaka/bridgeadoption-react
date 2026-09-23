@@ -44,6 +44,10 @@
 """
 
 from typing import Dict, Any, List, Optional
+from datetime import datetime
+
+import pandas as pd
+
 from src.infrastructure.database.repositories.base_repository import BaseRepository
 from src.infrastructure.database.connection import get_db_connection
 
@@ -305,3 +309,141 @@ class UseCaseRepository(BaseRepository):
         finally:
             cursor.close()
             conn.close()
+
+    # ==========================================================
+    # Localizar Use Case Ids
+    # ==========================================================
+    def get_use_case_ids(
+        self,
+        vendor_id: Optional[int] = None,
+        track: Optional[str] = None,
+        subtrack: Optional[str] = None
+    ) -> List[int]:
+        """
+        Retorna os IDs dos Use Cases associados ao vendor, track e,
+        opcionalmente, subtrack informados.
+        
+        Quando vendor_id não for informado, utiliza o vendor padrão (ID 1).
+        """
+        
+        if not track:
+            return []
+
+        conditions = []
+        params = []
+
+        if vendor_id is not None and vendor_id != 0:
+            conditions.append("uc_vendor_id = %s")
+            params.append(int(vendor_id))
+        else:
+            conditions.append("uc_vendor_id = 1")
+
+        conditions.append("uc_track = %s")
+        params.append(str(track))
+
+        if subtrack:
+            conditions.append("uc_use_case = %s")
+            params.append(str(subtrack))
+
+        where_clause = " AND ".join(conditions)
+
+        query = f"""
+            SELECT uc_id
+            FROM tbUseCase
+            WHERE {where_clause}
+            ORDER BY uc_id
+        """
+
+        result = self._execute_raw(query, tuple(params))
+
+        return [row["uc_id"] for row in result]
+        
+    # ==========================================================
+    # Localizar Critério de Saída Ids
+    # ==========================================================
+    def get_use_case_exit_criteria_ids(
+        self,
+        vendor_id: Optional[int] = None,
+        track: Optional[str] = None,
+        subtrack: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> List[int]:
+        """
+        Retorna os IDs dos Critérios de Saída dos Casos de Uso associados ao vendor, 
+        track, subtrack e nome informados.
+        
+        Quando vendor_id não for informado, utiliza o vendor padrão Cisco (ID 1).
+        """
+        
+        if not track:
+            return []
+
+        conditions = []
+        params = []
+
+        if vendor_id is not None and vendor_id != 0:
+            conditions.append("tb1.uc_vendor_id = %s")
+            params.append(int(vendor_id))
+        else:
+            conditions.append("tb1.uc_vendor_id = 1")
+
+        conditions.append("tb1.uc_track = %s")
+        params.append(str(track))
+
+        if subtrack:
+            conditions.append("tb1.uc_use_case = %s")
+            params.append(str(subtrack))
+            
+        if name:
+            conditions.append("tb2.ucec_name = %s")
+            params.append(str(name))
+
+        where_clause = " AND ".join(conditions)
+
+        query = f"""
+            SELECT
+                tb2.ucec_id AS ucec_id
+            FROM tbUseCase tb1
+            JOIN tbUseCaseExitCriteria tb2 ON
+                tb2.ucec_uc_id = tb1.uc_id
+            WHERE {where_clause}
+            ORDER BY tb2.ucec_id
+        """
+
+        result = self._execute_raw(query, tuple(params))
+
+        return [row["ucec_id"] for row in result]
+
+
+
+    def get_use_case_exit_criteria_update_date(
+        self,
+        ucec_id: Optional[int] = None,
+    ) -> Optional[datetime]:
+        """
+        Retorna a data de atualização do Critério de Saída informado.
+
+        Retorna None quando o critério não for informado, não existir
+        ou não possuir data de atualização.
+        """
+
+        if not ucec_id:
+            return None
+
+        query = """
+            SELECT ucec_update_date
+            FROM tbUseCaseExitCriteria
+            WHERE ucec_id = %s
+        """
+
+        result = self._execute_df(query, (int(ucec_id),))
+
+        if result.empty:
+            return None
+
+        update_date = result.iloc[0]["ucec_update_date"]
+
+        if pd.isna(update_date):
+            return None
+
+        return pd.to_datetime(update_date).to_pydatetime()

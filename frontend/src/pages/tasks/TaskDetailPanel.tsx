@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight, Save, History, X, Edit2, Users, Info, Plus } from "lucide-react";
 import { tasksApi } from "@/api/tasks";
-import type { TaskItem, ActivityItem, HistoryItem, CSMItem, StatusType, RACIItem, PersonItem, CompanyItem, StatusJustificationItem, ProjectItem, ProjectTeamItem } from "@/api/tasks";
+import type { TaskItem, ActivityItem, HistoryItem, CSMItem, StatusType, RACIItem, PersonItem, CompanyItem, StatusJustificationItem, ProjectItem, ProjectTeamItem, TaskRecordTemplateItem } from "@/api/tasks";
 import { useAuthStore } from "@/store/authStore";
 
 // IDs de status que encerram a task — usados para filtrar opções (Regra 2 e 3)
@@ -12,6 +12,7 @@ const CLOSING_STATUS_IDS = new Set([4, 6, 10]);
 interface Props {
   tasks: TaskItem[];
   initialIndex?: number;
+  initialSelectedActivityId?: number | null;
   onClose?: () => void;
 }
 
@@ -135,10 +136,10 @@ function Sel({ value, onChange, options, disabled }: { value: string; onChange: 
   );
 }
 
-function Textarea({ value, onChange, disabled, placeholder, rows = 3 }: { value: string; onChange: (v: string) => void; disabled?: boolean; placeholder?: string; rows?: number }) {
+function Textarea({ value, onChange, disabled, placeholder, rows = 3, className = "" }: { value: string; onChange: (v: string) => void; disabled?: boolean; placeholder?: string; rows?: number; className?: string }) {
   return (
     <textarea value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} placeholder={placeholder} rows={rows}
-      className="w-full text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-900 disabled:opacity-60 resize-none" />
+      className={`w-full text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-900 disabled:opacity-60 resize-y ${className}`} />
   );
 }
 
@@ -179,10 +180,10 @@ function HistoryPanel({ items }: { items: HistoryItem[] }) {
   );
 }
 
-function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isSelectedForHistory }: { act: ActivityItem; statusTypes: StatusType[]; taskId: number; onUpdated: () => void; onSelectHistory?: (activityId: number | null) => void; isSelectedForHistory?: boolean }) {
+function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isSelectedForHistory, forceExpanded = false }: { act: ActivityItem; statusTypes: StatusType[]; taskId: number; onUpdated: () => void; onSelectHistory?: (activityId: number | null) => void; isSelectedForHistory?: boolean; forceExpanded?: boolean }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(forceExpanded);
   const [tab, setTab] = useState<"objective" | "scope" | "results" | "track">("objective");
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
@@ -256,6 +257,10 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isS
   });
 
   const statusOptions = statusTypes.filter((sx) => sx.statustype_id !== 5).map((sx) => sx.statustype_name);
+
+  useEffect(() => {
+    setExpanded(forceExpanded);
+  }, [forceExpanded]);
 
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden mb-2">
@@ -1103,6 +1108,8 @@ function HistorySection({ task, activities, taskId, selectedActivityId }: {
   const [showAddNote, setShowAddNote] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [noteType, setNoteType] = useState("INFO");
+  const manualNoteValue = "__manual__";
+  const [selectedNoteOption, setSelectedNoteOption] = useState(manualNoteValue);
   const [nextFU, setNextFU] = useState("");
   const [noteSaved, setNoteSaved] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
@@ -1114,6 +1121,12 @@ function HistorySection({ task, activities, taskId, selectedActivityId }: {
     queryKey: ["task-history", taskId],
     queryFn: () => tasksApi.getHistory(taskId).then((r) => r.data),
     staleTime: 60000,
+  });
+
+  const templateQ = useQuery({
+    queryKey: ["task-record-templates", noteType],
+    queryFn: () => tasksApi.getRecordTemplates(noteType).then((r) => r.data),
+    staleTime: 5 * 60 * 1000,
   });
 
   const actHistQ = useQuery({
@@ -1128,16 +1141,32 @@ function HistorySection({ task, activities, taskId, selectedActivityId }: {
   const [lastTarget, setLastTarget] = useState(prevTarget);
   if (lastTarget !== prevTarget) { setLastTarget(prevTarget); setVisibleCount(PAGE_SIZE); }
 
+  const templates = templateQ.data ?? [];
+  const noteOptions = [
+    { value: manualNoteValue, label: t("task.noTemplateManual") },
+    ...Array.from(
+      new Map(
+        templates
+          .map((tpl) => {
+            const remark = String(tpl.taskrecordtemplate_remark ?? "").trim();
+            return remark ? [remark, { value: remark, label: remark }] : null;
+          })
+          .filter(Boolean) as [string, { value: string; label: string }][]
+      ).values()
+    ),
+  ];
+  const effectiveNoteText = selectedNoteOption === manualNoteValue ? noteText.trim() : selectedNoteOption.trim();
+
   const addNoteMut = useMutation<unknown, Error, void>({
     mutationFn: () => {
-      if (!noteText.trim()) return Promise.resolve(null);
+      if (!effectiveNoteText) return Promise.resolve(null);
       const payload = isTask
-        ? { taskrecord_remark: noteText.trim(), taskrecord_type: noteType, taskrecord_next_followup: nextFU || undefined }
-        : { taskrecord_task_id: taskId, taskrecord_activity_id: selectedActivityId!, taskrecord_remark: noteText.trim(), taskrecord_type: noteType, taskrecord_next_followup: nextFU || undefined };
+        ? { taskrecord_remark: effectiveNoteText, taskrecord_type: noteType, taskrecord_next_followup: nextFU || undefined }
+        : { taskrecord_task_id: taskId, taskrecord_activity_id: selectedActivityId!, taskrecord_remark: effectiveNoteText, taskrecord_type: noteType, taskrecord_next_followup: nextFU || undefined };
       return tasksApi.addHistory(taskId, payload).then((r) => r.data);
     },
     onSuccess: () => {
-      setNoteText(""); setNextFU(""); setNoteSaved(true);
+      setNoteText(""); setSelectedNoteOption(manualNoteValue); setNextFU(""); setNoteSaved(true);
       void qc.invalidateQueries({ queryKey: ["task-history", taskId] });
       void qc.invalidateQueries({ queryKey: ["act-hist"] });
       setTimeout(() => { setNoteSaved(false); setShowAddNote(false); }, 1500);
@@ -1150,12 +1179,38 @@ function HistorySection({ task, activities, taskId, selectedActivityId }: {
   const visibleItems = allItems.slice(0, visibleCount);
   const hasMore = visibleCount < allItems.length;
 
-  const NOTE_TYPE_FILTERS: { key: string; activeClass: string; inactiveClass: string }[] = [
-    { key: "INFO", activeClass: "bg-gray-600 text-white border-gray-600", inactiveClass: "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" },
-    { key: "ISSUE", activeClass: "bg-orange-500 text-white border-orange-500", inactiveClass: "border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20" },
-    { key: "BLOCKER", activeClass: "bg-red-600 text-white border-red-600", inactiveClass: "border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20" },
-    { key: "LOG", activeClass: "bg-blue-600 text-white border-blue-600", inactiveClass: "border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20" },
-  ];
+  const NOTE_TYPE_STYLES: Record<string, { activeClass: string; inactiveClass: string }> = {
+    INFO: {
+      activeClass: "bg-gray-600 text-white border-gray-600",
+      inactiveClass: "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800",
+    },
+    ISSUE: {
+      activeClass: "bg-orange-500 text-white border-orange-500",
+      inactiveClass: "border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20",
+    },
+    BLOCKER: {
+      activeClass: "bg-red-600 text-white border-red-600",
+      inactiveClass: "border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20",
+    },
+    LOG: {
+      activeClass: "bg-slate-600 text-white border-slate-600",
+      inactiveClass: "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60",
+    },
+  };
+
+  const NOTE_TYPE_FILTERS = Array.from(
+    new Set(
+      rawItems
+        .map((h) => String(h.taskrecord_type ?? "INFO").trim())
+        .filter(Boolean)
+    )
+  ).map((key) => ({
+    key,
+    ...(NOTE_TYPE_STYLES[key] ?? {
+      activeClass: "bg-blue-600 text-white border-blue-600",
+      inactiveClass: "border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20",
+    }),
+  }));
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
@@ -1193,30 +1248,62 @@ function HistorySection({ task, activities, taskId, selectedActivityId }: {
       {showAddNote && (
         <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800/40 rounded-lg border border-gray-200 dark:border-gray-700 space-y-3">
           <p className="text-[10px] text-gray-500 dark:text-gray-400">
-            {isTask ? `Adding note to Task #${task.task_id}` : `Adding note to: ${selectedAct?.activity_name ?? "activity"}`}
+            {isTask
+              ? t("task.addingNoteToTask", { taskId: task.task_id })
+              : t("task.addingNoteToActivity", { activityName: selectedAct?.activity_name ?? t("task.activityFallback") })}
           </p>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-2">
-              <LabelInput label={t("task.formNotes")}>
-                <Textarea value={noteText} onChange={setNoteText} placeholder={t("task.noteTaskPlaceholder")} rows={3} />
-              </LabelInput>
-            </div>
-            <div className="space-y-2">
+          <div className="grid grid-cols-3 gap-3 items-start">
+            <div className="space-y-3">
               <LabelInput label={t("task.formNoteType")}>
-                <Sel value={noteType} onChange={setNoteType} options={["INFO", "ISSUE", "BLOCKER", "LOG"]} />
+                <Sel
+                  value={noteType}
+                  onChange={(v) => {
+                    setNoteType(v);
+                    setSelectedNoteOption(manualNoteValue);
+                    setNoteText("");
+                  }}
+                  options={["INFO", "ISSUE", "BLOCKER"]}
+                />
               </LabelInput>
               <LabelInput label={t("task.formNextFollowUp")}>
                 <Inp value={nextFU} onChange={setNextFU} type="date" />
+              </LabelInput>
+            </div>
+            <div className="col-span-2 space-y-3">
+              <LabelInput label={t("task.formNotes")}>
+                <select
+                  value={selectedNoteOption}
+                  onChange={(e) => {
+                    setSelectedNoteOption(e.target.value);
+                    if (e.target.value !== manualNoteValue) setNoteText("");
+                  }}
+                  className="w-full text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  {noteOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </LabelInput>
+
+              <LabelInput label={t("task.formNotes")}>
+                <Textarea
+                  value={selectedNoteOption === manualNoteValue ? noteText : selectedNoteOption}
+                  onChange={setNoteText}
+                  placeholder={t("task.noteTaskPlaceholder")}
+                  rows={1}
+                  className="min-h-[34px] h-[34px]"
+                  disabled={selectedNoteOption !== manualNoteValue}
+                />
               </LabelInput>
             </div>
           </div>
           <div className="flex items-center justify-end gap-2">
             {noteSaved && <p className="text-[10px] text-green-600 dark:text-green-400">{t("task.savedSuccess")}</p>}
             {addNoteMut.isError && <p className="text-[10px] text-red-600 dark:text-red-400">{t("task.saveFailed")}</p>}
-            <button onClick={() => { setShowAddNote(false); setNoteText(""); }} className="px-2.5 py-1.5 text-[10px] font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 transition-colors">
+            <button onClick={() => { setShowAddNote(false); setNoteText(""); setSelectedNoteOption(manualNoteValue); }} className="px-2.5 py-1.5 text-[10px] font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 transition-colors">
               {t("task.cancelBtn", { defaultValue: "Cancel" })}
             </button>
-            <button onClick={() => addNoteMut.mutate()} disabled={!noteText.trim() || addNoteMut.isPending}
+            <button onClick={() => addNoteMut.mutate()} disabled={!effectiveNoteText || addNoteMut.isPending}
               className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white transition-colors">
               {addNoteMut.isPending ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Save size={10} />}
               {t("task.saveBtn")}
@@ -1292,10 +1379,10 @@ function taskPriorityColor(priority?: string): string {
   return "text-blue-600 dark:text-blue-400";
 }
 
-export default function TaskDetailPanel({ tasks, initialIndex = 0, onClose }: Props) {
+export default function TaskDetailPanel({ tasks, initialIndex = 0, initialSelectedActivityId = null, onClose }: Props) {
   const { t } = useTranslation();
   const [idx, setIdx] = useState(Math.min(initialIndex, tasks.length - 1));
-  const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null);
+  const [selectedActivityId, setSelectedActivityId] = useState<number | null>(initialSelectedActivityId);
   const [showCreationInfo, setShowCreationInfo] = useState(false);
   const [tablePage, setTablePage] = useState(Math.floor(Math.min(initialIndex, tasks.length - 1) / TABLE_PAGE_SIZE));
   const [showAddActivity, setShowAddActivity] = useState(false);
@@ -1304,10 +1391,18 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, onClose }: Pr
   const task = tasks[idx];
   const taskId = task?.task_id;
 
+  useEffect(() => {
+    setSelectedActivityId(initialSelectedActivityId);
+  }, [initialSelectedActivityId, taskId]);
+
+  const preloadedActivities = Array.isArray(task.task_activities_preloaded)
+    ? task.task_activities_preloaded
+    : [];
+
   const activitiesQuery = useQuery({
     queryKey: ["task-activities", taskId],
     queryFn: () => tasksApi.getActivities(taskId!).then((r) => r.data),
-    enabled: !!taskId,
+    enabled: !!taskId && preloadedActivities.length === 0,
     staleTime: 2 * 60 * 1000,
   });
 
@@ -1325,7 +1420,9 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, onClose }: Pr
 
   if (!task) return null;
 
-  const activities = activitiesQuery.data ?? [];
+  const activities = preloadedActivities.length > 0
+    ? preloadedActivities
+    : (activitiesQuery.data ?? []);
   const csms = csmQuery.data ?? [];
   const statusTypes = statusQuery.data ?? [];
 
@@ -1470,7 +1567,16 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, onClose }: Pr
           ) : (
             <div className="flex-1 overflow-y-auto min-h-0">
               {activities.map((act) => (
-                <ActivityRow key={act.activity_id} act={act} statusTypes={statusTypes} taskId={taskId!} onUpdated={() => void activitiesQuery.refetch()} onSelectHistory={(id) => setSelectedActivityId(id)} isSelectedForHistory={selectedActivityId === act.activity_id} />
+                <ActivityRow
+                  key={act.activity_id}
+                  act={act}
+                  statusTypes={statusTypes}
+                  taskId={taskId!}
+                  onUpdated={() => void activitiesQuery.refetch()}
+                  onSelectHistory={(id) => setSelectedActivityId(id)}
+                  isSelectedForHistory={selectedActivityId === act.activity_id}
+                  forceExpanded={selectedActivityId === act.activity_id}
+                />
               ))}
             </div>
           )}

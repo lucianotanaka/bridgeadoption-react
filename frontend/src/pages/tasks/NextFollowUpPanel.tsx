@@ -194,7 +194,7 @@ export default function NextFollowUpPanel({ onTaskSelect }: Props) {
         onTaskSelect([taskResp.data], taskId);
       }
     } catch {
-      // ignore
+      onTaskSelect([{ task_id: taskId } as TaskItem], taskId);
     }
   };
 

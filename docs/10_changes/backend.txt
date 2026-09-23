@@ -1,0 +1,69 @@
+2026-09-18: Alterações no backend do CPI Adopt
+
+- backend/app/cisco/cpi_adopt_router.py (linhas 1-167, com destaque para 68-93 e 114-145)
+  - novo router/endpoints para o report CPI Adopt
+  - endpoints criados: report, filters, summary, fy-range e cache/invalidate
+  - proteção dos endpoints com autenticação via token
+  - proteção dos endpoints no backend com a permissão cisco.cpi_adopt, seguindo o padrão de autorização do sistema
+  - restrição do endpoint de invalidação de cache para ADMIN
+  - adição dos novos query params task_id, task_ws e deal_id nos endpoints report e summary
+
+- backend/app/cisco/cpi_adopt_service.py (linhas 1-248, com destaque para 91-107, 111-122 e 129-142)
+  - implementação da lógica de negócio do CPI Adopt Report
+  - carregamento de dados com cache TTL
+  - filtros de client, solution, task_status, opt_in, project, timeline_stage, fy_start e fy_end
+  - consolidação da lógica de timeline no backend para suportar os estágios Early, Mid, Late e Completed usados pelo filtro do report
+  - revisão das regras de summary/KPIs para alinhamento conceitual com as linhas retornadas ao frontend
+  - adição dos novos filtros textuais task_id, task_ws e deal_id na assinatura do serviço e na aplicação dos filtros em memória
+
+- backend/migrations/add_cisco_cpi_adopt_resource.sql (linhas 1-20, com destaque para 10-17 e 19-20)
+  - criação da migration para cadastro do recurso de permissão cisco.cpi_adopt
+  - insert idempotente em tbAuthResource com show_in_menu = 1
+  - query de verificação do recurso após execução
+
+- backend/app/main.py
+  - inclusão/registro do router do CPI Adopt na aplicação
+  - número exato de linhas não confirmado nesta revisão; registrar referência no próximo ajuste se necessário
+
+2026-09-22: Ajustes no backend de Tasks
+
+- backend/app/tasks/filter_service.py
+  - inclusão de fallback SQL em get_filter_options() para consultar vwFilterTask diretamente quando repositories não estiverem disponíveis
+  - criação do helper _sorted_unique_from_rows() para montar listas únicas/sortidas sem dependência de DataFrame
+  - registro de diagnóstico de ambiente indicando falha de dependências locais (pandas/mysql), afetando a carga inicial de filter-options
+
+2026-09-22: Ajustes adicionais no backend
+
+- backend/app/main.py
+  - inclusão/registro do router do CPI Adopt na aplicação
+
+- backend/app/modules/public_router.py
+  - criação do endpoint de download bruto de failed rows para importações do módulo Public > Importer
+
+- backend/app/modules/public_service.py
+  - adição de fallback SQL para carga de dados de Public > CSM Account quando repository não estiver disponível
+  - implementação de resolução robusta do arquivo de failed rows a partir da mensagem da importação, convenção de nome e busca por stem
+  - criação do helper get_failed_rows_file() para suportar download direto do arquivo físico
+
+- backend/app/modules/sections_service.py
+  - persistência direta em tbProjectTeam para inclusão/edição/remoção de membros quando o ProjectRepository não oferece operações de escrita correspondentes
+  - ajuste do save_project() para usar o entrypoint insert/upsert disponível no ProjectRepository
+  - correção do carregamento de Team Goals no Admin para retornar o dataset completo, inclusive sem filtro de FY
+
+2026-09-23: Ajuste no script de ambiente local
+
+- manage_bridgeadoption.ps1
+  - correção da montagem de DATABASE_URL no comando PowerShell do backend usando `${variavel}` para evitar erro de parser em trechos como `usuario:senha` dentro da string
+
+2026-09-23: Ajuste adicional no backend de Tasks
+
+- backend/app/tasks/filter_service.py
+  - inclusão de fallback SQL em filter_tasks() para consultar vwTask diretamente quando os repositories locais não estiverem disponíveis, evitando retorno vazio na aba Tasks > Filter mesmo com opções preenchidas
+  - compatibilização do filtro de status no fallback para aceitar tanto task_status_name quanto task_status_reclassified
+  - ajuste adicional para preservar matches encontrados em vwFilterTask mesmo quando o enriquecimento posterior em vwTask não retornar linhas correspondentes
+  - fallback secundário do caminho SQL para consultar vwFilterTask quando vwTask vier vazia, mantendo consistência entre os valores exibidos nos selects e os resultados filtrados
+  - reforço da carga de `task_types` para o filtro de Tasks com estratégia mais robusta de leitura dos tipos cadastrados, deduplicação, normalização de espaços e fallback SQL direto, corrigindo ausência de tipos válidos no dropdown `TASK TYPE`
+
+- src/domain/i18n/translator.py
+  - substituição do path absoluto Linux por resolução relativa a `__file__`, permitindo localizar corretamente os arquivos de idioma em ambiente local/Windows
+  - adição de fallback de idioma curto/default (`en-US` → `en`, `pt-BR` → `pt`, etc.), evitando quebra de `get_filter_options()` por `Idioma não suportado`

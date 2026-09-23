@@ -1,0 +1,46 @@
+IMPORTANTE: Na Servidor (VM) em produção, os repositórios então duplicados (cópias) em duas pastas:
+/home/bridgeadoption/src/infrastructure/database/repositories
+/opt/bridgeadoption/src/infrastructure/database/repositories
+
+
+2026-09-14: Alterações no repositório cisco_lci_repository.py
+- nova função load_cpi_adopt_report
+
+2026-09-10: Alterações no repositório task_history_repository.py
+- nova função _get_last_record_by_type
+- nova função get_last_opt_in_status
+- nova função get_last_lci_status
+- nova função get_last_stages_status
+- nova função get_last_claim_status
+- nova função get_last_payment_status
+
+2026-09-18: Alterações no repositório task_history_repository.py
+- nova função get_last_status_change
+
+2026-09-18: Alterações no repositório cisco_lci_repository.py
+- load_cpi_adopt_report passou a delegar para vwCiscoCPIAdopt
+- nova função _ntt_fy_start_date
+- nova função _ntt_fy_end_date
+- nova função _build_cpi_adopt_fy_where
+- nova função get_cpi_adopt_fy_bounds
+- nova função load_cpi_adopt_view
+- nova função load_cpi_adopt_stages_view
+- filtro opcional por range de FY NTT (abril a março) sobre vwCiscoCPIAdopt.task_end
+- suporte à relação pai/filhas entre vwCiscoCPIAdopt.task_id e vwCiscoCPIAdoptStages.task_id
+
+2026-09-21: Alterações no repositório task_history_repository.py
+- nova função get_record_templates
+- nova função insert_record_template
+- suporte à consulta de templates de notas em tbTaskRecordTemplate
+- suporte à inserção de novas notas pré-definidas em tbTaskRecordTemplate
+
+2026-09-22: Ajustes adicionais em repositories
+
+- src/infrastructure/database/repositories/cisco_lci_repository.py
+- ajustes no repositório de Cisco LCI relacionados ao suporte de leitura usado pelas telas e relatórios revisados nesta rodada
+
+- src/infrastructure/database/repositories/task_history_repository.py
+- expansão do repositório para suportar consultas adicionais de histórico/follow-up/templates usadas pelos fluxos recentes de Tasks
+
+- src/infrastructure/database/repositories/use_case_repository.py
+- inclusão de suporte adicional ao módulo de Use Cases para consultas consumidas pelos serviços/módulos revisados

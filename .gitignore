@@ -36,6 +36,13 @@ __pycache__/
 .DS_Store
 .vscode/
 .idea/
+Thumbs.db
+Desktop.ini
+
+# Pastas de Armazenamento Temporário de Importação
+storage/
 
 # Outros
 .graphify/
+manage_bridgeadoption.ps1
+.bridgeadoption.pids

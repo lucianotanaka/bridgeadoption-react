@@ -25,7 +25,40 @@ try:
     _REPOS_OK = True
 except ImportError as e:
     logger.warning(f"Task filter repos não disponíveis: {e}")
+    TaskRepository = None
+    TaskActivityRepository = None
+    TaskHistoryRepository = None
+    SquadRepository = None
+    StatusTypeRepository = None
+
+    def reclassify_status(df, _kind):
+        return df
+
     _REPOS_OK = False
+
+
+def _activities_via_sql(task_id: int) -> List[Dict[str, Any]]:
+    query = """
+        SELECT *
+        FROM tbTaskActivity
+        WHERE activity_task_id = %s
+        ORDER BY activity_seq, activity_id
+    """
+    try:
+        from src.infrastructure.database.connection import get_db_connection
+
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(query, (int(task_id),))
+            rows = cursor.fetchall() or []
+            cursor.close()
+            return [_serialize(dict(r)) for r in rows]
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.error(f"_activities_via_sql: {e}")
+        return []
 
 
 def _serialize(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -51,12 +84,38 @@ def _serialize_df(df) -> List[Dict[str, Any]]:
     if df is None:
         return []
     try:
-        import pandas as pd
-        if isinstance(df, pd.DataFrame) and df.empty:
+        if getattr(df, "empty", False):
             return []
-        return [_serialize(dict(r)) for r in df.to_dict("records")]
+        records = df.to_dict("records")
+        return [_serialize(dict(r)) for r in records]
     except Exception:
         return []
+
+
+def _rows_to_df(rows: List[Dict[str, Any]]):
+    try:
+        import pandas as pd
+        return pd.DataFrame(rows)
+    except Exception:
+        return None
+
+
+def _sorted_unique_from_rows(rows: List[Dict[str, Any]], key: str) -> List[str]:
+    values = []
+    seen = set()
+    for row in rows:
+        value = row.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if not text or text.lower() == "none":
+            continue
+        normalized = text.casefold()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        values.append(text)
+    return sorted(values, key=lambda v: v.casefold())
 
 
 # ─────────────────────────────────────────
@@ -68,37 +127,161 @@ def get_filter_options() -> Dict[str, List[Any]]:
     Retorna opções dinâmicas para os filtros de Task (vwFilterTask).
     Espelha task_filter_tasks.py: get_dynamic_options()
     """
-    if not _REPOS_OK:
-        return {}
     try:
-        import pandas as pd
-        repo = TaskRepository()
-        df = repo.load_for_filtering(as_df=True)
+        if _REPOS_OK and TaskRepository is not None:
+            import pandas as pd
+            repo = TaskRepository()
+            df = repo.load_for_filtering(as_df=True)
 
-        if df.empty:
+            if df.empty:
+                return {}
+
+            # Reclassify status
+            df = reclassify_status(df, "task")
+
+            def _sorted_unique(series) -> List[str]:
+                vals = series.dropna().astype(str).drop_duplicates()
+                return sorted([v for v in vals.tolist() if v.strip() and v.lower() != "none"])
+
+            owners = _sorted_unique(df["task_owner_name"] if "task_owner_name" in df.columns else pd.Series(dtype=str))
+            if "UNASSIGNED" in owners:
+                owners = [v for v in owners if v != "UNASSIGNED"] + ["UNASSIGNED"]
+
+            statuses = _sorted_unique(df["task_status_name"]) if "task_status_name" in df.columns else []
+
+            if "task_status_id" in df.columns:
+                try:
+                    status_types = get_status_types()
+                    status_map = {}
+                    for item in status_types:
+                        status_id = item.get("statustype_id")
+                        status_name = item.get("statustype_name")
+                        if status_id is None or status_name is None:
+                            continue
+                        status_map[int(status_id)] = str(status_name).strip()
+
+                    known_statuses = {s.casefold() for s in statuses}
+                    for status_id in sorted(df["task_status_id"].dropna().astype(int).unique().tolist()):
+                        status_name = status_map.get(status_id)
+                        if status_name and status_name.casefold() not in known_statuses:
+                            statuses.append(status_name)
+                            known_statuses.add(status_name.casefold())
+
+                    statuses = sorted(statuses, key=lambda v: v.casefold())
+                except Exception:
+                    pass
+
+            reclassified_statuses = _sorted_unique(df["task_status_reclassified"]) if "task_status_reclassified" in df.columns else []
+            for status_name in reclassified_statuses:
+                if status_name.casefold() not in {s.casefold() for s in statuses}:
+                    statuses.append(status_name)
+            statuses = sorted(statuses, key=lambda v: v.casefold())
+
+            task_types_from_view = _sorted_unique(df["task_type_name"]) if "task_type_name" in df.columns else []
+            try:
+                all_task_types = get_task_types()
+                known_types = {t.casefold() for t in task_types_from_view}
+                for item in all_task_types:
+                    type_name = str(item.get("tasktype_name") or "").strip()
+                    if type_name and type_name.casefold() not in known_types:
+                        task_types_from_view.append(type_name)
+                        known_types.add(type_name.casefold())
+                task_types_from_view = sorted(task_types_from_view, key=lambda v: v.casefold())
+            except Exception:
+                pass
+
+            return {
+                "owners": owners,
+                "task_types": task_types_from_view,
+                "clients": _sorted_unique(df["task_customer_name"]) if "task_customer_name" in df.columns else [],
+                "ws_list": _sorted_unique(df["task_ws"]) if "task_ws" in df.columns else [],
+                "tracks": _sorted_unique(df["task_track"]) if "task_track" in df.columns else [],
+                "deal_ids": _sorted_unique(df["task_deal_id"]) if "task_deal_id" in df.columns else [],
+                "statuses": statuses,
+            }
+
+        from src.infrastructure.database.connection import get_db_connection
+
+        query = """
+            SELECT
+                task_owner_name,
+                task_type_name,
+                task_customer_name,
+                task_ws,
+                task_track,
+                task_deal_id,
+                task_status_name,
+                task_status_id
+            FROM vwFilterTask
+        """
+
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(query)
+            rows = cursor.fetchall() or []
+            cursor.close()
+        finally:
+            conn.close()
+
+        if not rows:
             return {}
 
-        # Reclassify status
-        df = reclassify_status(df, "task")
-
-        def _sorted_unique(series) -> List[str]:
-            vals = series.dropna().astype(str).drop_duplicates()
-            return sorted([v for v in vals.tolist() if v.strip() and v.lower() != "none"])
-
-        owners = _sorted_unique(df["task_owner_name"] if "task_owner_name" in df.columns else pd.Series(dtype=str))
+        owners = _sorted_unique_from_rows(rows, "task_owner_name")
         if "UNASSIGNED" in owners:
             owners = [v for v in owners if v != "UNASSIGNED"] + ["UNASSIGNED"]
 
-        result = {
+        statuses = _sorted_unique_from_rows(rows, "task_status_name")
+
+        try:
+            status_types = get_status_types()
+            status_map = {}
+            for item in status_types:
+                status_id = item.get("statustype_id")
+                status_name = item.get("statustype_name")
+                if status_id is None or status_name is None:
+                    continue
+                status_map[int(status_id)] = str(status_name).strip()
+
+            known_statuses = {s.casefold() for s in statuses}
+            for row in rows:
+                status_id = row.get("task_status_id")
+                if status_id is None:
+                    continue
+                try:
+                    status_name = status_map.get(int(status_id))
+                except (TypeError, ValueError):
+                    status_name = None
+                if status_name and status_name.casefold() not in known_statuses:
+                    statuses.append(status_name)
+                    known_statuses.add(status_name.casefold())
+
+            statuses = sorted(statuses, key=lambda v: v.casefold())
+        except Exception:
+            pass
+
+        task_types_from_view = _sorted_unique_from_rows(rows, "task_type_name")
+        try:
+            all_task_types = get_task_types()
+            known_types = {t.casefold() for t in task_types_from_view}
+            for item in all_task_types:
+                type_name = str(item.get("tasktype_name") or "").strip()
+                if type_name and type_name.casefold() not in known_types:
+                    task_types_from_view.append(type_name)
+                    known_types.add(type_name.casefold())
+            task_types_from_view = sorted(task_types_from_view, key=lambda v: v.casefold())
+        except Exception:
+            pass
+
+        return {
             "owners": owners,
-            "task_types": _sorted_unique(df["task_type_name"]) if "task_type_name" in df.columns else [],
-            "clients": _sorted_unique(df["task_customer_name"]) if "task_customer_name" in df.columns else [],
-            "ws_list": _sorted_unique(df["task_ws"]) if "task_ws" in df.columns else [],
-            "tracks": _sorted_unique(df["task_track"]) if "task_track" in df.columns else [],
-            "deal_ids": _sorted_unique(df["task_deal_id"]) if "task_deal_id" in df.columns else [],
-            "statuses": _sorted_unique(df["task_status_reclassified"]) if "task_status_reclassified" in df.columns else [],
+            "task_types": task_types_from_view,
+            "clients": _sorted_unique_from_rows(rows, "task_customer_name"),
+            "ws_list": _sorted_unique_from_rows(rows, "task_ws"),
+            "tracks": _sorted_unique_from_rows(rows, "task_track"),
+            "deal_ids": _sorted_unique_from_rows(rows, "task_deal_id"),
+            "statuses": statuses,
         }
-        return result
     except Exception as e:
         logger.error(f"get_filter_options: {e}\n{traceback.format_exc()}")
         return {}
@@ -122,50 +305,179 @@ def filter_tasks(
     Aplica filtros em cascata e retorna tasks completas (vwTask).
     Espelha task_filter_tasks.py: filter_tasks() + filter_tasks_dynamic()
     """
-    if not _REPOS_OK:
-        return []
     try:
-        import pandas as pd
-        repo = TaskRepository()
+        if _REPOS_OK and TaskRepository is not None:
+            import pandas as pd
+            repo = TaskRepository()
 
-        # Load filter DF
-        filter_df = repo.load_for_filtering(as_df=True)
-        if filter_df.empty:
-            return []
+            # Load filter DF
+            filter_df = repo.load_for_filtering(as_df=True)
+            if filter_df.empty:
+                return []
 
-        filter_df = reclassify_status(filter_df, "task")
-        df = filter_df.copy()
+            filter_df = reclassify_status(filter_df, "task")
+            df = filter_df.copy()
 
-        # Apply cascading filters
-        if owner_names:
-            df = df[df["task_owner_name"].isin(owner_names)]
-        if task_type_names:
-            df = df[df["task_type_name"].isin(task_type_names)]
-        if client_names:
-            df = df[df["task_customer_name"].isin(client_names)]
-        if ws_list:
-            df = df[df["task_ws"].isin(ws_list)]
-        if tracks:
-            df = df[df["task_track"].isin(tracks)]
-        if deal_ids:
-            df = df[df["task_deal_id"].isin(deal_ids)]
-        if status_names and "task_status_reclassified" in df.columns:
-            df = df[df["task_status_reclassified"].isin(status_names)]
+            # Apply cascading filters
+            if owner_names:
+                df = df[df["task_owner_name"].isin(owner_names)]
+            if task_type_names:
+                df = df[df["task_type_name"].isin(task_type_names)]
+            if client_names:
+                df = df[df["task_customer_name"].isin(client_names)]
+            if ws_list:
+                df = df[df["task_ws"].isin(ws_list)]
+            if tracks:
+                df = df[df["task_track"].isin(tracks)]
+            if deal_ids:
+                df = df[df["task_deal_id"].isin(deal_ids)]
+            if status_names and "task_status_reclassified" in df.columns:
+                df = df[df["task_status_reclassified"].isin(status_names)]
+            if task_ids:
+                df = df[df["task_id"].isin(task_ids)]
+
+            if df.empty:
+                return []
+
+            # Get full task data from vwTask; if a matching task_id is not present in
+            # vwTask, fallback to the filtering rows themselves so the Filter tab does
+            # not lose valid matches coming from vwFilterTask/tbTask.
+            selected_ids = df["task_id"].dropna().astype(int).tolist()
+            task_df = repo.get_task(task_id=selected_ids, as_df=True)
+
+            if task_df is not None and not task_df.empty:
+                task_df = reclassify_status(task_df, "task")
+                return _serialize_df(task_df)
+
+            return _serialize_df(df)
+
+        from src.infrastructure.database.connection import get_db_connection
+
+        filter_where_clauses: List[str] = []
+        filter_params: List[Any] = []
+
+        def _add_in_filter(column: str, values: Optional[List[Any]]) -> None:
+            if not values:
+                return
+            cleaned = [str(v).strip() for v in values if str(v).strip()]
+            if not cleaned:
+                return
+            placeholders = ", ".join(["%s"] * len(cleaned))
+            filter_where_clauses.append(f"{column} IN ({placeholders})")
+            filter_params.extend(cleaned)
+
+        _add_in_filter("task_owner_name", owner_names)
+        _add_in_filter("task_type_name", task_type_names)
+        _add_in_filter("task_customer_name", client_names)
+        _add_in_filter("task_ws", ws_list)
+        _add_in_filter("task_track", tracks)
+        _add_in_filter("task_deal_id", deal_ids)
+
+        if status_names:
+            cleaned_status = [str(v).strip() for v in status_names if str(v).strip()]
+            if cleaned_status:
+                placeholders = ", ".join(["%s"] * len(cleaned_status))
+                filter_where_clauses.append(
+                    f"(task_status_name IN ({placeholders}) OR task_status_reclassified IN ({placeholders}))"
+                )
+                filter_params.extend(cleaned_status)
+                filter_params.extend(cleaned_status)
+
         if task_ids:
-            df = df[df["task_id"].isin(task_ids)]
+            cleaned_ids = [int(v) for v in task_ids if v is not None]
+            if cleaned_ids:
+                placeholders = ", ".join(["%s"] * len(cleaned_ids))
+                filter_where_clauses.append(f"task_id IN ({placeholders})")
+                filter_params.extend(cleaned_ids)
 
-        if df.empty:
+        filter_where_sql = f"WHERE {' AND '.join(filter_where_clauses)}" if filter_where_clauses else ""
+
+        query_filter = f"""
+            SELECT *
+            FROM vwFilterTask
+            {filter_where_sql}
+            ORDER BY task_id DESC
+        """
+
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(query_filter, tuple(filter_params))
+            filter_rows = cursor.fetchall() or []
+            cursor.close()
+        finally:
+            conn.close()
+
+        if not filter_rows:
             return []
 
-        # Get full task data from vwTask
-        selected_ids = df["task_id"].dropna().astype(int).tolist()
-        task_df = repo.get_task(task_id=selected_ids, as_df=True)
-        if task_df.empty:
-            return []
+        selected_ids = []
+        seen_ids = set()
+        for row in filter_rows:
+            task_id = row.get("task_id")
+            try:
+                numeric_id = int(task_id)
+            except (TypeError, ValueError):
+                continue
+            if numeric_id in seen_ids:
+                continue
+            seen_ids.add(numeric_id)
+            selected_ids.append(numeric_id)
 
-        task_df = reclassify_status(task_df, "task")
-        return _serialize_df(task_df)
+        task_rows: List[Dict[str, Any]] = []
+        if selected_ids:
+            placeholders = ", ".join(["%s"] * len(selected_ids))
+            query_vwtask = f"""
+                SELECT *
+                FROM vwTask
+                WHERE task_id IN ({placeholders})
+                ORDER BY task_id DESC
+            """
 
+            conn = get_db_connection()
+            try:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute(query_vwtask, tuple(selected_ids))
+                task_rows = cursor.fetchall() or []
+                cursor.close()
+            finally:
+                conn.close()
+
+        if task_rows:
+            task_map = {}
+            for row in task_rows:
+                task_id = row.get("task_id")
+                if task_id is None:
+                    continue
+                task_map[int(task_id)] = dict(row)
+
+            merged_rows = []
+            for row in filter_rows:
+                task_id = row.get("task_id")
+                try:
+                    numeric_id = int(task_id)
+                except (TypeError, ValueError):
+                    numeric_id = None
+
+                if numeric_id is not None and numeric_id in task_map:
+                    merged = dict(row)
+                    merged.update(task_map[numeric_id])
+                    merged_rows.append(merged)
+                else:
+                    merged_rows.append(dict(row))
+
+            df = _rows_to_df(merged_rows)
+            if df is not None:
+                df = reclassify_status(df, "task")
+                return _serialize_df(df)
+            return [_serialize(dict(r)) for r in merged_rows]
+
+        df = _rows_to_df([dict(r) for r in filter_rows])
+        if df is not None:
+            df = reclassify_status(df, "task")
+            return _serialize_df(df)
+
+        return [_serialize(dict(r)) for r in filter_rows]
     except Exception as e:
         logger.error(f"filter_tasks: {e}\n{traceback.format_exc()}")
         return []
@@ -175,37 +487,75 @@ def filter_tasks(
 # TASK DETAIL  (GET single task + activities)
 # ─────────────────────────────────────────
 
-def get_task_detail(task_id: int) -> Dict[str, Any]:
-    """Returns full task detail from vwTask."""
-    if not _REPOS_OK:
-        return {}
+def _get_task_detail_via_sql(task_id: int) -> Dict[str, Any]:
     try:
-        repo = TaskRepository()
-        task_df = repo.get_task(task_id=task_id, as_df=True)
-        if task_df is None or task_df.empty:
+        from src.infrastructure.database.connection import get_db_connection
+
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute("SELECT * FROM vwTask WHERE task_id = %s", (int(task_id),))
+            view_rows = cursor.fetchall() or []
+            if view_rows:
+                task_df = _rows_to_df([dict(r) for r in view_rows])
+                if task_df is not None:
+                    task_df = reclassify_status(task_df, "task")
+                    rows = _serialize_df(task_df)
+                else:
+                    rows = [_serialize(dict(r)) for r in view_rows]
+                return rows[0] if rows else {}
+
+            cursor.execute("SELECT * FROM tbTask WHERE task_id = %s", (int(task_id),))
+            table_rows = cursor.fetchall() or []
+            cursor.close()
+
+            if table_rows:
+                rows = [_serialize(dict(r)) for r in table_rows]
+                return rows[0] if rows else {}
             return {}
-        task_df = reclassify_status(task_df, "task")
-        rows = _serialize_df(task_df)
-        return rows[0] if rows else {}
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f"_get_task_detail_via_sql: {e}")
+        return {}
+
+
+def get_task_detail(task_id: int) -> Dict[str, Any]:
+    """Returns full task detail from vwTask, with tbTask fallback for task types not in the view."""
+    try:
+        if _REPOS_OK and TaskRepository is not None:
+            repo = TaskRepository()
+            task_df = repo.get_task(task_id=task_id, as_df=True)
+            if task_df is not None and not task_df.empty:
+                task_df = reclassify_status(task_df, "task")
+                rows = _serialize_df(task_df)
+                return rows[0] if rows else {}
+
+        return _get_task_detail_via_sql(task_id)
     except Exception as e:
         logger.error(f"get_task_detail: {e}")
-        return {}
+        return _get_task_detail_via_sql(task_id)
 
 
 def get_task_activities(task_id: int) -> List[Dict[str, Any]]:
     """Returns activities for a given task_id."""
-    if not _REPOS_OK:
+    if not task_id:
         return []
+
+    if not _REPOS_OK or TaskActivityRepository is None:
+        return _activities_via_sql(task_id)
+
     try:
         repo = TaskActivityRepository()
         act_df = repo.get_activity(task_id=task_id, activity_id=None, as_df=True)
         if act_df is None or act_df.empty:
-            return []
+            return _activities_via_sql(task_id)
         act_df = reclassify_status(act_df, "activity")
         return _serialize_df(act_df)
     except Exception as e:
         logger.error(f"get_task_activities: {e}")
-        return []
+        return _activities_via_sql(task_id)
 
 
 def get_task_history(task_id: int, activity_id: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -286,6 +636,26 @@ def add_task_history(record: Dict[str, Any]) -> int:
         return 0
 
 
+def get_task_record_templates(
+    template_type: Optional[str] = None,
+    enabled_only: bool = True,
+) -> List[Dict[str, Any]]:
+    """Returns note templates from tbTaskRecordTemplate."""
+    if not _REPOS_OK:
+        return []
+    try:
+        repo = TaskHistoryRepository()
+        rows = repo.get_record_templates(
+            template_type=template_type,
+            enabled_only=enabled_only,
+            as_df=False,
+        ) or []
+        return [_serialize(dict(r)) for r in rows]
+    except Exception as e:
+        logger.error(f"get_task_record_templates: {e}")
+        return []
+
+
 # ─────────────────────────────────────────
 # CSM LIST (for owner selectbox)
 # ─────────────────────────────────────────
@@ -334,17 +704,41 @@ def get_status_types() -> List[Dict[str, Any]]:
 
 def get_task_types() -> List[Dict[str, Any]]:
     """Returns all task types from tbTaskType. Espelha task_new.py: get_task_type_by_ids()."""
-    if not _REPOS_OK:
-        return []
     try:
-        repo = TaskRepository()
-        df = repo.get_task_type_by_ids(type_ids=None, as_df=True)
-        if df is None or df.empty:
-            return []
-        df = df.sort_values("tasktype_name").reset_index(drop=True)
-        return _serialize_df(df)
+        if _REPOS_OK and TaskRepository is not None:
+            repo = TaskRepository()
+            df = repo.get_task_type_by_ids(type_ids=None, as_df=True)
+            if df is not None and not df.empty:
+                if "tasktype_name" in df.columns:
+                    df["tasktype_name"] = df["tasktype_name"].astype(str).str.strip()
+                    df = df[df["tasktype_name"].str.len() > 0]
+                    df = df.drop_duplicates(subset=["tasktype_name"], keep="first")
+                    df = df.sort_values("tasktype_name").reset_index(drop=True)
+                return _serialize_df(df)
+
+        from src.infrastructure.database.connection import get_db_connection
+
+        query = """
+            SELECT DISTINCT
+                tasktype_id,
+                TRIM(tasktype_name) AS tasktype_name
+            FROM tbTaskType
+            WHERE tasktype_name IS NOT NULL
+              AND TRIM(tasktype_name) <> ''
+            ORDER BY tasktype_name
+        """
+
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(query)
+            rows = cursor.fetchall() or []
+            cursor.close()
+            return [_serialize(dict(r)) for r in rows]
+        finally:
+            conn.close()
     except Exception as e:
-        logger.error(f"get_task_types: {e}")
+        logger.error(f"get_task_types: {e}\n{traceback.format_exc()}")
         return []
 
 

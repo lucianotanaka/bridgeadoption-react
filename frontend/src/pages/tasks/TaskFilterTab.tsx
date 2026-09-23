@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Search, X, Filter, ChevronUp, ChevronDown } from "lucide-react";
@@ -6,6 +8,7 @@ import { tasksApi } from "@/api/tasks";
 import type { TaskItem, FilterRequest } from "@/api/tasks";
 
 interface Props {
+  initialTasks?: TaskItem[];
   onTasksLoaded: (tasks: TaskItem[]) => void;
   onTaskSelect: (task: TaskItem) => void;
 }
@@ -29,10 +32,17 @@ function MultiSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [menuStyle, setMenuStyle] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
 
   const filtered = options.filter((o) =>
     o.toLowerCase().includes(search.toLowerCase())
   );
+  const sortedFiltered = [...filtered].sort((a, b) => a.localeCompare(b));
 
   const toggle = (val: string) => {
     if (selected.includes(val)) {
@@ -42,8 +52,82 @@ function MultiSelect({
     }
   };
 
+  useEffect(() => {
+    if (!open) return;
+
+    const updatePosition = () => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setMenuStyle({
+        top: rect.bottom + window.scrollY + 4,
+        left: rect.left + window.scrollX,
+        width: rect.width,
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (containerRef.current?.contains(target ?? null)) return;
+
+      const menuElement = document.getElementById(`task-filter-multiselect-${label}`);
+      if (menuElement?.contains(target ?? null)) return;
+
+      setOpen(false);
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [open, label]);
+
+  const dropdownContent: ReactNode = (
+    <div
+      className="z-[9999] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-52 overflow-hidden flex flex-col"
+      style={menuStyle ? { width: `${menuStyle.width}px` } : { width: "100%" }}
+    >
+      <div className="p-2 border-b border-gray-100 dark:border-gray-800">
+        <input
+          autoFocus
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={searchPlaceholder ?? "Search..."}
+          className="w-full text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none"
+        />
+      </div>
+      <div className="overflow-y-auto flex-1">
+        {sortedFiltered.length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-3">{noOptionsLabel ?? "No options"}</p>
+        ) : (
+          sortedFiltered.map((opt) => (
+            <label key={opt} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selected.includes(opt)}
+                onChange={() => toggle(opt)}
+                className="w-3.5 h-3.5 accent-blue-600"
+              />
+              <span className="text-xs text-gray-700 dark:text-gray-300 truncate">{opt}</span>
+            </label>
+          ))
+        )}
+      </div>
+    </div>
+  );
+
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">{label}</label>
       <button
         type="button"
@@ -66,41 +150,27 @@ function MultiSelect({
         )}
       </button>
 
-      {open && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-52 overflow-hidden flex flex-col">
-          <div className="p-2 border-b border-gray-100 dark:border-gray-800">
-            <input
-              autoFocus
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={searchPlaceholder ?? "Search..."}
-              className="w-full text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none"
-            />
-          </div>
-          <div className="overflow-y-auto flex-1">
-            {filtered.length === 0 ? (
-              <p className="text-xs text-gray-400 text-center py-3">{noOptionsLabel ?? "No options"}</p>
-            ) : (
-              filtered.map((opt) => (
-                <label key={opt} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selected.includes(opt)}
-                    onChange={() => toggle(opt)}
-                    className="w-3.5 h-3.5 accent-blue-600"
-                  />
-                  <span className="text-xs text-gray-700 dark:text-gray-300 truncate">{opt}</span>
-                </label>
-              ))
-            )}
-          </div>
-        </div>
-      )}
+      {open && menuStyle
+        ? createPortal(
+            <div
+              id={`task-filter-multiselect-${label}`}
+              className="fixed z-[9999]"
+              style={{
+                top: menuStyle.top,
+                left: menuStyle.left,
+                width: menuStyle.width,
+              }}
+            >
+              {dropdownContent}
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 }
 
-export default function TaskFilterTab({ onTasksLoaded, onTaskSelect }: Props) {
+export default function TaskFilterTab({ initialTasks = [], onTasksLoaded, onTaskSelect }: Props) {
   const { t } = useTranslation();
   const [filters, setFilters] = useState<FilterRequest>({});
   const [results, setResults] = useState<TaskItem[]>([]);
@@ -113,15 +183,138 @@ export default function TaskFilterTab({ onTasksLoaded, onTaskSelect }: Props) {
     staleTime: 10 * 60 * 1000,
   });
 
+  const statusTypesQuery = useQuery({
+    queryKey: ["tasks", "status-types"],
+    queryFn: () => tasksApi.getStatusTypes().then((r) => r.data),
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const taskTypesQuery = useQuery({
+    queryKey: ["tasks", "task-types"],
+    queryFn: () => tasksApi.getTaskTypes().then((r) => r.data),
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const source = results.length > 0 ? results : initialTasks;
+
+  const normalize = (value: unknown) => String(value ?? "").trim().toLowerCase();
+
+  const applyLocalFilters = (tasks: TaskItem[], body: FilterRequest): TaskItem[] => {
+    return tasks.filter((task) => {
+      if (body.owner_names?.length && !body.owner_names.some((value) => normalize(task.task_owner_name) === normalize(value))) {
+        return false;
+      }
+      if (body.task_type_names?.length && !body.task_type_names.some((value) => normalize(task.task_type_name) === normalize(value))) {
+        return false;
+      }
+      if (body.client_names?.length && !body.client_names.some((value) => normalize(task.task_customer_name) === normalize(value))) {
+        return false;
+      }
+      if (body.ws_list?.length && !body.ws_list.some((value) => normalize(task.task_ws) === normalize(value))) {
+        return false;
+      }
+      if (body.tracks?.length && !body.tracks.some((value) => normalize(task.task_track) === normalize(value))) {
+        return false;
+      }
+      if (body.deal_ids?.length && !body.deal_ids.some((value) => normalize(task.task_deal_id) === normalize(value))) {
+        return false;
+      }
+      if (
+        body.status_names?.length &&
+        !body.status_names.some(
+          (value) =>
+            normalize(task.task_status_reclassified) === normalize(value) ||
+            normalize(task.task_status_name) === normalize(value)
+        )
+      ) {
+        return false;
+      }
+      if (
+        body.task_ids?.length &&
+        !body.task_ids.some((value) => Number(task.task_id) === Number(value))
+      ) {
+        return false;
+      }
+      return true;
+    });
+  };
+
   const filterMutation = useMutation<TaskItem[], Error, FilterRequest>({
-    mutationFn: (body: FilterRequest) => tasksApi.filterTasks(body).then((r) => r.data),
-    onSuccess: (data: TaskItem[]) => {
-      setResults(data);
-      onTasksLoaded(data);
+    mutationFn: async (body: FilterRequest) => {
+      const response = await tasksApi.filterTasks(body);
+      return response.data;
     },
   });
 
-  const opts = optionsQuery.data;
+  const apiOptions = optionsQuery.data;
+
+  const opts = useMemo(() => {
+    const fromApi = {
+      owners: apiOptions?.owners ?? [],
+      task_types: apiOptions?.task_types ?? [],
+      clients: apiOptions?.clients ?? [],
+      ws_list: apiOptions?.ws_list ?? [],
+      tracks: apiOptions?.tracks ?? [],
+      deal_ids: apiOptions?.deal_ids ?? [],
+      statuses: apiOptions?.statuses ?? [],
+    };
+
+    const unique = (values: Array<string | number | null | undefined>) =>
+      Array.from(
+        new Set(
+          values
+            .map((value) => String(value ?? "").trim())
+            .filter((value) => value.length > 0 && value.toLowerCase() !== "none")
+        )
+      ).sort((a, b) => a.localeCompare(b));
+
+    const fromInitialTasks = {
+      owners: unique(initialTasks.map((task) => task.task_owner_name as string | undefined)),
+      task_types: unique(initialTasks.map((task) => task.task_type_name as string | undefined)),
+      clients: unique(initialTasks.map((task) => task.task_customer_name as string | undefined)),
+      ws_list: unique(initialTasks.map((task) => task.task_ws as string | undefined)),
+      tracks: unique(initialTasks.map((task) => task.task_track as string | undefined)),
+      deal_ids: unique(initialTasks.map((task) => task.task_deal_id as string | undefined)),
+      statuses: unique(
+        initialTasks.map(
+          (task) =>
+            (task.task_status_reclassified as string | undefined) ??
+            (task.task_status_name as string | undefined)
+        )
+      ),
+    };
+
+    const mergeUnique = (preferred: string[], fallback: string[]) =>
+      Array.from(new Set([...preferred, ...fallback])).sort((a, b) => a.localeCompare(b));
+
+    const fromTaskTypes = (taskTypesQuery.data ?? [])
+      .map((tt) => String(tt.tasktype_name ?? "").trim())
+      .filter((v) => v.length > 0);
+
+    return {
+      owners: mergeUnique(fromApi.owners, fromInitialTasks.owners),
+      task_types: mergeUnique(
+        mergeUnique(fromTaskTypes, fromApi.task_types),
+        fromInitialTasks.task_types
+      ),
+      clients: mergeUnique(fromApi.clients, fromInitialTasks.clients),
+      ws_list: mergeUnique(fromApi.ws_list, fromInitialTasks.ws_list),
+      tracks: mergeUnique(fromApi.tracks, fromInitialTasks.tracks),
+      deal_ids: mergeUnique(fromApi.deal_ids, fromInitialTasks.deal_ids),
+      statuses: (() => {
+        const fromStatusTypes = (statusTypesQuery.data ?? [])
+          .map((st) => String(st.statustype_name ?? "").trim())
+          .filter((v) => v.length > 0);
+
+        const merged = mergeUnique(
+          mergeUnique(fromStatusTypes, fromApi.statuses),
+          fromInitialTasks.statuses
+        );
+        return merged;
+      })(),
+    };
+  }, [apiOptions, initialTasks, statusTypesQuery.data, taskTypesQuery.data]);
+
   const hasFilters = Object.values(filters).some((v) => v && (v as unknown[]).length > 0);
 
   const setFilter = <K extends keyof FilterRequest>(key: K, val: FilterRequest[K]) => {
@@ -132,33 +325,31 @@ export default function TaskFilterTab({ onTasksLoaded, onTaskSelect }: Props) {
     setFilters({});
     setResults([]);
     setSelectedTaskId(null);
+    onTasksLoaded([]);
   };
 
   const handleApply = () => {
     if (!hasFilters) return;
-    filterMutation.mutate(filters);
+
+    const localMatches = applyLocalFilters(initialTasks, filters);
+    setResults(localMatches);
+    onTasksLoaded(localMatches);
+
+    filterMutation.mutate(filters, {
+      onSuccess: (data) => {
+        if (data.length === 0 && localMatches.length > 0) {
+          return;
+        }
+        setResults(data);
+        onTasksLoaded(data);
+      },
+      onError: () => {
+        setResults(localMatches);
+        onTasksLoaded(localMatches);
+      },
+    });
   };
 
-  const handleRowClick = (task: TaskItem) => {
-    setSelectedTaskId(task.task_id);
-    onTaskSelect(task);
-  };
-
-  const statusColor = (status?: string) => {
-    const s = (status ?? "").toUpperCase();
-    if (s.includes("OPEN")) return "text-blue-600 dark:text-blue-400";
-    if (s.includes("PROGRESS") || s.includes("IN ")) return "text-yellow-600 dark:text-yellow-400";
-    if (s.includes("HOLD")) return "text-orange-600 dark:text-orange-400";
-    if (s.includes("DONE") || s.includes("CLOSED") || s.includes("COMPLETED")) return "text-green-600 dark:text-green-400";
-    return "text-gray-500 dark:text-gray-400";
-  };
-
-  const priorityColor = (priority?: string) => {
-    const p = (priority ?? "").toUpperCase();
-    if (p === "HIGH") return "text-red-600 dark:text-red-400";
-    if (p === "MEDIUM") return "text-yellow-600 dark:text-yellow-400";
-    return "text-blue-600 dark:text-blue-400";
-  };
 
   if (optionsQuery.isLoading) {
     return (

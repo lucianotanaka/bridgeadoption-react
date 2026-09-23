@@ -6,6 +6,32 @@ import apiClient from "@/api/client";
 interface Row { CSM?: string; CLIENT?: string; AM?: string; EA?: string; TYPE?: string; [key: string]: unknown; }
 
 const PAGE_SIZE_OPTIONS = [15, 25, 50, 100];
+const FIRST_NON_EMPTY = (...values: unknown[]) => {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === "string" && value.trim() === "") continue;
+    return value;
+  }
+  return undefined;
+};
+
+const pickString = (row: Record<string, unknown>, keys: string[]) => {
+  const value = FIRST_NON_EMPTY(...keys.map(key => row[key]));
+  return value == null ? undefined : String(value);
+};
+
+const normalizeRow = (row: Row): Row => {
+  const source = row as Record<string, unknown>;
+  return {
+    ...row,
+    // vwAccountTeamCSM columns: csm_name, client_name, am_name, CiscoEA, client_type
+    CSM: pickString(source, ["CSM", "csm_name", "csm", "accountteam_csm_name", "user_name", "owner_name"]),
+    CLIENT: pickString(source, ["CLIENT", "client_name", "client", "customer_name", "company_name", "accountteam_company_name"]),
+    AM: pickString(source, ["AM", "am_name", "am", "accountteam_am_name"]),
+    EA: pickString(source, ["EA", "CiscoEA", "ea", "accountteam_ea", "ea_flag", "is_ea"]),
+    TYPE: pickString(source, ["TYPE", "client_type", "type", "accountteam_type", "customer_type", "segment"]),
+  };
+};
 type SortDir = "asc" | "desc" | null;
 type SortCol = "CSM" | "CLIENT" | "AM" | "EA" | "TYPE" | null;
 
@@ -92,7 +118,11 @@ export default function PublicCsmAccountPage() {
   const [sortCol, setSortCol] = useState<SortCol>(null);
   const [sortDir, setSortDir] = useState<SortDir>(null);
 
-  const q = useQuery({ queryKey: ["public-csm"], queryFn: () => apiClient.get<Row[]>("/public/csm-account").then(r => r.data), staleTime: 5 * 60 * 1000 });
+  const q = useQuery({
+    queryKey: ["public-csm"],
+    queryFn: () => apiClient.get<Row[]>("/public/csm-account").then(r => r.data.map(normalizeRow)),
+    staleTime: 5 * 60 * 1000
+  });
   const rows = q.data ?? [];
 
   const hasFilters = fCSM.length > 0 || fClient.length > 0 || fAM.length > 0 || fEA.length > 0 || fType.length > 0;

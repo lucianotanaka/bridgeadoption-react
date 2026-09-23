@@ -20,7 +20,7 @@ function applyTheme(mode: ThemeMode) {
 export const useThemeStore = create<ThemeState>()(
   persist(
     (set) => ({
-      mode: "dark", // Dark is default
+      mode: "light",
 
       setMode: (mode) => {
         applyTheme(mode);
@@ -34,8 +34,7 @@ export const useThemeStore = create<ThemeState>()(
         if (state) {
           applyTheme(state.mode);
         } else {
-          // No persisted state — apply default dark
-          applyTheme("dark");
+          applyTheme("light");
         }
       },
     }
@@ -48,11 +47,11 @@ if (typeof document !== "undefined") {
   if (stored) {
     try {
       const parsed = JSON.parse(stored) as { state?: { mode?: ThemeMode } };
-      applyTheme(parsed?.state?.mode ?? "dark");
+      applyTheme(parsed?.state?.mode ?? "light");
     } catch {
-      applyTheme("dark");
+      applyTheme("light");
     }
   } else {
-    applyTheme("dark");
+    applyTheme("light");
   }
 }

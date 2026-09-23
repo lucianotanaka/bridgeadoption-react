@@ -1,0 +1,124 @@
+2026-09-18: Alterações no frontend do CPI Adopt
+
+- frontend/src/api/cpiAdopt.ts (linhas 1-84, com destaque para 52-64 e 71-82)
+  - novo arquivo para consumo dos endpoints do CPI Adopt
+  - tipagem de CpiAdoptRow, CpiAdoptStageRow, CpiAdoptSummary, CpiAdoptFilterOptions, CpiAdoptFyRange e CpiAdoptFilters
+  - serialização dos filtros em query string incluindo multiselect e faixa FY
+  - métodos getReport, getFilters, getSummary e getFyRange
+  - adição de suporte aos novos filtros textuais task_id, task_ws e deal_id
+
+  - frontend/src/pages/cisco/CpiAdoptPage.tsx (linhas 1-741, com destaque para 2-11, 470-484, 604-694 e 696-710)
+  - nova página do report CPI Adopt com KPIs, filtros, tabela principal, expansão de child activities e exportação Excel
+  - correção na formatação monetária para aceitar valores number ou string sem quebrar a renderização
+  - evolução do componente MultiSelect para suportar opções com value/label
+  - ajuste no filtro Timeline para exibir labels amigáveis no dropdown mantendo os valores internos Early, Mid, Late e Completed
+  - melhoria no filtro Solution com busca incremental conforme o usuário digita
+  - adição de tooltip/title nas opções do filtro Solution e no resumo do campo para exibir nomes completos quando truncados
+  - correção dos KPIs do topo para recalcular totalizações e contagens com base nas linhas visíveis do grid, mantendo consistência com filtros e busca por Client
+  - adição dos novos filtros textuais Task ID, Task WS e Deal ID na barra de filtros
+  - integração dos novos campos ao fluxo de Apply/Clear e ao payload enviado para API
+  - criação de mecanismo para exibir e ocultar os filtros com botão toggle no cabeçalho do card de filtros
+  - ajuste da paginação da tabela para iniciar com 5 linhas por página e incluir a opção 5 no seletor
+  - atualização das colunas financeiras da tabela e da exportação para exibir total_amount_usd, lost_amount_usd, claim_approved_amount_usd, payment_approved_amount_usd e remaining_balance_usd
+  - remoção da coluna approved_amount_usd da visualização principal
+  - correção do warning React "Each child in a list should have a unique key prop" no render das linhas expansíveis da tabela
+  - correção de estrutura JSX na seção de filtros para evitar quebra de layout/tema global causada por aninhamento/indentação incorreta após a adição do toggle de exibir/ocultar filtros
+  - ajuste do layout visual do topo da página para reaproximar o report do desenho esperado, com racionalização dos KPIs e retorno do card With Project
+  - inclusão da coluna task_eligible na tabela principal do report
+  - criação de destaque contextual no badge de Opt In Status quando task_eligible = Eligible e opt_in_status = Pending, usando estilo de warning em âmbar para sinalizar ponto de atenção ao analista
+  - refinamento do alerta visual para concentrar o destaque apenas no badge Pending, mantendo Task Eligible em estilo neutro para reduzir sensação de criticidade excessiva e melhorar a escaneabilidade
+  - remoção da coluna Activity Completed da grade STAGES
+  - renomeação do cabeçalho Activity Details para Details
+  - ajuste da coluna Details para quebrar itens numerados em múltiplas linhas
+  - destaque visual dos itens de Details terminados com " - N", facilitando a identificação de pendências
+  - inclusão de destaque visual na linha pai expandida usando fundo diferenciado e ring, preservando o padrão anterior após teste de alternativa com borda lateral
+  - adição nas grades de tasks (pai) e stages (filha) das novas colunas vindas das views vwCiscoCPIAdopt e vwCiscoCPIAdoptStages: lastest_info, next_follow_up_info, lastest_issue, lastest_issue_status, next_follow_up_issue, lastest_blocker, lastest_blocker_status e next_follow_up_blocker
+  - atualização das tipagens frontend de CpiAdoptRow e CpiAdoptStageRow para refletir os novos campos textuais retornados pela API
+  - melhoria de UX nas colunas textuais longas (Latest Info, Latest Issue, Latest Blocker e correlatas) para exibir conteúdo truncado em linha única, preservando altura compacta das linhas e deixando o valor completo acessível via hover/title nativo
+  - extensão do mesmo padrão de truncamento + hover para as colunas Client, Solution e Use Case na grade pai, reduzindo quebras de linha e melhorando a escaneabilidade horizontal
+  - aplicação do mesmo padrão de truncamento + hover nas colunas Engineer e PM / CSM para evitar crescimento vertical causado por nomes longos e manter consistência visual na grade pai
+  - ajuste das larguras mínimas e bloqueio de quebra de linha nas colunas Incentive, DID, Start, End, Total, Lost, Claim Approved, Payment Approved, Remaining e Status para preservar leitura em linha única conforme os maiores formatos esperados
+  - formatação das datas de Task e Stage em padrão fixo abreviado dd-MMM-yyyy, com mapa explícito de abreviações por idioma (ex.: 21-fev-2026 em pt, 21-feb-2026 em en), evitando conectores locais como "de"
+  - refinamento de UX da expansão de linhas pai com título mais orientado ao usuário ("Child Activities"), subtítulo contextual com Task ID + Client e reforço visual do estado expandido por meio de borda lateral azul, fundo mais destacado e ícone de expandir/colapsar com estado ativo mais evidente
+  - ajuste da grade Child Activities para separar o identificador da atividade (`activity_id`) em coluna própria renomeada para "Activity ID" e expor `activity_seq` em coluna dedicada de sequenciamento renomeada de forma mais compacta para "Step"
+  - remodelagem dos cards executivos da tela para substituir a visão anterior por: Potential, Claim Approved, Paid, Lost, At Risk e Pipeline
+  - atualização das tipagens de summary em `frontend/src/api/cpiAdopt.ts` para refletir o novo contrato retornado pelo backend (`potential_count`, `potential_value_usd`, `claim_approved_amount_usd`, `paid_amount_usd`, `lost_amount_usd`, `at_risk_amount_usd`, `pipeline_amount_usd`)
+  - inclusão na grade pai de flags operacionais retornadas pelo backend (`is_potential`, `is_lost`, `is_at_risk`, `is_pipeline`) para dar transparência à classificação do funil
+  - substituição dos ícones dos cards por combinações compatíveis com a versão instalada de `lucide-react` após validação do build
+  - validação do frontend com `npm --prefix frontend run build` concluída com sucesso; permaneceu apenas warning não-bloqueante já existente do Vite/XLSX sobre chunk dinâmico
+  - inclusão de navegação por tabs logo abaixo dos filtros, separando a visão operacional `Parent Tasks` da nova visão analítica `Tipo x USD / # Incentivos`
+  - adição de agregação frontend derivada para a aba analítica com regras de negócio alinhadas com o Excel:
+    - `project = Yes` → `Project`
+    - `project = Adoption` → `Adoption`
+    - `project in (Yes, Adoption)` sem `engineer` → bucket `Definir alocação`
+    - `task_status = OPEN` com time alocado → bucket `A iniciar`
+    - `task_status in (IN PROGRESS, ON HOLD, SUBMITTED TO APPROVAL, RESUBMITTED TO APPROVAL, APPROVED TO CLOSE)` com time alocado → bucket `Em andamento`
+  - integração do `react-plotly.js` na página do CPI Adopt para construção de dois gráficos do tipo donut na Tab 2:
+    - `Total - USD` com base em `remaining_balance_usd`
+    - `Count of Incentivo` com base na contagem de parent tasks por combinação `Tipo + Status Bucket`
+  - criação de grid-resumo consolidada na Tab 2 com colunas `Tipo`, `Status Bucket`, `Allocated Team`, `Count of Incentivo`, `% Count`, `Sum of Valor Restante` e `% USD`
+  - inclusão de destaque executivo adicional para o recorte `Em andamento + time alocado`, exibindo total de tasks e total em USD acima da grid-resumo
+
+- frontend/src/router/PermissionRoute.tsx
+  - proteção de acesso no frontend para a rota da tela por meio da permissão cisco.cpi_adopt
+  - número exato de linhas não confirmado nesta revisão; registrar referência no próximo ajuste se necessário
+
+- frontend/src/components/layout/Sidebar.tsx
+  - inclusão/ajuste de menu para acesso à tela CPI Adopt condicionado à permissão cisco.cpi_adopt
+  - número exato de linhas não confirmado nesta revisão; registrar referência no próximo ajuste se necessário
+
+- frontend/src/App.tsx
+  - inclusão/ajuste de rota para a página frontend/src/pages/cisco/CpiAdoptPage.tsx
+  - número exato de linhas não confirmado nesta revisão; registrar referência no próximo ajuste se necessário
+
+2026-09-22: Ajustes no frontend de Tasks
+
+- frontend/src/pages/tasks/NextFollowUpPanel.tsx
+  - correção do clique nos cards de Next Follow-Up para manter a abertura do TaskDetailPanel mesmo quando a carga inicial de getTask(taskId) falha
+  - inclusão de fallback com seleção mínima por task_id para evitar falha silenciosa na navegação do detalhe
+
+- frontend/src/pages/tasks/TaskFilterTab.tsx
+  - ajuste dos multiselects para ocultar opções de filtros (WS, Track, Deal ID e correlatos) quando o dataset realmente carregado na aba Filter não possui esses campos preenchidos, evitando seleção de valores vindos apenas do endpoint de options que não poderiam ser encontrados no conjunto exibível atual
+
+2026-09-23: Ajustes no frontend de Tasks > Filter
+
+- frontend/src/pages/tasks/TaskFilterTab.tsx
+  - correção do dropdown de `TASK TYPE` para exibir a lista completa de tipos cadastrados
+  - adição de query dedicada para `/tasks/task-types`, removendo dependência exclusiva de `/tasks/filter-options` e do subconjunto vindo de `initialTasks`
+  - merge das opções de tipo a partir de três fontes (`/tasks/task-types`, `/tasks/filter-options` e `initialTasks`), com deduplicação e ordenação final
+  - ajuste de renderização do multiselect com portal em `document.body`, evitando corte visual/clipping do menu dentro do card de filtros
+  - reposicionamento dinâmico do dropdown em eventos de scroll/resize e fechamento por clique fora, estabilizando a UX do seletor
+
+2026-09-22: Ajustes adicionais no frontend
+
+- frontend/src/App.tsx
+  - inclusão da rota protegida para a página CPI Adopt em /cisco/cpi-adopt
+
+- frontend/src/components/layout/Sidebar.tsx
+  - inclusão do grupo/menu Cisco com atalho para a página CPI Adopt condicionado à permissão cisco.cpi_adopt
+
+- frontend/src/router/PermissionRoute.tsx
+  - ajustes relacionados à proteção de rotas por resourceKey no fluxo de navegação
+
+- frontend/src/pages/public/PublicCsmAccountPage.tsx
+  - ajustes na página Public > CSM Account relacionados à carga e exibição dos dados
+
+- frontend/src/pages/public/ImporterPage.tsx
+  - ajustes na tela do Importer para suportar acesso ao arquivo bruto de failed rows
+
+- frontend/src/pages/ciscoLci/CiscoLCIReportPage.tsx
+  - remoção da dependência de carregamento adicional de task detail para abertura do painel
+  - montagem local de TaskItem/ActivityItem a partir das stage rows filtradas para melhorar a navegação do detalhe
+  - refinamento visual do ícone/tooltip de ajuda dos KPI cards
+
+- frontend/src/store/themeStore.ts
+  - ajustes no controle/persistência do tema global
+
+- frontend/src/i18n/locales/pt.json
+  - inclusão de novas chaves de tradução para notas predefinidas e contexto de adição de notas em Tasks
+
+- frontend/src/i18n/locales/en.json
+  - inclusão de novas chaves de tradução para notas predefinidas e contexto de adição de notas em Tasks
+
+- frontend/src/i18n/locales/es.json
+  - inclusão de novas chaves de tradução para notas predefinidas e contexto de adição de notas em Tasks

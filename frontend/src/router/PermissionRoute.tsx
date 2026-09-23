@@ -14,6 +14,9 @@ interface PermissionRouteProps {
  * Route guard that checks if the authenticated user has the required resource_key permission.
  * Equivalent to can("resource_key") in the Streamlit version.
  *
+ * The ADMIN bypass is handled inside authStore.hasPermission() — ADMIN users
+ * always get true from hasPermission(), so no extra isAdmin check is needed here.
+ *
  * Usage in App.tsx:
  *   <Route element={<PermissionRoute resourceKey="task.task" />}>
  *     <Route path="/tasks" element={<TaskPage />} />
@@ -26,7 +29,7 @@ interface PermissionRouteProps {
  *   </Route>
  *
  * Behavior:
- * - ADMIN users: always allowed (bypasses permission check)
+ * - ADMIN users: always allowed (bypass is inside authStore.hasPermission)
  * - Users with the resourceKey (or at least one of resourceKeys) in their permissions: allowed
  * - Others: redirected to redirectTo (default: "/")
  */
@@ -37,11 +40,12 @@ export default function PermissionRoute({
 }: PermissionRouteProps) {
   const hasPermissionFn = useAuthStore((s) => s.hasPermission);
 
-  const allowed = resourceKeys && resourceKeys.length > 0
-    ? resourceKeys.some((rk) => hasPermissionFn(rk))
-    : resourceKey
-      ? hasPermissionFn(resourceKey)
-      : false;
+  const allowed =
+    resourceKeys && resourceKeys.length > 0
+      ? resourceKeys.some((rk) => hasPermissionFn(rk))
+      : resourceKey
+        ? hasPermissionFn(resourceKey)
+        : false;
 
   if (!allowed) {
     return <Navigate to={redirectTo} replace />;

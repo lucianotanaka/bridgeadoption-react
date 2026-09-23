@@ -8,6 +8,7 @@ from src.services.importers.import_company_name import run_import as run_import_
 from src.services.importers.cisco_subscription_ccw import run_import as run_import_ccw
 from src.services.importers.cisco_ready import run_import as run_import_cisco_ready
 from src.services.importers.pxp_import_task_6702 import run_import as run_import_cisco_lci_task
+from scr.services.importers.pxp_import_task_19849 import run_import as run_import_cisco_lci_task_stages
 from src.services.importers.pxp_import_activity_5890 import run_import as run_import_cisco_lci_activity
 from src.services.importers.cisco_smart_account_usage_fetcher import run_import as run_cisco_smart_account_usage_fetcher
 from src.services.importers.cisco_enterprise_agreement_usage_fetcher import run_import as run_cisco_enterprise_agreement_usage_fetcher
@@ -40,6 +41,7 @@ IMPORT_DISPATCHER: Dict[str, Callable[[str, Optional[str]], None]] = {
     "CiscoReady": run_import_cisco_ready,
     #"NTTOracle": run_import_ntt_oracle,
     "CiscoLCITask": run_import_cisco_lci_task,
+	"CiscoLCITaskStages": run_import_cisco_lci_task_stages,
     "CiscoLCIActivity": run_import_cisco_lci_activity,
     "CiscoSmartAccountUsageFetcher": run_cisco_smart_account_usage_fetcher,
     "CiscoEnterpriseAgreementUsageFetcher": run_cisco_enterprise_agreement_usage_fetcher,

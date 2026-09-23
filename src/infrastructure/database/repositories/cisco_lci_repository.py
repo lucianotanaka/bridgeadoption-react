@@ -657,6 +657,239 @@ class CiscoLCIRepository:
 
 
     # ==========================================================
+    # CPI ADOPT (views: vwCiscoCPIAdopt / vwCiscoCPIAdoptStages)
+    # ==========================================================
+    @staticmethod
+    def _ntt_fy_start_date(fy: int) -> str:
+        return f"{int(fy)}-04-01"
+
+    @staticmethod
+    def _ntt_fy_end_date(fy: int) -> str:
+        return f"{int(fy) + 1}-03-31"
+
+    def _build_cpi_adopt_fy_where(
+        self,
+        fy_start: Optional[int] = None,
+        fy_end: Optional[int] = None,
+        column_name: str = "task_end"
+    ) -> tuple[str, List[Any]]:
+        """
+        Constrói filtro por FY NTT (abril → março) sobre uma coluna DATE.
+
+        Exemplos:
+            fy_start=2026, fy_end=None  -> column >= '2026-04-01'
+            fy_start=2026, fy_end=2028  -> column between '2026-04-01' and '2029-03-31'
+            fy_start=None, fy_end=2028  -> column <= '2029-03-31'
+        """
+        clauses: List[str] = []
+        params: List[Any] = []
+
+        if fy_start is not None:
+            clauses.append(f"{column_name} >= %s")
+            params.append(self._ntt_fy_start_date(int(fy_start)))
+
+        if fy_end is not None:
+            clauses.append(f"{column_name} <= %s")
+            params.append(self._ntt_fy_end_date(int(fy_end)))
+
+        if clauses:
+            return " WHERE " + " AND ".join(clauses), params
+
+        return "", params
+
+    def get_cpi_adopt_fy_bounds(
+        self,
+    ) -> Dict[str, Optional[int]]:
+        """
+        Retorna o menor e o maior FY NTT disponíveis a partir de vwCiscoCPIAdopt.task_end.
+
+        Regra FY NTT:
+            - mês >= 4  -> FY = YEAR(task_end)
+            - mês <= 3  -> FY = YEAR(task_end) - 1
+        """
+        query = """
+            SELECT
+                MIN(
+                    CASE
+                        WHEN task_end IS NULL THEN NULL
+                        WHEN MONTH(task_end) >= 4 THEN YEAR(task_end)
+                        ELSE YEAR(task_end) - 1
+                    END
+                ) AS min_fy,
+                MAX(
+                    CASE
+                        WHEN task_end IS NULL THEN NULL
+                        WHEN MONTH(task_end) >= 4 THEN YEAR(task_end)
+                        ELSE YEAR(task_end) - 1
+                    END
+                ) AS max_fy
+            FROM vwCiscoCPIAdopt
+            WHERE task_end IS NOT NULL
+        """
+
+        conn = None
+        cursor = None
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(query)
+            row = cursor.fetchone() or {}
+            return {
+                "min_fy": int(row["min_fy"]) if row.get("min_fy") is not None else None,
+                "max_fy": int(row["max_fy"]) if row.get("max_fy") is not None else None,
+            }
+
+        except Exception as e:
+            self.error_repo.log_error(
+                error_function="CiscoLCIRepository.get_cpi_adopt_fy_bounds",
+                error_command=query,
+                error_description=str(e),
+                error_traceback=traceback.format_exc()
+            )
+            return {"min_fy": None, "max_fy": None}
+
+        finally:
+            if cursor is not None:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+            if conn is not None:
+                conn.close()
+
+    def load_cpi_adopt_view(
+        self,
+        fy_start: Optional[int] = None,
+        fy_end: Optional[int] = None,
+        as_df: bool = False
+    ) -> Union[List[Dict[str, Any]], pd.DataFrame]:
+        """
+        Retorna dados da view vwCiscoCPIAdopt com filtro opcional por range de FY NTT
+        aplicado sobre vwCiscoCPIAdopt.task_end.
+
+        Exemplos:
+            fy_start=None, fy_end=None  -> sem filtro
+            fy_start=2026, fy_end=None  -> FY >= 2026
+            fy_start=2026, fy_end=2028  -> FY entre 2026 e 2028
+        """
+        where_sql, params = self._build_cpi_adopt_fy_where(
+            fy_start=fy_start,
+            fy_end=fy_end,
+            column_name="task_end"
+        )
+
+        query = f"""
+            SELECT *
+            FROM vwCiscoCPIAdopt
+            {where_sql}
+            ORDER BY task_id
+        """
+
+        conn = None
+        cursor = None
+        try:
+            if as_df:
+                engine = get_sqlalchemy_engine()
+                return pd.read_sql(query, engine, params=tuple(params) if params else None)
+
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(query, tuple(params) if params else ())
+            return cursor.fetchall() or []
+
+        except Exception as e:
+            self.error_repo.log_error(
+                error_function="CiscoLCIRepository.load_cpi_adopt_view",
+                error_command=query,
+                error_description=str(e),
+                error_traceback=traceback.format_exc()
+            )
+            return [] if not as_df else pd.DataFrame()
+
+        finally:
+            if cursor is not None:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+            if conn is not None:
+                conn.close()
+
+    def load_cpi_adopt_stages_view(
+        self,
+        fy_start: Optional[int] = None,
+        fy_end: Optional[int] = None,
+        as_df: bool = False
+    ) -> Union[List[Dict[str, Any]], pd.DataFrame]:
+        """
+        Retorna dados da view vwCiscoCPIAdoptStages filtrando pelo range de FY NTT
+        derivado de vwCiscoCPIAdopt.task_end.
+
+        Relação:
+            vwCiscoCPIAdopt.task_id = vwCiscoCPIAdoptStages.task_id
+        """
+        where_sql, params = self._build_cpi_adopt_fy_where(
+            fy_start=fy_start,
+            fy_end=fy_end,
+            column_name="p.task_end"
+        )
+
+        query = f"""
+            SELECT s.*
+            FROM vwCiscoCPIAdoptStages s
+            INNER JOIN vwCiscoCPIAdopt p
+                ON p.task_id = s.task_id
+            {where_sql}
+            ORDER BY s.task_id, s.activity_seq, s.activity_id
+        """
+
+        conn = None
+        cursor = None
+        try:
+            if as_df:
+                engine = get_sqlalchemy_engine()
+                return pd.read_sql(query, engine, params=tuple(params) if params else None)
+
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(query, tuple(params) if params else ())
+            return cursor.fetchall() or []
+
+        except Exception as e:
+            self.error_repo.log_error(
+                error_function="CiscoLCIRepository.load_cpi_adopt_stages_view",
+                error_command=query,
+                error_description=str(e),
+                error_traceback=traceback.format_exc()
+            )
+            return [] if not as_df else pd.DataFrame()
+
+        finally:
+            if cursor is not None:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+            if conn is not None:
+                conn.close()
+
+    def load_cpi_adopt_report(
+        self,
+        fy_start: Optional[int] = None,
+        fy_end: Optional[int] = None,
+        as_df: bool = False
+    ) -> Union[List[Dict[str, Any]], pd.DataFrame]:
+        """
+        Compatibilidade com a camada atual do CPI Adopt.
+        Delegates para vwCiscoCPIAdopt com filtro opcional por range de FY NTT.
+        """
+        return self.load_cpi_adopt_view(
+            fy_start=fy_start,
+            fy_end=fy_end,
+            as_df=as_df
+        )
+
+    # ==========================================================
     # LIST TASK LCI
     # ==========================================================
     def load_cisco_lci_all(

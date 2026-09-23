@@ -266,7 +266,13 @@
     "activityNamePlaceholder": "Activity name...",
     "activityNameRequired": "Activity name is required",
     "activityCreated": "Activity created successfully",
-    "activityCreateFailed": "Failed to create activity"
+    "activityCreateFailed": "Failed to create activity",
+    "predefinedNote": "Predefined note",
+    "noTemplateManual": "No template (type manually)",
+    "selectAnnotation": "Select an annotation...",
+    "addingNoteToTask": "Adding note to Task #{{taskId}}",
+    "addingNoteToActivity": "Adding note to: {{activityName}}",
+    "activityFallback": "activity"
   },
   "adoption": {
     "forecast": {

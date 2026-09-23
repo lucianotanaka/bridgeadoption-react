@@ -68,6 +68,12 @@ const NAV_ITEMS: NavItem[] = [
       { key: "portfolioCiscoEA", label: "Cisco EA", icon: <Package size={16} />, path: "/portfolio/cisco-ea", resourceKey: "portfolio.cisco_enterprise_agreement" },
     ],
   },
+  {
+    key: "cisco", label: "Cisco", icon: <Package size={18} />,
+    children: [
+      { key: "cpiAdopt", label: "CPI Adopt", icon: <Package size={16} />, path: "/cisco/cpi-adopt", resourceKey: "cisco.cpi_adopt" },
+    ],
+  },
   { key: "project", label: "Projects", icon: <Briefcase size={18} />, path: "/projects", resourceKey: "project.project" },
   {
     key: "public", label: "Public", icon: <Package size={18} />,

@@ -538,28 +538,44 @@ function DetailsTab({ records }: { records: ImportRecord[] }) {
             <div className="space-y-2">
               {failedQ.isLoading && <div className="text-xs text-gray-400 py-2 flex items-center gap-1">{spinner} Carregando...</div>}
               {failedQ.isError && <div className="text-xs text-red-500 py-2">Erro: {failedQ.error?.message}</div>}
+              {failedQ.data?.error && <div className="text-xs text-red-500 py-2">Erro ao ler arquivo de falhas: {failedQ.data.error}</div>}
               {failedQ.data && !failedQ.data.found && <div className="text-xs text-gray-400 italic py-2">Nenhum arquivo de falhas encontrado.</div>}
-              {failedQ.data?.found && failedQ.data.rows.length === 0 && <div className="text-xs text-gray-400 italic py-2">Arquivo de falhas vazio.</div>}
-              {failedQ.data?.found && failedQ.data.rows.length > 0 && (
+              {failedQ.data?.found && (
                 <>
-                  <p className="text-xs text-gray-500">{failedQ.data.rows.length} linha(s) com falha.</p>
-                  <div className="overflow-auto border border-gray-200 dark:border-gray-700 rounded-lg max-h-96">
-                    <table className="min-w-full text-xs">
-                      <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
-                        <tr>{failedQ.data.columns.map((c) => <th key={c} className="px-3 py-2 text-left font-medium text-gray-500 whitespace-nowrap border-b border-gray-200 dark:border-gray-700">{c}</th>)}</tr>
-                      </thead>
-                      <tbody>
-                        {failedQ.data.rows.map((row, i) => (
-                          <tr key={i} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                            {failedQ.data!.columns.map((c) => <td key={c} className="px-3 py-1.5 whitespace-nowrap text-gray-700 dark:text-gray-300 max-w-[180px] truncate">{row[c] == null ? <span className="text-gray-300">—</span> : String(row[c])}</td>)}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs text-gray-500">
+                      {failedQ.data.rows.length > 0
+                        ? `${failedQ.data.rows.length} linha(s) com falha.`
+                        : "Arquivo de falhas carregado."}
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (!selId) return;
+                        window.open(apiClient.getUri({ url: `/public/importer/${selId}/failed-rows/download` }), "_blank");
+                      }}
+                      className={btnGhost}
+                    >
+                      <Download size={13} /> Baixar XLSX
+                    </button>
                   </div>
-                  <button onClick={() => apiClient.get(`/public/importer/${selId}/failed-rows`).then(r => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(r.data)])); a.download = `failed_rows_${selId}.json`; a.click(); })} className={btnGhost}>
-                    <Download size={13} /> Baixar linhas com falha
-                  </button>
+                  {failedQ.data.rows.length === 0 ? (
+                    <div className="text-xs text-gray-400 italic py-2">Arquivo de falhas vazio.</div>
+                  ) : (
+                    <div className="overflow-auto border border-gray-200 dark:border-gray-700 rounded-lg max-h-96">
+                      <table className="min-w-full text-xs">
+                        <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
+                          <tr>{failedQ.data.columns.map((c) => <th key={c} className="px-3 py-2 text-left font-medium text-gray-500 whitespace-nowrap border-b border-gray-200 dark:border-gray-700">{c}</th>)}</tr>
+                        </thead>
+                        <tbody>
+                          {failedQ.data.rows.map((row, i) => (
+                            <tr key={i} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                              {failedQ.data.columns.map((c) => <td key={c} className="px-3 py-1.5 whitespace-nowrap text-gray-700 dark:text-gray-300 max-w-[180px] truncate">{row[c] == null ? <span className="text-gray-300">—</span> : String(row[c])}</td>)}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </>
               )}
             </div>

@@ -81,6 +81,19 @@ ACTIVITY_STATUS_RESUBMITTED = 8
 ACTIVITY_STATUS_APPROVED_TO_CLOSE = 9
 ACTIVITY_STATUS_CLOSED = 10
 
+ACTIVITY_STATUS_LABELS = {
+    ACTIVITY_STATUS_OPEN: "OPEN",
+    ACTIVITY_STATUS_IN_PROGRESS: "IN PROGRESS",
+    ACTIVITY_STATUS_ON_HOLD: "ON HOLD",
+    ACTIVITY_STATUS_CANCELLED: "CANCELLED",
+    ACTIVITY_STATUS_DECLINED: "DECLINED",
+    ACTIVITY_STATUS_EXPIRED: "EXPIRED",
+    ACTIVITY_STATUS_SUBMITTED: "SUBMITTED",
+    ACTIVITY_STATUS_RESUBMITTED: "RESUBMITTED",
+    ACTIVITY_STATUS_APPROVED_TO_CLOSE: "APPROVED TO CLOSE",
+    ACTIVITY_STATUS_CLOSED: "CLOSED",
+}
+
 CLOSED_ACTIVITY_STATUSES = {4, 5, 6, 10}
 CLOSED_TASK_STATUSES = {4, 5, 6, 10}
 
@@ -226,6 +239,11 @@ def _normalize_str(value: Any, max_length: int = 1000) -> Optional[str]:
         return None
 
     text = str(value).strip()
+
+    # Remove caracteres não imprimíveis e espaços invisíveis
+    # (non-breaking space \xa0, zero-width spaces, BOM, etc.)
+    text = re.sub(r"[\x00-\x1f\x7f\xa0\u200b\u200c\u200d\ufeff]", "", text)
+
     if not text:
         return None
 
@@ -340,16 +358,34 @@ def _normalize_activity_group(value: Any) -> Optional[str]:
     return text
 
 
-def _resolve_task_type_priority_from_activity_group(activity_group: Any) -> List[int]:
-    normalized = _normalize_activity_group(activity_group)
+# Tracks que identificam atividades LCI 1.0 (legado, tasktype_id=21).
+# A partir de 2025 a Cisco substituiu por LCI 2.0 (tasktype_id=22), mas
+# registros históricos com esses tracks ainda existem na base.
+_LCI1_TRACKS = {"use incentive", "adopt incentive"}
 
-    if normalized is None:
-        return [TASK_TYPE_22, TASK_TYPE_21]
 
-    if normalized.strip().lower() == "lci2.0":
+def _resolve_task_type_priority(activity_group: Any, track: Any) -> List[int]:
+    """
+    Determina a prioridade de busca do task_tasktype_id com base em:
+
+    1. Track = "Use Incentive" ou "Adopt Incentive"
+       → prioridade [21, 22]: atividades LCI 1.0 legado.
+
+    2. Activity Group = "LCI2.0"
+       → prioridade [22]: exclusivamente LCI 2.0.
+
+    3. Demais casos (Activity Group vazio ou outro valor)
+       → prioridade [22, 21]: LCI 2.0 primeiro (padrão para novos registros).
+    """
+    track_normalized = _normalize_str(track, max_length=255)
+    if track_normalized and track_normalized.strip().lower() in _LCI1_TRACKS:
+        return [TASK_TYPE_21, TASK_TYPE_22]
+
+    group_normalized = _normalize_activity_group(activity_group)
+    if group_normalized is not None and group_normalized.strip().lower() == "lci2.0":
         return [TASK_TYPE_22]
 
-    return [TASK_TYPE_21, TASK_TYPE_22]
+    return [TASK_TYPE_22, TASK_TYPE_21]
 
 
 def _fiscal_year_of_date(dt: Optional[date]) -> int:
@@ -437,13 +473,14 @@ def _append_failed_rows(
     Acrescenta linhas de falha ao arquivo de falhas.
 
     - Se rows_to_append estiver vazio, não faz nada e não cria arquivo.
-    - Se o arquivo ainda não existir, ele é criado/recriado com header
-      (sobrescrevendo conteúdo anterior) via _ensure_failed_workbook.
+    - Se o arquivo ainda não existir, ele é criado com header.
+    - Se já existir, mantém o conteúdo anterior e apenas anexa novas linhas.
     """
     if not rows_to_append:
         return
 
-    _ensure_failed_workbook(failed_path, original_headers, execution_log_path)
+    if not failed_path.exists():
+        _ensure_failed_workbook(failed_path, original_headers, execution_log_path)
 
     wb = load_workbook(str(failed_path))
     ws = wb.active
@@ -556,9 +593,9 @@ def _resolve_status_from_stage(stage: Optional[str]) -> Tuple[int, Dict[str, Any
 
     mapping = {
         "activity-approved": (
-            ACTIVITY_STATUS_OPEN,
+            ACTIVITY_STATUS_IN_PROGRESS,
             {"activity_approved": 0, "activity_completed": 0},
-            f"{stage} - status mapped to OPEN",
+            f"{stage} - status mapped to IN PROGRESS",
         ),
         "activity-declined": (
             ACTIVITY_STATUS_DECLINED,
@@ -656,6 +693,17 @@ def _resolve_existing_task(
     cr_party_id: Optional[str],
     task_type_priority: List[int],
 ) -> Optional[Dict[str, Any]]:
+    """
+    Localiza a task pai usando os identificadores vindos da Cisco:
+    cr_party_id, deal_id, track e subtrack.
+
+    A busca é feita em dois passos:
+    1. Com task_tasktype_id respeitando a prioridade informada (22 antes de 21).
+    2. Sem task_tasktype_id como fallback (aceita apenas 1 resultado único).
+
+    O customer_id interno não é usado como critério primário porque o
+    identificador confiável do cliente é o cr_party_id (vindo da Cisco).
+    """
     if not deal_id or not track or not subtrack or not cr_party_id:
         return None
 
@@ -663,67 +711,55 @@ def _resolve_existing_task(
     if not cr_party_id_int:
         return None
 
-    # -------------------------------------------------------
-    # Busca primária: inclui task_customer_id e task_tasktype_id
-    # -------------------------------------------------------
-    if customer_id:
-        matched_by_type: Dict[int, List[Dict[str, Any]]] = {TASK_TYPE_21: [], TASK_TYPE_22: []}
-
-        for task_type_id in task_type_priority:
-            where = {
-                "task_customer_id": customer_id,
-                "task_deal_id": deal_id,
-                "task_track": track,
-                "task_subtrack": subtrack,
-                "task_cr_party_id": cr_party_id_int,
-                "task_tasktype_id": task_type_id,
-            }
-
-            try:
-                task_ids = repo_task.find_ids_by(where)
-            except Exception:
-                task_ids = []
-
-            for found_id in task_ids or []:
-                task_id = _safe_int(found_id, default=0)
-                if not task_id:
-                    continue
-
-                task_row = _get_task_columns_for_match(task_id)
-                if not task_row:
-                    continue
-
-                real_type = _safe_int(task_row.get("task_tasktype_id"), default=0)
-                if real_type != task_type_id:
-                    continue
-
-                matched_by_type.setdefault(task_type_id, []).append(task_row)
-
-        for task_type_id in task_type_priority:
-            matches = matched_by_type.get(task_type_id, [])
-            if len(matches) > 1:
-                raise ValueError(
-                    f"Mais de uma task tipo {task_type_id} encontrada para os critérios informados. "
-                    f"task_ids={[t.get('task_id') for t in matches]}"
-                )
-            if len(matches) == 1:
-                return matches[0]
+    base_where = {
+        "task_deal_id": deal_id,
+        "task_track": track,
+        "task_subtrack": subtrack,
+        "task_cr_party_id": cr_party_id_int,
+    }
 
     # -------------------------------------------------------
-    # Fallback: busca sem task_customer_id e sem task_tasktype_id.
-    # Usado quando customer_id não foi resolvido ou quando a busca
-    # primária não encontrou resultado (ex: customer_id divergente).
+    # Busca por tipo: respeita a prioridade (22 → LCI 2.0 atual;
+    # 21 → LCI 1.0 legado). Retorna na primeira correspondência
+    # única encontrada.
+    # -------------------------------------------------------
+    matched_by_type: Dict[int, List[Dict[str, Any]]] = {}
+
+    for task_type_id in task_type_priority:
+        where = {**base_where, "task_tasktype_id": task_type_id}
+
+        try:
+            task_ids = repo_task.find_ids_by(where)
+        except Exception:
+            task_ids = []
+
+        rows: List[Dict[str, Any]] = []
+        for found_id in task_ids or []:
+            task_id = _safe_int(found_id, default=0)
+            if not task_id:
+                continue
+            task_row = _get_task_columns_for_match(task_id)
+            if task_row:
+                rows.append(task_row)
+
+        matched_by_type[task_type_id] = rows
+
+    for task_type_id in task_type_priority:
+        matches = matched_by_type.get(task_type_id, [])
+        if len(matches) > 1:
+            raise ValueError(
+                f"Mais de uma task tipo {task_type_id} encontrada para os critérios informados. "
+                f"task_ids={[t.get('task_id') for t in matches]}"
+            )
+        if len(matches) == 1:
+            return matches[0]
+
+    # -------------------------------------------------------
+    # Fallback: busca sem task_tasktype_id.
     # Aceita apenas se encontrar exatamente 1 task.
     # -------------------------------------------------------
     try:
-        fallback_ids = repo_task.find_ids_by(
-            {
-                "task_deal_id": deal_id,
-                "task_track": track,
-                "task_subtrack": subtrack,
-                "task_cr_party_id": cr_party_id_int,
-            }
-        )
+        fallback_ids = repo_task.find_ids_by(base_where)
     except Exception:
         fallback_ids = []
 
@@ -751,10 +787,28 @@ def _resolve_existing_task(
 def _resolve_existing_activity(
     activity_ws: Optional[str],
     where_fallback: Dict[str, Any],
+    parent_task_ws: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     if activity_ws:
         try:
             ids_by_ws = repo_activity.find_ids_by({"activity_ws": activity_ws})
+
+            if len(ids_by_ws) > 1:
+                # Duplicatas detectadas — loga e usa o primeiro registro
+                logger.warning(
+                    "activity_ws duplicado encontrado: ws=%s count=%d activity_ids=%s",
+                    activity_ws,
+                    len(ids_by_ws),
+                    ids_by_ws,
+                )
+                _safe_log(
+                    file_path="",
+                    row_number=0,
+                    message=f"activity_ws duplicado: encontradas {len(ids_by_ws)} repetições do WS {activity_ws}",
+                    column_name="Activity Id",
+                    value={"activity_ws": activity_ws, "count": len(ids_by_ws), "activity_ids": ids_by_ws},
+                )
+
             if ids_by_ws:
                 activity_id = _safe_int(ids_by_ws[0], default=0)
                 if activity_id:
@@ -765,31 +819,70 @@ def _resolve_existing_activity(
                     if data:
                         return data
                     return {"activity_id": activity_id}
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                "Falha ao buscar activity por ws=%s: %s",
+                activity_ws,
+                e,
+            )
+            # Não silencia: se a busca por WS falhou, não deve tentar inserir
+            # sem certeza. Retorna None para que o chamador decida o fluxo.
+            return None
+
+    if not where_fallback:
+        return None
 
     try:
         ids = repo_activity.find_ids_by(where_fallback)
-        if ids:
-            activity_id = _safe_int(ids[0], default=0)
-            if activity_id:
-                data = repo_activity.get_activity_by_id(
-                    activity_id=activity_id,
-                    as_df=False,
+        valid_matches: List[Dict[str, Any]] = []
+
+        for found_id in ids or []:
+            activity_id = _safe_int(found_id, default=0)
+            if not activity_id:
+                continue
+
+            data = repo_activity.get_activity_by_id(
+                activity_id=activity_id,
+                as_df=False,
+            )
+            if not data:
+                valid_matches.append({"activity_id": activity_id})
+                continue
+
+            current_ws = _normalize_str(data.get("activity_ws"))
+            if parent_task_ws and current_ws == parent_task_ws:
+                logger.warning(
+                    "Activity inválida ignorada no fallback: activity_id=%s activity_ws=%s parent_task_ws=%s where=%s",
+                    activity_id,
+                    current_ws,
+                    parent_task_ws,
+                    where_fallback,
                 )
-                if data:
-                    if activity_ws and not data.get("activity_ws"):
-                        try:
-                            repo_activity.update(
-                                data={"activity_ws": activity_ws},
-                                where={"activity_id": activity_id},
-                            )
-                            data["activity_ws"] = activity_ws
-                        except Exception:
-                            pass
-                    return data
-                return {"activity_id": activity_id}
-    except Exception:
+                continue
+
+            valid_matches.append(data)
+
+        if len(valid_matches) > 1:
+            raise ValueError(
+                f"Mais de uma activity encontrada no fallback para os critérios informados. "
+                f"activity_ids={[a.get('activity_id') for a in valid_matches]}"
+            )
+
+        if valid_matches:
+            data = valid_matches[0]
+            activity_id = _safe_int(data.get("activity_id"), default=0)
+            if activity_ws and activity_id and not data.get("activity_ws"):
+                try:
+                    repo_activity.update(
+                        data={"activity_ws": activity_ws},
+                        where={"activity_id": activity_id},
+                    )
+                    data["activity_ws"] = activity_ws
+                except Exception:
+                    pass
+            return data
+    except Exception as e:
+        logger.warning("Falha ao buscar activity pelo fallback where=%s: %s", where_fallback, e)
         return None
 
     return None
@@ -808,6 +901,26 @@ def _insert_history(
             "taskrecord_remark": remark,
             "taskrecord_updated_by": updated_by,
             "taskrecord_type": "LOG",
+        }
+    )
+
+
+def _insert_status_change_history(
+    task_id: int,
+    activity_id: int,
+    new_status_id: int,
+) -> None:
+    status_name = ACTIVITY_STATUS_LABELS.get(new_status_id)
+    if not status_name:
+        return
+
+    repo_history.insert(
+        {
+            "taskrecord_task_id": task_id,
+            "taskrecord_activity_id": activity_id,
+            "taskrecord_date": datetime.now(),
+            "taskrecord_remark": status_name,
+            "taskrecord_type": "STATUS CHANGE",
         }
     )
 
@@ -885,6 +998,81 @@ def _update_task_cr_party_if_needed(
         return True
     except Exception:
         return False
+
+
+def _validate_activity_ws_not_equal_parent_task_ws(
+    activity_ws: Optional[str],
+    task_ws: Optional[str],
+    file_path: str,
+    row_number: int,
+) -> Optional[RowProcessResult]:
+    normalized_activity_ws = _normalize_str(activity_ws, max_length=255)
+    normalized_task_ws = _normalize_str(task_ws, max_length=255)
+
+    if not normalized_activity_ws or not normalized_task_ws:
+        return None
+
+    if normalized_activity_ws != normalized_task_ws:
+        return None
+
+    message = (
+        "Invalid Activity Id: activity_ws cannot be equal to parent task_ws"
+    )
+    _safe_log(
+        file_path,
+        row_number,
+        message,
+        "Activity Id",
+        {
+            "activity_ws": normalized_activity_ws,
+            "task_ws": normalized_task_ws,
+        },
+    )
+    return RowProcessResult(
+        success=False,
+        error_message=message,
+        error_column="Activity Id",
+        error_value=normalized_activity_ws,
+    )
+
+
+def _find_existing_activity_for_task(
+    task_id: int,
+    activity_ws: Optional[str],
+    resolved_activity_type: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    if not task_id or not activity_ws or not resolved_activity_type:
+        return None
+
+    try:
+        activity_rows = repo_activity.get_activities_by_task_id(task_id, as_df=False) or []
+    except Exception:
+        return None
+
+    normalized_activity_ws = _normalize_str(activity_ws, max_length=255)
+    normalized_activity_name = _normalize_str(resolved_activity_type, max_length=255)
+
+    matches: List[Dict[str, Any]] = []
+
+    for activity in activity_rows:
+        current_ws = _normalize_str(activity.get("activity_ws"), max_length=255)
+        current_name = _normalize_str(activity.get("activity_name"), max_length=255)
+
+        if current_ws == normalized_activity_ws and current_name == normalized_activity_name:
+            matches.append(activity)
+
+    if len(matches) > 1:
+        raise ValueError(
+            f"Mais de uma activity encontrada para o mesmo task_id/ws/name. "
+            f"task_id={task_id} activity_ws={normalized_activity_ws} "
+            f"activity_name={normalized_activity_name} "
+            f"activity_ids={[a.get('activity_id') for a in matches]}"
+        )
+
+    if matches:
+        return matches[0]
+
+    return None
 
 
 def _build_insert_payload(
@@ -1007,6 +1195,200 @@ def _resolve_approval_date(
     return None
 
 
+def _update_task_performed_dates_if_needed(
+    task_id: int,
+    activity_start_performed: Optional[date],
+    activity_end_performed: Optional[date],
+) -> bool:
+    """
+    Atualiza as datas de início e fim efetivos da task pai com base na activity filha.
+
+    Regras:
+    1. Se task_start_performed > activity_start_performed → task_start_performed = activity_start_performed
+       (a task deve refletir o início mais cedo entre todas as suas activities)
+    2. Se task_end_performed < activity_end_performed → task_end_performed = activity_end_performed
+       (a task deve refletir o fim mais recente entre todas as suas activities)
+
+    Também trata o caso em que task_start_performed ou task_end_performed é None:
+    qualquer data da activity prevalece sobre None.
+    """
+    if not activity_start_performed and not activity_end_performed:
+        return False
+
+    try:
+        task_rows = repo_task.get_task(task_id=task_id, as_df=False)
+        if not task_rows:
+            return False
+        task_data = task_rows[0]
+    except Exception:
+        return False
+
+    updates: Dict[str, Any] = {}
+
+    task_start_performed = _to_date(task_data.get("task_start_performed"))
+    if activity_start_performed:
+        if task_start_performed is None or task_start_performed > activity_start_performed:
+            updates["task_start_performed"] = activity_start_performed
+
+    task_end_performed = _to_date(task_data.get("task_end_performed"))
+    if activity_end_performed:
+        if task_end_performed is None or task_end_performed < activity_end_performed:
+            updates["task_end_performed"] = activity_end_performed
+
+    if not updates:
+        return False
+
+    try:
+        repo_task.update(data=updates, where={"task_id": task_id})
+        return True
+    except Exception:
+        return False
+
+
+def _apply_claim_approval_date_if_needed(
+    row_dict: Dict[str, Any],
+    task_id: int,
+    activity_id: int,
+    current_activity: Dict[str, Any],
+) -> bool:
+    """
+    Aplica a data de aprovação/pagamento do Claim (Claim Approval Date) na activity,
+    independentemente do status atual.
+
+    Regras:
+    - Se Claim Approval Date estiver preenchida e for diferente de activity_end_performed,
+      atualiza activity_end_performed com a nova data.
+    - Atualiza activity_end_fy e activity_approval_fy com o FY correspondente.
+    - Atualiza activity_approval_date se vazio ou diferente.
+    - Atualiza activity_approved para 1 se não estiver definido.
+    - Atualiza activity_completed para 1 se diferente de 1.
+    - Registra history log em inglês com as mudanças.
+    """
+    claim_approval_date = _to_date(row_dict.get("Claim Approval Date"))
+    if not claim_approval_date:
+        return False
+
+    updates: Dict[str, Any] = {}
+    history_parts: List[str] = []
+
+    stage = _normalize_str(row_dict.get("Stage")) or ""
+
+    current_end_performed = _to_date(current_activity.get("activity_end_performed"))
+    if current_end_performed != claim_approval_date:
+        updates["activity_end_performed"] = claim_approval_date
+        old_val = current_end_performed.strftime("%Y-%m-%d") if current_end_performed else "None"
+        history_parts.append(
+            f"Claim approval date updated: activity_end_performed changed from {old_val} "
+            f"to {claim_approval_date.strftime('%Y-%m-%d')} (Stage: {stage})"
+        )
+
+    claim_fy = _fiscal_year_apr_mar(claim_approval_date)
+
+    current_end_fy = current_activity.get("activity_end_fy")
+    if current_end_fy != claim_fy:
+        updates["activity_end_fy"] = claim_fy
+
+    current_approval_fy = current_activity.get("activity_approval_fy")
+    if current_approval_fy != claim_fy:
+        updates["activity_approval_fy"] = claim_fy
+
+    current_approval_date = _to_date(current_activity.get("activity_approval_date"))
+    if not current_approval_date or current_approval_date != claim_approval_date:
+        updates["activity_approval_date"] = claim_approval_date
+
+    current_approved = current_activity.get("activity_approved")
+    if not current_approved or _safe_int(current_approved, default=0) != 1:
+        updates["activity_approved"] = 1
+
+    current_completed = _to_float(current_activity.get("activity_completed"))
+    if current_completed != 1.0:
+        updates["activity_completed"] = 1
+
+    if not updates:
+        return False
+
+    repo_activity.update(
+        data=updates,
+        where={"activity_id": activity_id},
+    )
+
+    if history_parts:
+        _insert_history(
+            task_id=task_id,
+            activity_id=activity_id,
+            remark="; ".join(history_parts),
+        )
+
+    return True
+
+
+def _apply_stage_status_history_if_needed(
+    row_dict: Dict[str, Any],
+    task_id: int,
+    activity_id: int,
+) -> bool:
+    """
+    Verifica o valor da coluna 'Stage' e grava um histórico tipificado em
+    tbTaskRecord caso o último registro do tipo correspondente seja nulo ou
+    diferente do valor atual de Stage.
+
+    Tipos suportados (primeira palavra-chave encontrada no Stage, case-insensitive):
+    - 'Activity' → STAGES STATUS  (get_last_stages_status)
+    - 'Claim'    → CLAIM STATUS     (get_last_claim_status)
+    - 'Payment'  → PAYMENT STATUS   (get_last_payment_status)
+
+    taskrecord_date = Claim Submitted Date se não nulo,
+                      senão Activity Start Date,
+                      senão datetime atual.
+
+    Retorna True se um novo registro de histórico foi inserido.
+    """
+    stage = _normalize_str(row_dict.get("Stage"), max_length=255)
+    if not stage:
+        return False
+
+    stage_lower = stage.lower()
+
+    if "activity" in stage_lower:
+        record_type = "STAGES STATUS"
+        last_record = repo_history.get_last_stages_status(task_id=task_id, activity_id=activity_id)
+    elif "claim" in stage_lower:
+        record_type = "CLAIM STATUS"
+        last_record = repo_history.get_last_claim_status(task_id=task_id, activity_id=activity_id)
+    elif "payment" in stage_lower:
+        record_type = "PAYMENT STATUS"
+        last_record = repo_history.get_last_payment_status(task_id=task_id, activity_id=activity_id)
+    else:
+        return False
+
+    last_remark = last_record.get("taskrecord_remark") if last_record else None
+
+    if last_remark is not None and last_remark == stage:
+        return False
+
+    claim_submitted_date = _to_date(row_dict.get("Claim Submitted Date"))
+    activity_start_date = _to_date(row_dict.get("Activity Start Date"))
+
+    if claim_submitted_date:
+        record_date = datetime.combine(claim_submitted_date, datetime.min.time())
+    elif activity_start_date:
+        record_date = datetime.combine(activity_start_date, datetime.min.time())
+    else:
+        record_date = datetime.now()
+
+    repo_history.insert(
+        {
+            "taskrecord_task_id": task_id,
+            "taskrecord_activity_id": activity_id,
+            "taskrecord_date": record_date,
+            "taskrecord_remark": stage,
+            "taskrecord_type": record_type,
+        }
+    )
+
+    return True
+
+
 def _apply_status_update_if_needed(
     row_dict: Dict[str, Any],
     task_id: int,
@@ -1030,9 +1412,12 @@ def _apply_status_update_if_needed(
         final_close_stages.add(stage_key)
 
     # Regra 1:
-    # Activity - Approved não muda status se a activity já existir
+    # Activity - Approved só bloqueia atualização se a activity já existir
+    # E o status atual já for >= 2 (In Progress).
+    # Se o status atual for 1 (Open), permite evoluir para 2 (In Progress).
     if stage_key == "activity-approved" and activity_already_exists:
-        return False
+        if current_status != ACTIVITY_STATUS_OPEN:
+            return False
 
     # Regra 3:
     # Claim - Approved / Claim - Paid / Payment - Type* só fecham se current_status NOT IN (4,5,6,10)
@@ -1103,6 +1488,14 @@ def _apply_status_update_if_needed(
         where={"activity_id": activity_id},
     )
 
+    new_status_id = _safe_int(updates.get("activity_status"), default=0)
+    if new_status_id and new_status_id != current_status:
+        _insert_status_change_history(
+            task_id=task_id,
+            activity_id=activity_id,
+            new_status_id=new_status_id,
+        )
+
     _insert_history(
         task_id=task_id,
         activity_id=activity_id,
@@ -1121,7 +1514,7 @@ def _process_single_row(
     try:
         end_date = _to_date(row_dict.get("Activity Expiration Date"))
         current_fy = _current_fiscal_year()
-        cutoff_fy = current_fy - 1
+        cutoff_fy = current_fy - 2
         end_date_fy = _fiscal_year_of_date(end_date) if end_date else current_fy
 
         activity_ws = _normalize_str(row_dict.get("Activity Id"), max_length=255)
@@ -1240,7 +1633,7 @@ def _process_single_row(
                 error_value=cr_party_name,
             )
 
-        task_type_priority = _resolve_task_type_priority_from_activity_group(activity_group)
+        task_type_priority = _resolve_task_type_priority(activity_group, track)
 
         if execution_log_path:
             _append_execution_log(
@@ -1265,6 +1658,17 @@ def _process_single_row(
             task_id = _safe_int(pre_existing_activity.get("activity_task_id"), default=0)
             if not task_id:
                 message = "No TASK ID (activity exists but has no activity_task_id)"
+                _safe_log(file_path, row_number, message, "Activity Id", activity_ws)
+                return RowProcessResult(
+                    success=False,
+                    error_message=message,
+                    error_column="Activity Id",
+                    error_value=activity_ws,
+                )
+
+            task_data = _get_task_columns_for_match(task_id)
+            if not task_data:
+                message = "No TASK data for existing activity"
                 _safe_log(file_path, row_number, message, "Activity Id", activity_ws)
                 return RowProcessResult(
                     success=False,
@@ -1331,6 +1735,22 @@ def _process_single_row(
 
             existing_activity = None
 
+        parent_task_ws = _normalize_str(task_data.get("task_ws")) if task_data else None
+
+        ws_validation_error = _validate_activity_ws_not_equal_parent_task_ws(
+            activity_ws=activity_ws,
+            task_ws=parent_task_ws,
+            file_path=file_path,
+            row_number=row_number,
+        )
+        if ws_validation_error is not None:
+            if execution_log_path:
+                _append_execution_log(
+                    execution_log_path,
+                    f"ERROR row={row_number} invalid_activity_ws_equals_task_ws activity_ws={activity_ws} task_ws={parent_task_ws} task_id={task_id}",
+                )
+            return ws_validation_error
+
         _update_task_cr_party_if_needed(
             task_id=task_id,
             cr_party_id=cr_party_id,
@@ -1346,10 +1766,50 @@ def _process_single_row(
         }
 
         if existing_activity is None:
-            existing_activity = _resolve_existing_activity(
+            existing_activity = _find_existing_activity_for_task(
+                task_id=task_id,
                 activity_ws=activity_ws,
-                where_fallback=where_fallback,
+                resolved_activity_type=resolved_activity_type,
             )
+
+            if existing_activity is None:
+                existing_activity = _resolve_existing_activity(
+                    activity_ws=activity_ws,
+                    where_fallback=where_fallback,
+                    parent_task_ws=parent_task_ws,
+                )
+
+                # Regra: activity encontrada via fallback só pode ter WS nulo.
+                # Se activity_ws == task_ws da task pai, o candidato já é rejeitado
+                # dentro de _resolve_existing_activity e nunca deve ser corrigido.
+                if existing_activity is not None and activity_ws:
+                    current_activity_ws = _normalize_str(existing_activity.get("activity_ws"))
+                    task_cr_party_id_int = _safe_int(task_data.get("task_cr_party_id"), default=0) if task_data else 0
+                    cr_party_id_int = _safe_int(cr_party_id, default=0)
+
+                    ws_needs_correction = current_activity_ws is None
+                    cr_party_matches = (
+                        task_cr_party_id_int > 0
+                        and task_cr_party_id_int == cr_party_id_int
+                    )
+
+                    if ws_needs_correction and cr_party_matches:
+                        found_activity_id = _safe_int(existing_activity.get("activity_id"), default=0)
+                        if found_activity_id:
+                            try:
+                                repo_activity.update(
+                                    data={"activity_ws": activity_ws},
+                                    where={"activity_id": found_activity_id},
+                                )
+                                existing_activity["activity_ws"] = activity_ws
+
+                                if execution_log_path:
+                                    _append_execution_log(
+                                        execution_log_path,
+                                        f"INFO row={row_number} activity_ws corrected via fallback: activity_id={found_activity_id} old_ws={current_activity_ws!r} new_ws={activity_ws} task_ws={parent_task_ws}",
+                                    )
+                            except Exception:
+                                pass
 
         created = False
         updated = False
@@ -1433,6 +1893,12 @@ def _process_single_row(
                 activity_already_exists=not created,
             ):
                 updated = True
+
+            _apply_stage_status_history_if_needed(
+                row_dict=row_dict,
+                task_id=task_id,
+                activity_id=activity_id,
+            )
         else:
             return RowProcessResult(
                 success=True,
@@ -1441,6 +1907,36 @@ def _process_single_row(
                 task_updated=task_updated,
                 ignored=False,
             )
+
+        # Aplica Claim Approval Date independentemente do status da activity.
+        # Deve ocorrer após _apply_status_update_if_needed para ter o estado
+        # mais recente da activity no banco.
+        refreshed_activity = repo_activity.get_activity_by_id(
+            activity_id=activity_id,
+            as_df=False,
+        ) or refreshed_activity
+
+        if _apply_claim_approval_date_if_needed(
+            row_dict=row_dict,
+            task_id=task_id,
+            activity_id=activity_id,
+            current_activity=refreshed_activity,
+        ):
+            updated = True
+
+        # Atualiza datas de início/fim efetivos da task pai com base na activity.
+        # Recarrega a activity para garantir os valores mais recentes após todas as operações.
+        refreshed_activity = repo_activity.get_activity_by_id(
+            activity_id=activity_id,
+            as_df=False,
+        ) or refreshed_activity
+
+        if _update_task_performed_dates_if_needed(
+            task_id=task_id,
+            activity_start_performed=_to_date(refreshed_activity.get("activity_start_performed")),
+            activity_end_performed=_to_date(refreshed_activity.get("activity_end_performed")),
+        ):
+            task_updated = True
 
         if _recalculate_task_completed(task_id):
             task_updated = True

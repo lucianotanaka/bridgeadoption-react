@@ -5,10 +5,13 @@ Espelha a lógica do Streamlit importer.py para o módulo público.
 """
 import logging
 import os
+import re
 import sys
 import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +21,12 @@ if _ROOT not in sys.path and os.path.isdir(os.path.join(_ROOT, "src")):
 
 try:
     from src.infrastructure.database.connection import get_db_connection
-    from src.infrastructure.database.repositories.account_team_repository import AccountTeamRepository
+    from src.infrastructure.database.repositories.user_repository import UserRepository
     _REPOS_OK = True
 except ImportError as e:
     logger.warning(f"Public service repos nao disponiveis: {e}")
+    get_db_connection = None
+    UserRepository = None
     _REPOS_OK = False
 
 # ─── Storage paths ──────────────────────────────────────────────────────────────
@@ -62,20 +67,59 @@ def _df(rows: List[tuple], cols: List[str]) -> List[Dict[str, Any]]:
 
 # ─── Public CSM Account ─────────────────────────────────────────────────────────
 
-def get_public_csm_account(customer_id: Optional[int] = None) -> List[Dict[str, Any]]:
-    if not _REPOS_OK:
+def _get_public_csm_account_via_sql(customer_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    if get_db_connection is None:
         return []
+    conn = None
     try:
-        repo = AccountTeamRepository()
-        df = repo.find_all_csm_df()
+        conn = get_db_connection()
+        query = "SELECT * FROM vwAccountTeamCSM"
+        params: list[Any] = []
+        if customer_id is not None:
+            query += " WHERE customer_id = %s"
+            params.append(customer_id)
+        df = pd.read_sql(query, conn, params=params or None)
         if df is None or df.empty:
             return []
-        if customer_id is not None and "customer_id" in df.columns:
-            df = df[df["customer_id"] == customer_id]
         return [{k: _ser(v) for k, v in r.items()} for r in df.to_dict("records")]
     except Exception as e:
-        logger.error(f"get_public_csm_account: {e}")
+        logger.error(f"_get_public_csm_account_via_sql: {e}")
         return []
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def get_public_csm_account(customer_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """
+    Retorna registros de vwAccountTeamCSM usando UserRepository (SQLAlchemy engine).
+    Delegando ao mesmo caminho usado pelo módulo Adoption (csm_account_service.py),
+    que é a abordagem comprovadamente funcional.
+
+    As colunas retornadas (csm_name, client_name, am_name, CiscoEA, client_type) são
+    tratadas pelo normalizeRow do frontend.
+    """
+    if not _REPOS_OK or UserRepository is None:
+        return _get_public_csm_account_via_sql(customer_id=customer_id)
+    try:
+        repo = UserRepository()
+        # Use as_df=True (SQLAlchemy engine + pandas) — mesma abordagem do módulo Adoption,
+        # comprovadamente funcional. O caminho as_df=False (cursor raw) retorna dados vazios.
+        df = repo.load_csm_account(as_df=True)
+        if df is None or df.empty:
+            return []
+        if customer_id is not None:
+            if "client_id" in df.columns:
+                df = df[df["client_id"] == customer_id]
+            else:
+                df = df.iloc[0:0]  # empty df
+        return [{k: _ser(v) for k, v in r.items()} for r in df.to_dict("records")]
+    except Exception as e:
+        logger.error(f"get_public_csm_account: {e}\n{traceback.format_exc()}")
+        return _get_public_csm_account_via_sql(customer_id=customer_id)
 
 
 # ─── Import History ─────────────────────────────────────────────────────────────
@@ -334,23 +378,70 @@ def get_log_content(importctrl_id: int) -> Dict[str, Any]:
         return {"found": False, "content": "", "log_path": str(log_path), "error": str(e)}
 
 
+def _extract_failed_path_from_message(message: Optional[str]) -> Optional[Path]:
+    """
+    Extrai o caminho do arquivo de falhas a partir da mensagem gravada em tbImportControl.
+    Exemplo:
+      arquivo_falhas=/home/bridgeadoption/storage/output/subscriptions_7_failed_rows.xlsx,
+    """
+    if not message:
+        return None
+
+    match = re.search(r"arquivo_falhas=([^,\s]+)", message)
+    if not match:
+        return None
+
+    raw_path = match.group(1).strip().strip("'\"")
+    if not raw_path:
+        return None
+
+    return Path(raw_path)
+
+
+def _resolve_failed_rows_path(rec: Dict[str, Any]) -> Optional[Path]:
+    """
+    Resolve o arquivo de falhas de forma robusta.
+
+    Ordem:
+    1. Extrai o path explícito salvo em importctrl_message (fonte mais confiável).
+    2. Usa a convenção <importctrl_file stem>_failed_rows.(xlsx|xls).
+    3. Faz fallback por stem dentro de storage/output.
+    """
+    message_path = _extract_failed_path_from_message(rec.get("importctrl_message"))
+    if message_path and message_path.exists():
+        return message_path
+
+    origin_stem = Path(str(rec.get("importctrl_file") or "")).stem
+    if origin_stem:
+        candidates = [
+            STORAGE_OUTPUT_DIR / f"{origin_stem}_failed_rows.xlsx",
+            STORAGE_OUTPUT_DIR / f"{origin_stem}_failed_rows.xls",
+        ]
+        conventional = next((p for p in candidates if p.exists()), None)
+        if conventional:
+            return conventional
+
+        fuzzy = sorted(STORAGE_OUTPUT_DIR.glob(f"{origin_stem}*failed_rows*.xlsx"))
+        if fuzzy:
+            return fuzzy[0]
+
+        fuzzy_xls = sorted(STORAGE_OUTPUT_DIR.glob(f"{origin_stem}*failed_rows*.xls"))
+        if fuzzy_xls:
+            return fuzzy_xls[0]
+
+    return None
+
+
 def get_failed_rows(importctrl_id: int) -> Dict[str, Any]:
     """
     Lê o arquivo _failed_rows.xlsx associado a um importctrl_id.
-    Padrão: {origin_stem}_failed_rows.xlsx em storage/output/.
     Retorna {found, rows, columns, failed_path, error}.
     """
     rec = _get_import_row(importctrl_id)
     if not rec or not rec.get("importctrl_file"):
         return {"found": False, "rows": [], "columns": [], "failed_path": None, "error": "Importação não encontrada"}
 
-    origin_stem = Path(rec["importctrl_file"]).stem
-    # Tenta .xlsx e .xls
-    candidates = [
-        STORAGE_OUTPUT_DIR / f"{origin_stem}_failed_rows.xlsx",
-        STORAGE_OUTPUT_DIR / f"{origin_stem}_failed_rows.xls",
-    ]
-    failed_path = next((p for p in candidates if p.exists()), None)
+    failed_path = _resolve_failed_rows_path(rec)
 
     if not failed_path:
         return {
@@ -389,6 +480,37 @@ def get_failed_rows(importctrl_id: int) -> Dict[str, Any]:
             "failed_path": str(failed_path),
             "error": str(e),
         }
+
+
+def get_failed_rows_file(importctrl_id: int) -> Dict[str, Any]:
+    """
+    Resolve apenas o arquivo físico de falhas para download bruto do XLSX.
+    Retorna {found, failed_path, file_name, error}.
+    """
+    rec = _get_import_row(importctrl_id)
+    if not rec or not rec.get("importctrl_file"):
+        return {
+            "found": False,
+            "failed_path": None,
+            "file_name": None,
+            "error": "Importação não encontrada",
+        }
+
+    failed_path = _resolve_failed_rows_path(rec)
+    if not failed_path:
+        return {
+            "found": False,
+            "failed_path": None,
+            "file_name": None,
+            "error": None,
+        }
+
+    return {
+        "found": True,
+        "failed_path": str(failed_path),
+        "file_name": failed_path.name,
+        "error": None,
+    }
 
 
 # ─── Import Types ────────────────────────────────────────────────────────────────

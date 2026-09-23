@@ -1,0 +1,115 @@
+"""
+Contratos estruturais de importação.
+
+Este módulo define, de forma **declarativa**, quais colunas
+são esperadas em cada tipo de importação (por ex.: CSV / XLS gerados
+pelas ferramentas da Cisco).
+
+- Não contém nenhuma lógica de negócio (apenas dados estáticos).
+- É usado por `import_validator.validate_import_columns` para
+  checar se o arquivo enviado pelo usuário está aderente ao contrato.
+
+Como estender:
+--------------
+Para adicionar um novo tipo de importação, basta incluir uma nova chave
+em `IMPORT_SCHEMAS`:
+
+    IMPORT_SCHEMAS["NomeDoImport"] = {
+        "required": ["Coluna obrigatória 1", "Coluna obrigatória 2"],
+        "optional": ["Coluna opcional 1", "Coluna opcional 2"],
+    }
+
+Onde:
+- "required": lista de cabeçalhos que DEVEM existir no arquivo.
+- "optional": lista de cabeçalhos que PODEM existir, mas não são obrigatórios.
+"""
+
+from typing import Dict, List
+
+
+# ==========================================================
+# SCHEMAS
+# ==========================================================
+
+IMPORT_SCHEMAS: Dict[str, Dict[str, List[str]]] = {
+    "CiscoSubscriptionCCW": {
+        "required": [
+            "End Customer",
+            "Offer Name",
+            "Consumption Status",
+            "Over Consumed TF Groups",
+            "TF Groups",
+            "True Forward Effective Date",
+            "Next True Forward",
+            "Subscription ID",
+            "Status",
+            "Start Date",
+            "End Date",
+            "Initial Term",
+            "Renewal Date",
+            "Currency",
+            "Monthly Charge",
+            "TF Overage",
+            "Purchase Order Number",
+            "WebOrderID",
+        ],
+        "optional": [
+        ],
+    },
+    "CiscoReady": {
+        "required": [
+            "Serial Number / PAK number",
+            "Coverage",
+            "Covered Line Status",
+            "Business Entity",
+            "Sub Business Entity",
+            "Product Family",
+            "Product ID",
+            "Product Description",
+            "Asset Type",
+            "Product Type",
+            "Buying Program",
+            "Item Quantity",
+            "Covered Line Start Date",
+            "Covered Line End Date",
+            "Contract Type",
+            "Contract Number",
+            "Contract Description",
+            "Subscription ID",
+            "End of Product Sale Date",
+            "Last Renewal Date",
+            "End of Software Maintenance Date",
+            "End-of-Life Announcement Date",
+            "End of Routine Failure Analysis Date",
+            "End of Vulnerability/Security Support Date",
+            "Last Date of Support",
+            "LDOS FY",
+            "LDOS FY-FQ",
+            "Install Site CR GU Name",
+            "Install Site CR Parent Party Name",
+            "Install Site CR Party Name",
+            "Best Partner BE GEO ID",
+            "Product List Price $",
+            "Default Service List Price $",
+            "Default Service Level",
+            "Existing Coverage Level List Price $",
+            "Instance ID",
+            "Parent Instance ID",
+            "Product SO",
+            "Product PO",
+            "Service SO",
+            "Service PO",
+            "Web Order ID",
+            "Auto-renewal flag",
+            "Installed Base Status",
+            "ATR Eligible",
+            "Do Not Renew Reason",
+            "Deal ID",
+            "Major/Minor",
+        ],
+        "optional": [
+            "Migration PID Flag",
+            "Migration PID List",
+        ],
+    },
+}

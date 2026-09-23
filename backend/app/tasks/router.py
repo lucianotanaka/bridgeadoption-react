@@ -38,6 +38,7 @@ from app.tasks.filter_service import (
     get_task_history,
     update_task,
     add_task_history,
+    get_task_record_templates,
     get_csm_list,
     get_status_types,
     get_task_types,
@@ -412,6 +413,19 @@ def task_add_history(
 
     new_id = add_task_history(record)
     return {"success": new_id > 0, "record_id": new_id}
+
+
+@router.get("/record-templates", response_model=List[Dict[str, Any]])
+def task_record_templates(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    template_type: Optional[str] = Query(None),
+    enabled_only: bool = Query(True),
+):
+    """Returns note templates from tbTaskRecordTemplate, optionally filtered by type."""
+    return get_task_record_templates(
+        template_type=template_type,
+        enabled_only=enabled_only,
+    )
 
 
 # ─── LCI Viability endpoints ────────────────────────────────────────────────

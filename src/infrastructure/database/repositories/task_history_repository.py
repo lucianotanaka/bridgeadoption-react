@@ -588,6 +588,134 @@ class TaskHistoryRepository:
                 self._close_resources(conn, cursor)
 
     # ==========================================================
+    # BUSCAR TEMPLATES DE NOTAS
+    # ==========================================================
+    def get_record_templates(
+        self,
+        template_type: Optional[str] = None,
+        enabled_only: bool = True,
+        as_df: bool = False
+    ) -> Union[List[Dict[str, Any]], pd.DataFrame]:
+        """
+        Retorna templates de notas da tbTaskRecordTemplate.
+
+        Parâmetros:
+            template_type : filtra por taskrecordtemplate_type (opcional)
+            enabled_only  : se True, retorna apenas templates habilitados
+            as_df         : se True, retorna DataFrame; senão List[Dict]
+        """
+
+        conditions = []
+        params: List[Any] = []
+
+        if enabled_only:
+            conditions.append("taskrecordtemplate_enabled = %s")
+            params.append(1)
+
+        if template_type:
+            conditions.append("taskrecordtemplate_type = %s")
+            params.append(template_type)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        query = f"""
+            SELECT
+                taskrecordtemplate_id,
+                taskrecordtemplate_type,
+                taskrecordtemplate_remark,
+                taskrecordtemplate_enabled
+            FROM tbTaskRecordTemplate
+            {where_clause}
+            ORDER BY
+                taskrecordtemplate_type,
+                taskrecordtemplate_remark
+        """
+
+        conn = None
+        cursor = None
+
+        try:
+            if as_df:
+                engine = get_sqlalchemy_engine()
+                return pd.read_sql(query, engine, params=tuple(params))
+
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(query, tuple(params))
+            return cursor.fetchall()
+
+        except Exception as e:
+            self.error_repo.log_error(
+                error_function="TaskHistoryRepository.get_record_templates",
+                error_command=query,
+                error_description=str(e),
+                error_traceback=traceback.format_exc()
+            )
+            return pd.DataFrame() if as_df else []
+
+        finally:
+            if not as_df:
+                self._close_resources(conn, cursor)
+
+    # ==========================================================
+    # INSERT TEMPLATE DE NOTA
+    # ==========================================================
+    def insert_record_template(self, data: Dict[str, Any]) -> int:
+        """
+        Insere um novo template em tbTaskRecordTemplate.
+
+        Campos esperados:
+            - taskrecordtemplate_type
+            - taskrecordtemplate_remark
+            - taskrecordtemplate_enabled (opcional, default=1)
+
+        Retorna:
+            ID do novo template inserido, ou 0 em caso de erro
+        """
+
+        payload = dict(data or {})
+
+        if not payload:
+            raise ValueError("Dicionário de inserção não pode ser vazio.")
+
+        if "taskrecordtemplate_enabled" not in payload:
+            payload["taskrecordtemplate_enabled"] = 1
+
+        columns = ", ".join(payload.keys())
+        placeholders = ", ".join(["%s"] * len(payload))
+        values = tuple(payload.values())
+
+        query = f"""
+            INSERT INTO tbTaskRecordTemplate ({columns})
+            VALUES ({placeholders})
+        """
+
+        conn = None
+        cursor = None
+
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute(query, values)
+            conn.commit()
+            return cursor.lastrowid
+
+        except Exception as e:
+            if conn is not None:
+                conn.rollback()
+
+            self.error_repo.log_error(
+                error_function="TaskHistoryRepository.insert_record_template",
+                error_command=query,
+                error_description=str(e),
+                error_traceback=traceback.format_exc()
+            )
+            return 0
+
+        finally:
+            self._close_resources(conn, cursor)
+
+    # ==========================================================
     # INSERT
     # ==========================================================
     def insert(self, data: Optional[Dict[str, Any]] = None, record: Optional[Dict[str, Any]] = None) -> int:
@@ -650,7 +778,7 @@ class TaskHistoryRepository:
             self._close_resources(conn, cursor)
 
     # ==========================================================
-    # UPDATE DINÂMICO
+	# UPDATE DINÂMICO
     # ==========================================================
     def update(self, data: Dict[str, Any], where: Dict[str, Any]) -> int:
         """
@@ -701,3 +829,232 @@ class TaskHistoryRepository:
 
         finally:
             self._close_resources(conn, cursor)
+
+
+
+	# ==========================================================
+    # ÚLTIMO REGISTRO POR TIPO
+    # ==========================================================
+    def _get_last_record_by_type(
+        self,
+        record_type: str,
+        task_id: Optional[int] = None,
+        activity_id: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Retorna o último taskrecord_date e taskrecord_remark
+        para um determinado taskrecord_type.
+
+        Regras de filtro:
+            - task_id informado e activity_id None:
+                filtra somente por taskrecord_task_id
+
+            - task_id None e activity_id informado:
+                filtra somente por taskrecord_activity_id
+
+            - task_id e activity_id informados:
+                filtra pelos dois campos
+
+            - task_id None e activity_id None:
+                não permitido
+
+        Retorna:
+            Dict com:
+                taskrecord_date
+                taskrecord_remark
+
+            ou None caso nenhum registro seja encontrado.
+        """
+
+        if task_id is None and activity_id is None:
+            raise ValueError(
+                "É obrigatório informar task_id e/ou activity_id."
+            )
+
+        conditions = [
+            "taskrecord_type = %s"
+        ]
+
+        params: List[Any] = [
+            record_type
+        ]
+
+        if task_id is not None:
+            conditions.append(
+                "taskrecord_task_id = %s"
+            )
+            params.append(int(task_id))
+
+        if activity_id is not None:
+            conditions.append(
+                "taskrecord_activity_id = %s"
+            )
+            params.append(int(activity_id))
+
+        where_clause = " AND ".join(conditions)
+
+        query = f"""
+            SELECT
+                taskrecord_date,
+                taskrecord_remark
+            FROM tbTaskRecord
+            WHERE {where_clause}
+            ORDER BY
+                taskrecord_date DESC,
+                taskrecord_id DESC
+            LIMIT 1
+        """
+
+        conn = None
+        cursor = None
+
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute(
+                query,
+                tuple(params)
+            )
+
+            result = cursor.fetchone()
+
+            return result if result else None
+
+        except Exception as e:
+            self.error_repo.log_error(
+                error_function=(
+                    "TaskHistoryRepository."
+                    "_get_last_record_by_type"
+                ),
+                error_command=query,
+                error_description=str(e),
+                error_traceback=traceback.format_exc()
+            )
+
+            return None
+
+        finally:
+            self._close_resources(
+                conn,
+                cursor
+            )
+
+
+    # ==========================================================
+    # ÚLTIMO OPT IN STATUS
+    # ==========================================================
+    def get_last_opt_in_status(
+        self,
+        task_id: Optional[int] = None,
+        activity_id: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Retorna o último registro:
+            taskrecord_type = 'OPT IN STATUS'
+        """
+
+        return self._get_last_record_by_type(
+            record_type="OPT IN STATUS",
+            task_id=task_id,
+            activity_id=activity_id,
+        )
+
+
+    # ==========================================================
+    # ÚLTIMO LCI STATUS
+    # ==========================================================
+    def get_last_lci_status(
+        self,
+        task_id: Optional[int] = None,
+        activity_id: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Retorna o último registro:
+            taskrecord_type = 'LCI STATUS'
+        """
+
+        return self._get_last_record_by_type(
+            record_type="LCI STATUS",
+            task_id=task_id,
+            activity_id=activity_id,
+        )
+
+
+    # ==========================================================
+    # ÚLTIMO STAGES STATUS
+    # ==========================================================
+    def get_last_stages_status(
+        self,
+        task_id: Optional[int] = None,
+        activity_id: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Retorna o último registro:
+            taskrecord_type = 'STAGES STATUS'
+        """
+
+        return self._get_last_record_by_type(
+            record_type="ACTIVITY STATUS",
+            task_id=task_id,
+            activity_id=activity_id,
+        )
+
+
+    # ==========================================================
+    # ÚLTIMO CLAIM STATUS
+    # ==========================================================
+    def get_last_claim_status(
+        self,
+        task_id: Optional[int] = None,
+        activity_id: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Retorna o último registro:
+            taskrecord_type = 'CLAIM STATUS'
+        """
+
+        return self._get_last_record_by_type(
+            record_type="CLAIM STATUS",
+            task_id=task_id,
+            activity_id=activity_id,
+        )
+
+
+    # ==========================================================
+    # ÚLTIMO PAYMENT STATUS
+    # ==========================================================
+    def get_last_payment_status(
+        self,
+        task_id: Optional[int] = None,
+        activity_id: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Retorna o último registro:
+            taskrecord_type = 'PAYMENT STATUS'
+        """
+
+        return self._get_last_record_by_type(
+            record_type="PAYMENT STATUS",
+            task_id=task_id,
+            activity_id=activity_id,
+        )
+
+    # ==========================================================
+    # ÚLTIMA MUDANÇA DE STATUS
+    # ==========================================================
+    def get_last_status_change(
+        self,
+        task_id: Optional[int] = None,
+        activity_id: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Retorna o último registro:
+            taskrecord_type = 'STATUS CHANGE'
+        """
+
+        return self._get_last_record_by_type(
+            record_type="STATUS CHANGE",
+            task_id=task_id,
+            activity_id=activity_id,
+        )

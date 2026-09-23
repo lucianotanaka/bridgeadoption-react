@@ -1,14 +1,13 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { DollarSign, BarChart3, Download, HelpCircle, X, Info, ChevronDown } from "lucide-react";
+import { DollarSign, BarChart3, Download, X, Info, ChevronDown } from "lucide-react";
 import Plot from "react-plotly.js";
 import { ciscoLciApi } from "@/api/ciscoLci";
 import type { LCIStageRow, LCIReportData } from "@/api/ciscoLci";
 import { forecastApi } from "@/api/forecast";
 import type { IncentiveByFY, EffortItem } from "@/api/forecast";
-import { tasksApi } from "@/api/tasks";
-import type { TaskItem } from "@/api/tasks";
+import type { ActivityItem, TaskItem } from "@/api/tasks";
 import Pagination from "@/components/ui/Pagination";
 import MultiSelectDropdown from "@/components/ui/MultiSelectDropdown";
 import { exportToXlsxMultiSheet } from "@/utils/exportXlsx";
@@ -82,10 +81,10 @@ function KPICard({
             <button
               type="button"
               onClick={() => setOpen((v) => !v)}
-              className="text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
+              className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-gray-300 text-[10px] font-bold text-gray-500 transition-colors hover:text-blue-500 dark:border-gray-600 dark:text-gray-400 dark:hover:text-blue-400"
               aria-label="More info"
             >
-              <HelpCircle size={14} />
+              ?
             </button>
             {open && (
               <div className={`absolute z-50 ${tooltipLeft ? "left-0" : "right-0"} top-6 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-3 text-xs text-gray-700 dark:text-gray-300 leading-relaxed`}>
@@ -318,6 +317,7 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
   const [tablePageSize, setTablePageSize] = useState(25);
   const [isExporting, setIsExporting] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null);
 
   const lciReportQuery = useQuery({
     queryKey: ["lci", "report-data", selectedFY],
@@ -338,14 +338,6 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
     queryKey: ["lci", "stages", selectedFY, activeTab],
     queryFn: () => ciscoLciApi.getStages(selectedFY, activeTab).then((r) => r.data),
     staleTime: 5 * 60 * 1000,
-  });
-
-  // Task detail — loaded on demand when user clicks a stage row
-  const taskDetailQuery = useQuery({
-    queryKey: ["task-detail-lci", selectedTaskId],
-    queryFn: () => tasksApi.getTask(selectedTaskId!).then((r) => r.data),
-    enabled: !!selectedTaskId && hasTaskPermission,
-    staleTime: 2 * 60 * 1000,
   });
 
   const reportData: LCIReportData | undefined = lciReportQuery.data;
@@ -438,6 +430,75 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
       } catch { return false; }
     });
   }, [lciJourneyQuery.data, selectedFY]);
+
+  const selectedTaskForPanel = useMemo<TaskItem | null>(() => {
+    if (selectedTaskId == null) return null;
+
+    const sourceRow = filteredStages.find((row) => Number(row.lci_task_id) === selectedTaskId);
+    if (!sourceRow) return null;
+
+    const parseStatusId = (statusName: string | null | undefined): number | undefined => {
+      const normalized = (statusName ?? "").trim().toUpperCase();
+      if (!normalized) return undefined;
+      if (normalized === "OPEN") return 1;
+      if (normalized === "IN PROGRESS") return 2;
+      if (normalized === "ON HOLD") return 3;
+      if (normalized === "CANCELLED" || normalized === "CANCELED") return 4;
+      if (normalized === "SUBMITTED TO APPROVAL") return 7;
+      if (normalized === "RESUBMITTED TO APPROVAL") return 8;
+      if (normalized === "APPROVED TO CLOSE") return 9;
+      if (normalized === "CLOSED" || normalized === "DONE" || normalized === "COMPLETED") return 10;
+      return undefined;
+    };
+
+    const stagesForTask = filteredStages.filter((row) => Number(row.lci_task_id) === selectedTaskId);
+
+    const preloadedActivities: ActivityItem[] = stagesForTask.map((stage, index) => {
+      const completionText = String(stage.termination_status ?? "").trim().toLowerCase();
+      const normalizedCompleted =
+        completionText.includes("100") || completionText === "completed" || completionText === "done" ? 1 : 0;
+
+      return {
+        activity_id: Number(stage.lci_stage_id ?? 0),
+        activity_task_id: selectedTaskId,
+        activity_seq: index + 1,
+        activity_name: stage.lci_stage_name ?? undefined,
+        activity_status_name: stage.lci_stage_status_name ?? undefined,
+        activity_start: stage.stage_start_date ?? undefined,
+        activity_end: stage.stage_end_date ?? undefined,
+        activity_completed: normalizedCompleted,
+        activity_ws: stage.lci_stage_ws ?? undefined,
+        activity_value: stage.stage_amount_usd ?? stage.lci_stage_value ?? undefined,
+        activity_approved_value: stage.lci_stage_approval_value ?? undefined,
+        activity_currency: "USD",
+        activity_approved_currency: "USD",
+        activity_track: stage.lci_solution ?? undefined,
+        activity_sub_track: stage.lci_use_case ?? undefined,
+      };
+    });
+
+    return {
+      task_id: selectedTaskId,
+      task_customer_name: sourceRow.lci_client_name ?? undefined,
+      task_type_name: "Cisco LCI",
+      task_ws: sourceRow.lci_ws ?? undefined,
+      task_status_name: sourceRow.lci_stage_status_name ?? undefined,
+      task_status_id: parseStatusId(sourceRow.lci_stage_status_name),
+      task_start: sourceRow.stage_start_date ?? undefined,
+      task_end: sourceRow.stage_end_date ?? undefined,
+      task_track: sourceRow.lci_solution ?? undefined,
+      task_subtrack: sourceRow.lci_use_case ?? undefined,
+      task_value:
+        typeof sourceRow.stage_amount_usd === "number"
+          ? sourceRow.stage_amount_usd
+          : typeof sourceRow.lci_stage_value === "number"
+            ? sourceRow.lci_stage_value
+            : Number(sourceRow.stage_amount_usd ?? sourceRow.lci_stage_value) || 0,
+      task_currency: "USD",
+      task_csm_name: sourceRow.lci_csm_name ?? undefined,
+      task_activities_preloaded: preloadedActivities,
+    };
+  }, [filteredStages, selectedTaskId]);
 
   const applyFilters = (rows: LCIStageRow[]) =>
     rows.filter(
@@ -755,7 +816,10 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
               pageSize={tablePageSize}
               canClick={hasTaskPermission}
               onRowClick={(row) => {
-                if (row.lci_task_id != null) setSelectedTaskId(Number(row.lci_task_id));
+                if (row.lci_task_id != null) {
+                  setSelectedActivityId(row.lci_stage_id != null ? Number(row.lci_stage_id) : null);
+                  setSelectedTaskId(Number(row.lci_task_id));
+                }
               }}
             />
             <Pagination
@@ -770,7 +834,7 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
         )}
       </div>
       {/* ── Task Detail Panel — inline below the stage table ── */}
-      {selectedTaskId && hasTaskPermission && (
+      {selectedTaskId && hasTaskPermission && selectedTaskForPanel && (
         <div className="bg-white dark:bg-gray-900 rounded-2xl border border-blue-200 dark:border-blue-800 shadow-lg">
           {/* Panel header */}
           <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700 bg-blue-50 dark:bg-blue-950/40 rounded-t-2xl">
@@ -782,7 +846,10 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
               <span className="text-xs text-gray-400 dark:text-gray-500">Cisco LCI Report</span>
             </div>
             <button
-              onClick={() => setSelectedTaskId(null)}
+              onClick={() => {
+                setSelectedTaskId(null);
+                setSelectedActivityId(null);
+              }}
               className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
               aria-label={t("common.close")}
             >
@@ -791,21 +858,15 @@ export default function CiscoLCIReportPage({ fy: selectedFY }: { fy: number }) {
           </div>
           {/* Panel body */}
           <div className="p-5">
-            {taskDetailQuery.isLoading ? (
-              <div className="flex justify-center py-12">
-                <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-              </div>
-            ) : taskDetailQuery.isError ? (
-              <p className="text-sm text-red-500 text-center py-8">
-                Erro ao carregar detalhes da task #{selectedTaskId}
-              </p>
-            ) : taskDetailQuery.data ? (
-              <TaskDetailPanel
-                tasks={[taskDetailQuery.data as TaskItem]}
-                initialIndex={0}
-                onClose={() => setSelectedTaskId(null)}
-              />
-            ) : null}
+            <TaskDetailPanel
+              tasks={[selectedTaskForPanel]}
+              initialIndex={0}
+              initialSelectedActivityId={selectedActivityId}
+              onClose={() => {
+                setSelectedTaskId(null);
+                setSelectedActivityId(null);
+              }}
+            />
           </div>
         </div>
       )}

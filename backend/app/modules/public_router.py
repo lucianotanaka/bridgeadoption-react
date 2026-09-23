@@ -9,6 +9,7 @@ import logging
 from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
@@ -23,6 +24,7 @@ from app.modules.public_service import (
     schedule_import,
     get_log_content,
     get_failed_rows,
+    get_failed_rows_file,
     MAX_UPLOAD_BYTES,
 )
 
@@ -162,3 +164,19 @@ def importer_failed_rows(
 ):
     """Returns failed rows data for a given importctrl_id."""
     return get_failed_rows(importctrl_id=importctrl_id)
+
+
+@importer_router.get("/{importctrl_id}/failed-rows/download")
+def importer_failed_rows_download(
+    importctrl_id: int,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Downloads the raw failed rows spreadsheet for a given importctrl_id."""
+    result = get_failed_rows_file(importctrl_id=importctrl_id)
+    if not result["found"] or not result["failed_path"]:
+        raise HTTPException(status_code=404, detail="Arquivo de falhas não encontrado.")
+    return FileResponse(
+        path=result["failed_path"],
+        filename=result["file_name"] or f"failed_rows_{importctrl_id}.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )

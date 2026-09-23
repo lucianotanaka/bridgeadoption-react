@@ -166,6 +166,7 @@ TASK_STATUS_SUBMITTED = 7
 TASK_STATUS_RESUBMITTED = 8
 TASK_STATUS_APPROVED_TO_CLOSE = 9
 TASK_STATUS_COMPLETED = 10
+TASK_STATUS_OPTED_OUT = 11
 
 ACTIVITY_STATUS_CANCELLED = 4
 ACTIVITY_STATUS_DECLINED = 5
@@ -179,6 +180,7 @@ CLOSED_TASK_STATUSES = {
     TASK_STATUS_DECLINED,
     TASK_STATUS_EXPIRED,
     TASK_STATUS_COMPLETED,
+    TASK_STATUS_OPTED_OUT,
 }
 
 CLOSED_ACTIVITY_STATUSES = {4, 5, 6, 10}
@@ -1103,9 +1105,143 @@ def _insert_task_history(
     repo_history.insert(history)
 
 
+def _get_activity_status_name(activity_status: int) -> str:
+    status_names = {
+        1: "OPEN",
+        2: "IN PROGRESS",
+        3: "ON HOLD",
+        4: "CANCELLED",
+        5: "DECLINED",
+        6: "EXPIRED",
+        7: "SUBMITTED",
+        8: "RESUBMITTED",
+        9: "APPROVED TO CLOSE",
+        10: "COMPLETED",
+    }
+    return status_names.get(activity_status, str(activity_status))
+
+
+def _insert_activity_status_change_history(
+    task_id: int,
+    activity_id: int,
+    new_activity_status: int,
+    updated_by: str = "System BA",
+) -> None:
+    repo_history.insert(
+        {
+            "taskrecord_task_id": task_id,
+            "taskrecord_activity_id": activity_id,
+            "taskrecord_date": datetime.now(),
+            "taskrecord_remark": _get_activity_status_name(new_activity_status),
+            "taskrecord_updated_by": updated_by,
+            "taskrecord_type": "STATUS CHANGE",
+        }
+    )
+
+
+def _save_opt_in_status_history(
+    task_id: int,
+    raw_opt_in_status: Any,
+    file_path: str,
+    row_number: int,
+    execution_log_path: Optional[Path] = None,
+    lifecycle_start_date: Optional[date] = None,
+    booking_date: Optional[date] = None,
+) -> None:
+    """
+    Verifica o último histórico do tipo 'Opt in Status' e grava um novo
+    registro se o valor mudou (ou se não há histórico anterior).
+
+    taskrecord_date é determinado pela seguinte prioridade:
+      1. Lifecycle Start Date (se não nulo)
+      2. Booking Date (se não nulo)
+      3. datetime.now() (fallback)
+
+    Erros são apenas logados — nunca interrompem o processamento.
+    """
+    try:
+        last_record = repo_history.get_last_opt_in_status(
+            task_id=task_id,
+            activity_id=0,
+        )
+
+        new_remark = _normalize_str(raw_opt_in_status, max_length=500)
+
+        last_remark: Optional[str] = None
+        if last_record and isinstance(last_record, dict):
+            last_remark = _normalize_str(last_record.get("taskrecord_remark"), max_length=500)
+
+        if last_remark == new_remark:
+            return
+
+        if lifecycle_start_date is not None:
+            record_date = datetime.combine(lifecycle_start_date, datetime.min.time())
+        elif booking_date is not None:
+            record_date = datetime.combine(booking_date, datetime.min.time())
+        else:
+            record_date = datetime.now()
+
+        history: Dict[str, Any] = {
+            "taskrecord_task_id": task_id,
+            "taskrecord_activity_id": 0,
+            "taskrecord_date": record_date,
+            "taskrecord_type": "OPT IN STATUS",
+        }
+
+        if new_remark is not None:
+            history["taskrecord_remark"] = new_remark
+
+        repo_history.insert(history)
+
+        if execution_log_path:
+            _append_execution_log(
+                execution_log_path,
+                f"INFO opt_in_status_history saved task_id={task_id} old={last_remark!r} new={new_remark!r} record_date={record_date}",
+            )
+
+    except Exception as ex:
+        _safe_log(file_path, row_number, f"Erro ao salvar histórico Opt-In Status: {ex}", None, None)
+        if execution_log_path:
+            _append_execution_log(
+                execution_log_path,
+                f"WARN opt_in_status_history failed task_id={task_id} error={str(ex)[:500]}",
+            )
+
+
 def _create_task_from_payload(payload: Dict[str, Any]) -> int:
     task_id = repo_task.insert(payload)
     return _safe_int(task_id, default=0)
+
+
+def _confirm_created_task(
+    task_id: int,
+    expected_ws: Optional[str],
+) -> bool:
+    """
+    Confirma se a task recém-criada está persistida em tbTask
+    e, quando informado, se o WS gravado corresponde ao esperado.
+
+    A confirmação é propositalmente rígida para que o importador
+    não considere sucesso quando o repositório retornar um task_id,
+    mas o registro não puder ser reconsultado de forma consistente.
+    """
+    if not task_id:
+        return False
+
+    task_row = _get_task_columns_for_match(task_id)
+    if not task_row:
+        return False
+
+    confirmed_task_id = _safe_int(task_row.get("task_id"), default=0)
+    if confirmed_task_id != task_id:
+        return False
+
+    if expected_ws is not None:
+        confirmed_ws = _normalize_ws(task_row.get("task_ws"))
+        if confirmed_ws != expected_ws:
+            return False
+
+    return True
 
 
 def _close_open_activities_with_status(
@@ -1137,6 +1273,13 @@ def _close_open_activities_with_status(
                 where={"activity_id": activity_id},
             )
             changed += 1
+
+            _insert_activity_status_change_history(
+                task_id=task_id,
+                activity_id=activity_id,
+                new_activity_status=new_activity_status,
+                updated_by=updated_by,
+            )
 
             _insert_task_history(
                 task_id=task_id,
@@ -1185,8 +1328,9 @@ def _close_task_as_opted_out(
     updated_by: str = "System BA",
 ) -> int:
     """
-    Fecha a task com task_status = 4 (CANCELLED) e
-    task_status_justification = 'AN OPT-OUT WAS PERFORMED FOR THE TASK'.
+    Fecha a task com task_status = 4 (CANCELLED),
+    task_status_justification = 'OPT OUT: JUSTIFICATION MISSING'
+    e task_eligible = 'N'.
 
     Também fecha todas as activities abertas com activity_status = 4 (CANCELLED),
     registrando histórico individual em cada uma.
@@ -1198,7 +1342,8 @@ def _close_task_as_opted_out(
             data={
                 "task_status": TASK_STATUS_CANCELLED,
                 "task_forecast": 0,
-                "task_status_justification": "AN OPT-OUT WAS PERFORMED FOR THE TASK",
+                "task_status_justification": "OPT OUT: JUSTIFICATION MISSING",
+                "task_eligible": "N",
             },
             where={"task_id": task_id},
         )
@@ -1485,7 +1630,7 @@ def _process_single_row(
                     company_id=company_id,
                     task_type_id=task_type_id,
                     force_status=TASK_STATUS_CANCELLED,
-                    force_status_justification="AN OPT-OUT WAS PERFORMED FOR THE TASK",
+                    force_status_justification="OPT OUT: JUSTIFICATION MISSING",
                 )
 
                 if not payload.get("task_ws"):
@@ -1498,14 +1643,38 @@ def _process_single_row(
                         error_value=row_dict.get("Deal Id"),
                     )
 
+                payload["task_eligible"] = "N"
+
                 task_id = _create_task_from_payload(payload)
                 if not task_id:
                     raise ValueError("Falha ao criar task (opted out)")
+
+                if not _confirm_created_task(task_id=task_id, expected_ws=payload.get("task_ws")):
+                    message = (
+                        "Falha ao confirmar persistência da task após criação (opted out)"
+                    )
+                    _safe_log(file_path, row_number, message, "Deal Id", payload.get("task_ws"))
+                    return RowProcessResult(
+                        success=False,
+                        error_message=message,
+                        error_column="Deal Id",
+                        error_value=payload.get("task_ws"),
+                    )
 
                 _insert_task_history(
                     task_id=task_id,
                     activity_id=0,
                     remark=opt_out_remark,
+                )
+
+                _save_opt_in_status_history(
+                    task_id=task_id,
+                    raw_opt_in_status=row_dict.get("Lifecycle Opt-In Status"),
+                    file_path=file_path,
+                    row_number=row_number,
+                    execution_log_path=execution_log_path,
+                    lifecycle_start_date=data.get("lifecycle_start_date"),
+                    booking_date=data.get("booking_date"),
                 )
 
                 if execution_log_path:
@@ -1526,17 +1695,39 @@ def _process_single_row(
                 raise ValueError("task_id inválido na task existente (opted out)")
 
             current_status = _safe_int(existing_task.get("task_status"), default=0)
-            if current_status in CLOSED_TASK_STATUSES:
+
+            # Ignora somente se já estiver Opted Out (11), Cancelled (4) ou Declined (5).
+            # Status 6 (Expired) e 10 (Completed) devem ser fechados pelo Opted Out.
+            if current_status in {TASK_STATUS_OPTED_OUT, TASK_STATUS_CANCELLED, TASK_STATUS_DECLINED}:
                 if execution_log_path:
                     _append_execution_log(
                         execution_log_path,
-                        f"INFO row={row_number} ignored because task already closed (opted out) task_id={task_id} current_status={current_status} ws={data.get('ws')}",
+                        f"INFO row={row_number} ignored because task already cancelled/declined (opted out) task_id={task_id} current_status={current_status} ws={data.get('ws')}",
                     )
+                _save_opt_in_status_history(
+                    task_id=task_id,
+                    raw_opt_in_status=row_dict.get("Lifecycle Opt-In Status"),
+                    file_path=file_path,
+                    row_number=row_number,
+                    execution_log_path=execution_log_path,
+                    lifecycle_start_date=data.get("lifecycle_start_date"),
+                    booking_date=data.get("booking_date"),
+                )
                 return RowProcessResult(success=True, ignored=True)
 
             activities_cancelled = _close_task_as_opted_out(
                 task_id=task_id,
                 opt_out_remark=opt_out_remark,
+            )
+
+            _save_opt_in_status_history(
+                task_id=task_id,
+                raw_opt_in_status=row_dict.get("Lifecycle Opt-In Status"),
+                file_path=file_path,
+                row_number=row_number,
+                execution_log_path=execution_log_path,
+                lifecycle_start_date=data.get("lifecycle_start_date"),
+                booking_date=data.get("booking_date"),
             )
 
             if execution_log_path:
@@ -1588,9 +1779,31 @@ def _process_single_row(
                 if not task_id:
                     raise ValueError("Falha ao criar task")
 
+                if not _confirm_created_task(task_id=task_id, expected_ws=payload.get("task_ws")):
+                    message = (
+                        "Falha ao confirmar persistência da task após criação"
+                    )
+                    _safe_log(file_path, row_number, message, "Deal Id", payload.get("task_ws"))
+                    return RowProcessResult(
+                        success=False,
+                        error_message=message,
+                        error_column="Deal Id",
+                        error_value=payload.get("task_ws"),
+                    )
+
                 _insert_task_history(
                     task_id=task_id,
                     remark="Task created as not eligible by Cisco",
+                )
+
+                _save_opt_in_status_history(
+                    task_id=task_id,
+                    raw_opt_in_status=row_dict.get("Lifecycle Opt-In Status"),
+                    file_path=file_path,
+                    row_number=row_number,
+                    execution_log_path=execution_log_path,
+                    lifecycle_start_date=data.get("lifecycle_start_date"),
+                    booking_date=data.get("booking_date"),
                 )
 
                 if execution_log_path:
@@ -1621,6 +1834,16 @@ def _process_single_row(
             if not task_id:
                 raise ValueError("Falha ao criar task")
 
+            if not _confirm_created_task(task_id=task_id, expected_ws=payload.get("task_ws")):
+                message = "Falha ao confirmar persistência da task após criação"
+                _safe_log(file_path, row_number, message, "Deal Id", payload.get("task_ws"))
+                return RowProcessResult(
+                    success=False,
+                    error_message=message,
+                    error_column="Deal Id",
+                    error_value=payload.get("task_ws"),
+                )
+
             if source_status == SOURCE_STATUS_EXPIRED:
                 _insert_task_history(
                     task_id=task_id,
@@ -1638,6 +1861,16 @@ def _process_single_row(
                     remark=f"Task started at {payload['task_start'].strftime('%Y-%b-%d')}",
                     next_followup=payload["task_start"] + timedelta(days=5),
                 )
+
+            _save_opt_in_status_history(
+                task_id=task_id,
+                raw_opt_in_status=row_dict.get("Lifecycle Opt-In Status"),
+                file_path=file_path,
+                row_number=row_number,
+                execution_log_path=execution_log_path,
+                lifecycle_start_date=data.get("lifecycle_start_date"),
+                booking_date=data.get("booking_date"),
+            )
 
             if execution_log_path:
                 _append_execution_log(
@@ -1687,6 +1920,16 @@ def _process_single_row(
                 remark=reopen_remark,
             )
 
+            _save_opt_in_status_history(
+                task_id=task_id,
+                raw_opt_in_status=row_dict.get("Lifecycle Opt-In Status"),
+                file_path=file_path,
+                row_number=row_number,
+                execution_log_path=execution_log_path,
+                lifecycle_start_date=data.get("lifecycle_start_date"),
+                booking_date=data.get("booking_date"),
+            )
+
             if execution_log_path:
                 _append_execution_log(
                     execution_log_path,
@@ -1704,6 +1947,15 @@ def _process_single_row(
                     execution_log_path,
                     f"INFO row={row_number} ignored because task already closed task_id={task_id} current_status={current_status} ws={data.get('ws')}",
                 )
+            _save_opt_in_status_history(
+                task_id=task_id,
+                raw_opt_in_status=row_dict.get("Lifecycle Opt-In Status"),
+                file_path=file_path,
+                row_number=row_number,
+                execution_log_path=execution_log_path,
+                lifecycle_start_date=data.get("lifecycle_start_date"),
+                booking_date=data.get("booking_date"),
+            )
             return RowProcessResult(
                 success=True,
                 ignored=True,
@@ -1711,6 +1963,16 @@ def _process_single_row(
 
         if source_status == SOURCE_STATUS_NOT_ELIGIBLE:
             activities_cancelled = _close_task_as_not_eligible(task_id=task_id)
+
+            _save_opt_in_status_history(
+                task_id=task_id,
+                raw_opt_in_status=row_dict.get("Lifecycle Opt-In Status"),
+                file_path=file_path,
+                row_number=row_number,
+                execution_log_path=execution_log_path,
+                lifecycle_start_date=data.get("lifecycle_start_date"),
+                booking_date=data.get("booking_date"),
+            )
 
             if execution_log_path:
                 _append_execution_log(
@@ -1727,6 +1989,16 @@ def _process_single_row(
 
         if source_status == SOURCE_STATUS_EXPIRED:
             activities_cancelled = _close_task_as_expired(task_id=task_id)
+
+            _save_opt_in_status_history(
+                task_id=task_id,
+                raw_opt_in_status=row_dict.get("Lifecycle Opt-In Status"),
+                file_path=file_path,
+                row_number=row_number,
+                execution_log_path=execution_log_path,
+                lifecycle_start_date=data.get("lifecycle_start_date"),
+                booking_date=data.get("booking_date"),
+            )
 
             if execution_log_path:
                 _append_execution_log(
@@ -1749,6 +2021,16 @@ def _process_single_row(
             payload=payload,
             source_status=source_status,
             opt_in_flag=data.get("opt_in_flag", 0),
+        )
+
+        _save_opt_in_status_history(
+            task_id=task_id,
+            raw_opt_in_status=row_dict.get("Lifecycle Opt-In Status"),
+            file_path=file_path,
+            row_number=row_number,
+            execution_log_path=execution_log_path,
+            lifecycle_start_date=data.get("lifecycle_start_date"),
+            booking_date=data.get("booking_date"),
         )
 
         if execution_log_path:

@@ -1,0 +1,17 @@
+services:
+  db:
+    image: mariadb:10.5
+    container_name: bridge_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: nttbsp
+      MYSQL_DATABASE: pegasus_lab
+      MYSQL_USER: bridgeuser
+      MYSQL_PASSWORD: bridgepassword
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+
+volumes:
+  db_data:

@@ -412,14 +412,33 @@ def _get_customer_id_from_end_customer(
     if len(name) < 2:
         return 0
 
-    try:
-        company_id = repo_company.get_company_id_by_name(name)
-    except Exception:
+    candidate_names = [name]
+    upper_name = name.upper()
+    if upper_name not in candidate_names:
+        candidate_names.append(upper_name)
+
+    company_id = None
+    last_lookup_error = None
+
+    for candidate_name in candidate_names:
+        try:
+            company_id = repo_company.get_company_id_by_name(candidate_name)
+            if company_id:
+                if candidate_name != name and execution_log_path:
+                    _append_execution_log(
+                        execution_log_path,
+                        f"INFO customer resolved using fallback name={candidate_name}, original_name={name}, row={row_number}",
+                    )
+                break
+        except Exception as ex:
+            last_lookup_error = ex
+
+    if last_lookup_error and not company_id:
         generate_and_store_suggestions([name], user="from Cisco Subscription CCW")
         if execution_log_path:
             _append_execution_log(
                 execution_log_path,
-                f"WARN customer suggestion generated for name={name}, row={row_number}",
+                f"WARN customer suggestion generated after lookup error for name={name}, row={row_number}, error={str(last_lookup_error)[:500]}",
             )
         return 0
 
@@ -428,7 +447,7 @@ def _get_customer_id_from_end_customer(
         if execution_log_path:
             _append_execution_log(
                 execution_log_path,
-                f"WARN customer not found, suggestion generated for name={name}, row={row_number}",
+                f"WARN customer not found, suggestion generated for name={name}, tried={candidate_names}, row={row_number}",
             )
         return 0
 
@@ -548,7 +567,7 @@ def _build_ea_payload_from_row(
         "ea_inicial_term": to_float(row.get("Initial Term")),
         "ea_renewal_date": to_dt(row.get("Renewal Date")),
         "ea_currency": norm(row.get("Currency")),
-        "ea_mrc": to_float(row.get("Monthly Charge")),
+        "ea_mrc": to_float(row.get("TF Overage")),
         "ea_tf_overage": to_float(row.get("TF Overage")),
         "ea_po": ident(row.get("Purchase Order Number"), max_length=255),
         "ea_buying_program_id": ident(row.get("Buying Program ID"), max_length=255),
@@ -824,9 +843,9 @@ def _handle_over_consumed(
     else:
         task_end_date = task_start_date + timedelta(days=30)
 
-    monthly_charge = payload.get("ea_mrc")
+    tf_overage = payload.get("ea_tf_overage")
     try:
-        task_value = float(monthly_charge) if monthly_charge else 0.0
+        task_value = float(tf_overage) if tf_overage else 0.0
     except Exception:
         task_value = 0.0
 
@@ -1021,7 +1040,7 @@ def _handle_over_consumed(
         activity_track = activity_columns.get("activity_track", "") if activity_columns else ""
         activity_subtrack = activity_columns.get("activity_sub_track", "") if activity_columns else ""
 
-        monthly_charge_val = task_value
+        tf_overage_val = task_value
 
         need_new_activity = False
         update_task_fields = {}
@@ -1048,7 +1067,7 @@ def _handle_over_consumed(
         except Exception:
             activity_value_current_num = 0.0
 
-        if new_activity_track is None and monthly_charge_val > activity_value_current_num:
+        if new_activity_track is None and tf_overage_val > activity_value_current_num:
             need_new_activity = True
 
         if new_activity_track:

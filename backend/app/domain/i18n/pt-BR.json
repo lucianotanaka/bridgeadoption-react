@@ -1,0 +1,564 @@
+{
+	"common": {
+		"yes": "Sim",
+		"no": "Não"
+	},
+	"validation": {
+	},
+	"errors": {
+		"access_denied": "Acesso negado.",
+		"error_saving_layout": "Erro ao salvar layout.",
+		"insert_failed": "Falha ao inserir o registro.",
+		"update_failed": "A atualização falhou",
+		"history_update_failed": "A atualização do histórico falhou.",
+		"where_empty": "WHERE não pode ser vazio."
+	},
+	"buttons": {
+		"add": "Adicionar",
+		"another_csm": "Outro CSM",
+		"all_owners": "Todos os Donos",
+		"back": "← Voltar",
+		"cancel": "Cancelar",
+		"close": "Fechar",
+		"create": "Criar",
+		"edit": "Editar",
+		"export_excel": {
+			"label": ":material/grid_on: Exportar para Excel",
+			"helper": "Clique para baixar os dados exibidos em formato Excel (.xlsx)"
+		},
+		"export_msproject": {
+			"label": ":material/download: Exportar MS Project",
+			"helper": "Clique para baixar os dados exibidos em formato Project XML"
+		},
+		"generate_farol": "Gerar Farol",
+		"history": "Histórico",
+		"load_client_assets": "Carregar assets do cliente",
+		"my_tasks": "Minhas tarefas",
+		"new": "Novo(a)",
+		"new_task": "Nova Tarefa",
+		"next": "Próximo",
+		"next_follow_up": "Próximo Acompanhamento",
+		"no_csm": "Sem CSM",
+		"previous": "Anterior",
+		"reports": "Relatórios",
+		"save": "Salvar",
+		"save_column_layout": "Salvar layout das colunas",
+		"search": "Buscar",
+		"search_tasks": "Pesquisar Tarefas",
+		"tasks": "Tarefas",
+		"tasks_not_started": "Tarefas não Iniciadas"
+	},
+	"fields": {
+		"achieved": "Atingido",
+		"architecture": "Arquitetura",
+		"activity": "Atividade",
+		"appraisal": "Avaliação",
+		"approval_date": "Data de Aprovação",
+		"approval_request_date": "Data da Solicitação de Aprovação",
+		"approved_value": "Valor Aprovado",
+		"applicability": "Aplicabilidade",
+		"business_benefits": "Benefícios para os Negócios",
+		"business_outcomes": "Resultados de Negócios",
+        "by_counting": "por Contagem",
+        "by_sum": "por Somatória",
+		"client": "Cliente",
+		"client_type": "Tipo de Cliente",
+		"completed": "Concluído",
+		"configure_columns": "Configurar Colunas",
+		"count_sip_in_progress": "SIP em Andamento",
+		"count_sip_approved": "SIP Aprovado",
+		"count_task": "Contar Tarefas",
+		"count_task_completed": "Tarefas Completadas",
+		"count_task_in_progress": "Tarefas em Andamento",
+		"count_task_under_review": "Tarefas em Análise",
+		"criteria_name": "Nome do Critério",
+		"currency": "Moeda",
+		"date": "Data",
+		"deadline": "Prazo Final",
+		"description": "Descrição",
+		"detail": "Detalhe(s)",
+		"detailed_view": "Vista Detalhada",
+		"ea_generated": "EA Gerado",
+		"effort": "Esforço",
+		"end": "Término",
+		"end_performed": "Término Realizado",
+		"email": "E-mail",
+		"employee": "Funcionário(a)",
+		"exit_criteria": "Critérios de Saída",
+		"expected": "Planejado",
+		"expected_results": "Resultados Esperados",
+		"filter": "Filtro",
+		"filters": "Filtros",
+		"fiscal_year": "Ano Fiscal (FY)",
+		"follow_up": "Acompanhamento",
+		"full_name": "Nome Completo",
+		"has_project": "Tem Projeto",
+		"individual_appraisal": "Avaliação Individual",
+		"it_operations_benefits": "Benefícios das Operações de TI",
+		"justification": "Justificativa",
+		"key_capabilities": "Principais Capacidades",
+		"key_supporting_products": "Produtos de Suporte Principais",
+		"language": "Idioma",
+		"lci_viability": "Viabilidade LCI",
+		"multiplier": "Multiplicador",
+		"name": "Nome",
+		"next_follow_up": "Próximo Acompanhamento",
+		"new": "Nova",
+		"notes": "Anotações",
+		"objective": "Objetivo",
+		"of": "de",
+		"owner": "Dono(a)",
+		"password": "Senha",
+		"percentage": "Porcentagem",
+		"primary_product": "Produto Primário",
+		"priority": "Prioridade",
+		"project": "Projeto",
+		"project_in_progress": "Projeto(s) em andamento",
+		"project_team": "Equipe do Projeto",
+		"qty": "Qtd",
+		"reference": "Referência",
+		"record": "Registro",
+		"report": "Relatório",
+		"remark": "Observação",
+		"required": "Obrigatório",
+		"sequence": "Sequência",
+		"scope": "Escopo",
+		"solution": "Solução",
+		"stage": "Etapa",
+		"stages_approved": "Etapas Aprovadas",
+		"stages_awaiting": "Etapas Aguardando",
+		"stages_lost": "Etapas Perdidas",
+		"stages_ongoing": "Etapas em Andamento",
+		"start": "Início",
+		"start_performed": "Início Realizado",
+		"status": "Estado",
+		"success_metrics": "Métricas de Sucesso",
+		"target": "Meta",
+		"target_measurement": "Método de medição",
+		"target_progress": "Progresso da Meta",
+		"target_weight": "Peso da Meta",
+		"task": "Tarefa",
+		"task_count": "Contagem de Tarefas",
+		"task_type": "Tipo de Tarefa",
+		"task_owner": "Responsável pela Tarefa",
+		"tasks_awaiting_opt_in": "Tarefas Aguardando Opt-in",
+		"tasks_lost_opt_in_pending": "Tarefas Perdidas Sem Opt-in",
+		"temp_owner": "Dono(a) Temp.",
+		"total_approved": "Total Aprovado",
+		"total_backlog": "Total Backlog",
+		"total_stages": "Total de Etapas",
+		"total_tasks": "Total de Tarefas",
+		"total_value": "Valor Total",
+		"type": "Tipo",
+		"updated_by": "Atualizado por",
+		"use_case": "Caso de Uso",
+		"value": "Valor",
+		"vendor": "Fornecedor",
+		"visible_columns_order": {
+			"label": "Colunas visíveis / ordem",
+			"helper": "A ordem em que você selecionar será usada como ordem de exibição."
+		}
+	},
+	"filters": {
+        "csm": "Filtrar CSM",
+        "client": "Filtrar Cliente",
+        "type": "Filtrar Tipo de Cliente",
+        "status": "Filtrar Status",
+        "solution": "Filtrar Solução",
+        "am": "Filtrar AM",
+        "ea": "Filtrar EA",
+		"name": "Nome",
+		"email": "E-mail"
+	},
+	"messages": {
+		"update_successful": "Atualização do registro bem-sucedida.",
+		"update_notes": "As notas para histórico foram salvas."
+	},
+	"pages": {
+		"home": {
+			"title": "Bem-vindo ao Bridge Adoption (BA)",
+			"description": "Plataforma corporativa para gestão de contas, acompanhamento de atividades de adoção tecnológica e geração de relatórios estratégicos.",
+			"language": "Idioma",
+			"login_button": "Entrar",
+			"restricted": "O acesso é restrito a usuários autorizados.",
+			"user_language_label": "Mudar idioma",
+			"change_password": "Alterar Senha",
+			"new_password": "Nova senha",
+			"confirm_password": "Confirmar",
+			"password_do_not_match": "As senhas não coincidem",
+			"password_not_approved": "A senha deve ter pelo menos 8 caracteres e conter pelo menos uma letra maiúscula e um caractere especial",
+			"session_expired": "Sua sessão expirou devido à inatividade.",
+			"save_change": "Salvar mudança",
+			"login_header": "Entrar",
+			"login_button": "Conectar",
+			"role_label": "Escolha a função",
+			"menu": {
+				"account_team": "Equipe de Contas",
+				"contracts": "Contratos",
+				"client_assets": "Ativos do Cliente",
+				"forecast": "Forecast",
+				"importer": "Importador",
+				"kpi": "KPI",
+				"nota_fiscal": "Nota Fiscal",
+				"projects": "Projetos",
+				"purchase": "Compras",
+				"reports": "Relatórios",
+				"requirements": "Requisitos",
+				"users": "Usuários",
+				"tasks": "Tarefas",
+				"use_cases": "Caso de Uso",
+				"roles": "Roles",
+				"farol": "Farol",
+				"heatmap": "Heatmap",
+				"adoption_tasks": "Adoção de Technologia",
+				"csm_account": "Contas CSM"
+			},
+			"messages": {
+				"change_password": "É necessário trocar sua senha",
+				"change_password_success": "Senha alterada com sucesso",
+				"change_password_error": "Erro ao alterar senha",
+				"invalid_credentials": "Credenciais inválidas"
+			}
+		},
+		"admin": {
+			"users": {
+			  "title": "Administração de Usuários",
+			  "list": "Lista",
+			  "search": "Pesquisar de Usuário",
+			  "new_user": "Novo Usuário",
+			  "edit_user": "Editar Usuário",
+			  "created_success": "Usuário criado com sucesso.",
+			  "updated_success": "Usuário atualizado com sucesso.",
+			  "not_found": "Usuário não encontrado.",
+			  "tab_data": "Dados",
+			  "tab_roles": "Roles",
+			  "manage_roles": "Gerenciar Roles",
+			  "select_roles": "Selecione as roles"
+			},
+			"roles": {
+			  "title": "Administração de Roles",
+			  "created_success": "Role criada com sucesso."
+			},
+			"permissions": {
+			  "title": "Permissões",
+			  "created_success": "Permissão criada com sucesso."
+			}
+		},
+		"adoption": {
+			"team_target": {
+				"title": "Metas da Equipe Adoção"
+			},
+			"use_case": {
+				"title": "Caso de Uso"
+			},
+			"report_rebate_and_opportunities": {
+				"title": "Adoption Rebates e Oportunidades"
+			},
+			"report_cisco_lci":{
+				"title": "Cisco LCI",
+				"caption": "O Fiscal Year (FY) é definido pela data de término (End Date) dos stages, conforme o calendário fiscal (abril a março). O relatório contempla exclusivamente tarefas elegíveis com opt-in realizado.",
+				"financial_overview": "Visão Geral Financeira",
+				"total_potential": "Potencial Total (USD)",
+				"total_captured": "Total Capturado (USD)",
+				"total_lost": "Total Perdido (USD)",
+				"conversion_rate": "Taxa de Conversão",
+				"operational_overview": "Visão Geral Operacional",
+				"title_7a": "Visão Geral do Valor e do Status do Pipeline",
+				"title_chart_7a1": "Valor Total e Quantidade Stage por Status",
+				"title_chart_7a2": "Desempenho das Conclusões",
+				"title_7b": "Visão Geral da Eficiência Financeira",
+				"title_chart_7b1": "Evolução do Desempenho LCI",
+				"title_chart_7b2": "Eficiência de Conversão Financeira do LCI",
+				"title_chart_7b3": "Variação Anual da Eficiência de Conversão do LCI",
+				"ntt_fy_helper": "Relacionado a data de término da Task ou Stage.",
+				"lci_stages_approved": "Estágios LCI Aprovados",
+				"lci_stages_not_started": "Estágios LCI Não Iniciados",
+				"lci_stages_in_progress": "Estágios LCI em Andamento",
+				"lci_stages_lost": "Estágios LCI Perdidos"
+			},
+			"report_csm_account": {
+				"title": "Contas dos CSM",
+				"chart1_title": "Cliente por Tipo por CSM",
+				"chart2_title": "Clientes por CSM"
+			},
+			"report_lci_eligible_status": {
+				"title": "Cisco LCI Elegível (Opt In) - Estados dos Estágios",
+				"caption_header": "Relatório executivo mensal do ano fiscal com uma visão consolidada do status, gráficos analíticos em abas por categoria e destaque do filtro de ano fiscal ativo.",
+				"caption_tabs": "Use as abas abaixo para comparar a visão geral mensal da diretoria com uma categoria detalhada de cada vez.",
+				"caption_not_started": "Composição mensal detalhada por etapa para a categoria Não Iniciado.",
+				"caption_in_progress": "Composição mensal detalhada por etapa para a categoria Em Andamento.",
+				"caption_lost": "Composição mensal detalhada por etapa para a categoria Perdida.",
+				"caption_success": "Composição mensal detalhada por etapa para a categoria Sucesso.",
+				"expander": "Documentação / Guia de Leitura",
+				"info1": "Não há dados disponíveis para os estágios elegíveis para LCI.",
+				"info2": "Não há dados disponíveis para o ano fiscal.",
+				"info3": "Não há resumo mensal disponível para o ano fiscal selecionado.",
+				"section1": "Visão Geral Mensal da Diretoria",
+				"section2": "Composição Mensal dos Estágios por Categoria de Estado",
+				"section3": "Resumo Executivo Mensal",
+				"table1": "Resumo do Portfólio Executivo",
+				"table2": "Detalhes da Execução da Etapa"
+			},
+			"report_lci_solution_vs_report": {
+				"title": "Cisco LCI Elegível (Opt In) - Solução vs. Projeto",
+				"executive_summary": "Resumo Executivo",
+				"total_deals": "Total de Deals",
+				"total_clients": "Total de Clientes",
+				"total_potential_value": "Valor Total de Estágios Potenciais USD",
+				"project_conversion_rate": "Taxa de Conversão do Projeto",
+				"visual_insights": "Insights Visuais",
+				"chart_potential_by_solution_without_project": "Potencial por Solução Sem Projeto",
+				"project_status_distribution_title": "Distribuição do Status do Projeto por Solution Track",
+				"project_status_distribution_caption": "Cada Solution Track é contada uma única vez. Se existirem múltiplos status para a mesma track, será usado o status de maior prioridade: YES > IN REVIEW > PENDING REVIEW > NO.",
+				"project_status_distribution_helper_title": "Como este gráfico é calculado?",
+				"project_status_distribution_helper_body": "- O gráfico usa **Solution Track** como unidade de análise.\n- Cada Solution Track é contada **apenas uma vez**.\n- Se a mesma Solution Track aparecer em múltiplos registros ou estágios, ela é consolidada em um único status final.\n- O status final segue esta prioridade: **YES > IN REVIEW > PENDING REVIEW > NO**.\n- Esse método evita contagem duplicada de Solution Tracks que aparecem várias vezes.",
+				"solution_tracks_label": "Solution Tracks",
+				"percentage_label": "Percentual",
+				"chart_solution_use_case_without_project": "Caso de Uso da Solução Sem Projeto"
+			}
+		},
+		"operational": {},
+		"portfolio": {
+			"account_team": {
+				"title": "Equipe de Contas",
+				"title_edit": "Alocar ou desalocar integrante da conta",
+				"title_add": "Incluir novo integrante na conta",
+				"name": "Nome",
+				"type": "Tipo",
+				"member": "Integrante",
+				"allocated": "Alocado",
+				"btn_save": "Salvar novo integrante",
+				"info1": "Todos os usuários NTT já estão vinculados a esta conta",
+				"info2": "Nenhum usuário NTT disponível para seleção.",
+				"warning1": "Informe o Nome e o Tipo antes de salvar."
+			},
+			"asset": {
+				"title": "Ativo do Cliente",
+				"loading_client_assets": "Carregando assets do cliente, por favor aguarde...",
+				"load_client_assets_button": "Carregar assets do cliente",
+				"total_assets": "Total de Ativos",
+				"vendor_only": "Somente Fornecedor",
+				"ntt_only": "Somente NTT",
+				"vendor_ntt": "Fornecedor + NTT",
+				"assets_detail": "Detalhamento dos assets"
+			},
+			"farol": {
+				"title": "Farol",
+				"button_generate_farol": "Gerar Farol",
+				"loading_farol": "Carregando Farol..."
+			}
+		},
+		"project": {},
+		"public": {
+			"report": {
+				"rebate_and_opportunities": {
+					"title": "Rebate e Oportunidades",
+					"description": "Resumo sobre reembolsos elegíveis e oportunidades geradas a partir de adoção.",
+					"footer": "Abrir relatório →"
+				},
+				"csm_account": {
+					"title": "Contas do CSM",
+					"description": "Lista e análise dos tipos de clientes atendidos pelos CSMs.",
+					"footer": "Abrir relatório →"
+				},
+				"cisco_lci": {
+					"title": "Cisco LCI",
+					"description": "Tarefas Lifecycle Cisco Incentive (LCI).",
+					"footer": "Abrir relatório →"
+				},
+				"cisco_true_forward": {
+					"title": "Cisco True Forward",
+					"description": "Listar consumos excedentes de licenças Cisco EA (True Forward) e correlacionar com tarefas abertas, apoiando os CSMs no atendimento preventivo.",
+					"footer": "Abrir relatório →"
+				},
+				"account_team": {
+					"title": "Equipe da Conta",
+					"description": "Lista os nomes das pessoas envolvidas no atendimento ao cliente.",
+					"footer": "Abrir lista →"
+				},
+				"asset": {
+					"title": "Ativos do Cliente",
+					"description": "Listagem dos ativos de clientes.",
+					"footer": "Abrir lista →"
+				},
+				"farol": {
+					"title": "Farol",
+					"description": "Relatório de serviços, arquiteturas e plataformas contratados pelo cliente",
+					"footer": "Abrir relatório →"
+				},
+				"adoption_team_target": {
+					"title": "Metas da Equipe Adoption",
+					"description": "Relatório da descrição e progresso das Metas da Equipe Adoption.",
+					"footer": "Abrir relatório →"
+				},
+				"adoption_forecast": {
+					"title": "Adoption Forecast",
+					"description": "Relatório do forecast e backlog do Time Adoption.",
+					"footer": "Abrir relatório →"
+				},
+				"adoption_lci_eligible_status": {
+					"title": "Cisco LCI Elegível (Opt In) - Estados dos Estágios",
+					"description": "Relatório para demonstrar os estados dos estágios das tarefas de LCI no ano fiscal NTT",
+					"footer": "Abrir relatório →"
+				},
+				"adoption_lci_solution_vs_report": {
+					"title": "Cisco LCI Elegível (Opt In) - Solução vs. Projeto",
+					"description": "Relatório para indicar se existem projetos para a Solução das tarefas LCI.",
+					"footer": "Abrir relatório →"
+				}
+			},
+			"adoption_tasks": {
+				"title": "Tarefas de Adoção de Technologia",
+				"chart": "Contagem dos Tipos de Soluções das Atividades de Adoção"
+			}
+		},
+		"technical": {},
+		"task": {
+			"task": {
+				"title": "Tarefa"
+			},
+			"task_activity": {
+				"title": "Atividade",
+				"activity_list": "Lista de atividades (subtarefa)"
+			},
+			"task_activity_detail": {},
+			"task_activity_new":{
+				"title": "Atividade: Criar Nova"
+			},
+			"task_activity_raci": {
+				"title": "Matriz RACI"
+			},
+			"task_detail": {},
+			"task_filter_next_follow_up": {
+				"title": "Filtro: Próximo Acompanhamento",
+	            "next_follow_up_label": "Próximo Acompanhamento",
+				"next_follow_up_delayed": "Acompanhamento: Atrasado",
+				"next_follow_up_today": "Acompanhamento: Hoje",
+				"next_follow_up_current_week": "Acompanhamento: Semana Atual",
+				"next_follow_up_next_week": "Acompanhamento: Próxima Semana"
+			},
+			"task_filter_report": {},
+			"task_filter_task": {
+				"title": "Filtro: Tarefas"
+			},
+			"task_lci_visibiliy": {
+				"title": "Análise da Viabilidade para Cisco LCI",
+				"header_lci": "LCI - Detalhes do Cliente/Solução",
+				"no_lci_task": "Nenhuma tarefa LCI disponível para análise.",
+				"header_tasks": "LCI - Tarefas Relacionadas"
+			},
+			"task_new": {
+				"title": "Nova Tarefa",
+				"new_task": "Nova Tarefa"
+			},
+			"task_overview": {},
+			"task_report_task_detail": {},
+			"task_report_task_list": {}
+		},
+		"presales": {
+			"heatmap": {
+				"title": "Heatmap",
+				"no_data_found": "Nenhum dado encontrado.",
+				"no_vendor": "Nenhum vendor cadastrado.",
+				"no_client_available": "Nenhum cliente disponível para inclusão.",
+				"insert_edit_section": "Inserir / Editar Heatmap",
+				"filter_client": "Cliente",
+				"filter_vendor": "Vendor",
+				"legend_history_tab": "Histórico",
+				"legend_insert_tab": "Inserir novo registro",
+				"legend_edit_tab": "Editar Sales Status",
+				"new_client_expander": "Novo Cliente no Heatmap",
+				"field_client": "Cliente",
+				"field_domain": "Technology Domain",
+				"field_new_domain": "Nova Technology Domain",
+				"field_vendor": "Vendor",
+				"field_status": "Sales Status",
+				"field_notes": "Observações do Heatmap",
+				"field_notes_help": "Use este campo para registrar comentários ou anotações sobre este Heatmap.",
+				"field_notes_edit_help": "Use este campo para registrar comentários ou anotações sobre esta alteração de Sales Status.",
+				"btn_insert_new_heatmap": "Inserir Novo Heatmap",
+				"btn_insert_existing": "Inserir para Cliente Existente",
+				"btn_update_status": "Atualizar Status",
+				"insert_success": "Heatmap inserido com sucesso.",
+				"insert_record_success": "Registro inserido com sucesso.",
+				"update_status_success": "Status atualizado com sucesso.",
+				"history_title": "Histórico de Anotações do Heatmap",
+				"history_empty": "Nenhum histórico encontrado para este cliente.",
+				"history_filter_domain": "Filtrar por Technology Domain (Histórico)",
+				"warn_select_client": "Selecione um cliente",
+				"warn_select_domain": "Selecione um domínio de tecnologia",
+				"warn_select_vendor": "Selecione um vendor",
+				"warn_select_status": "Selecione um status de vendas",
+				"edit_select_vendor": "Selecione o Vendor para editar",
+				"edit_new_status": "Novo Sales Status",
+				"insert_new_record" : "Inserir novo registro",
+				"edit_sales_status": "Editar Sales Status",
+				"history": "Histórico"
+			}
+		}
+	},
+	"components": {
+		"select": {
+			"all": "Todos",
+			"all_fy": "Todos FY",
+			"client": "Selecionar cliente",
+			"fy": "Selecione um FY",
+			"target": "Selecione uma meta",
+			"no_options": "Sem opções",
+			"ntt_fy": "Selecione FY NTT",
+			"option": "Selecionar uma opção",
+			"vendor": "Selecione um Fornecedor"
+		}
+	},
+	"modals": {
+	},
+	"notifications": {
+        "missing_data": "Faltando dados obrigatórios.",
+        "no_activity": "Nenhuma atividade selecionada.",
+		"no_column_selected": "Selecione pelo menos uma coluna para exibir.",
+        "no_data": "Nenhum registro/dado.",
+		"no_data_found": "Nenhum dado encontrado",
+		"no_results": "Nenhum resultado."
+	},
+	"calendar": {
+		"months": {
+			"1": { "full": "Janeiro", "abbrev": "Jan" },
+			"2": { "full": "Fevereiro", "abbrev": "Fev" },
+			"3": { "full": "Março", "abbrev": "Mar" },
+			"4": { "full": "Abril", "abbrev": "Abr" },
+			"5": { "full": "Maio", "abbrev": "Mai" },
+			"6": { "full": "Junho", "abbrev": "Jun" },
+			"7": { "full": "Julho", "abbrev": "Jul" },
+			"8": { "full": "Agosto", "abbrev": "Ago" },
+			"9": { "full": "Setembro", "abbrev": "Set" },
+			"10": { "full": "Outubro", "abbrev": "Out" },
+			"11": { "full": "Novembro", "abbrev": "Nov" },
+			"12": { "full": "Dezembro", "abbrev": "Dez" }
+		}
+	},
+	"priority": {
+		"HIGH": "ALTA",
+		"MEDIUM": "MÉDIA",
+		"LOW": "BAIXA"
+	},
+  "status": {
+	"approved_to_close": "APROVADO PARA ENCERRAR",
+	"cancelled": "CANCELADO",
+	"closed": "ENCERRADO",
+	"completed": "CONCLUÍDO",
+	"completed_closed": "CONCLUÍDO/ENCERRADO",
+	"declined": "RECUSADO",
+	"delayed": "ATRASADO",
+	"expired": "EXPIRADO",
+	"incomplete": "INCOMPLETO",
+	"in_progress": "EM ANDAMENTO",
+	"next_week": "PRÓXIMA SEMANA",
+	"on_hold": "EM ESPERA",
+	"on_time": "NO PRAZO",
+	"open": "ABERTO",
+	"resubmitted_to_approval": "REENVIADO PARA APROVAÇÃO",
+	"submitted_to_approval": "SUBMETIDO PARA APROVAÇÃO",
+	"this_week": "ESTA SEMANA",
+	"today": "HOJE"
+  }
+}
