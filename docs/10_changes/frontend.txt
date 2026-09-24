@@ -156,3 +156,12 @@
   - inclusão de recuo visual e marcador `↳` nas activities para reforçar percepção de sucessão abaixo da task
   - composição do nome exibido na grade com `task_type_name + task_ws` na task e `activity_name + activity_ws` nas activities
   - implementação de paginação client-side em `Tasks > Reports > Task List`, com seletor de quantidade de linhas por página, indicador de faixa exibida e navegação `Prev/Next`
+
+2026-09-24: Ajustes adicionais no frontend de Cisco > CPI Adopt
+
+- frontend/src/pages/cisco/CpiAdoptPage.tsx
+  - adição de botão `Refresh` no cabeçalho da página para recarregar `Parent Tasks` e KPIs sem limpar os filtros já aplicados
+  - implementação de `handleRefresh()` com `reportQuery.refetch()` e `summaryQuery.refetch()`, preservando `appliedFilters` e o estado atual da tela
+  - inclusão de feedback visual no botão de refresh durante a atualização, com estado desabilitado, ícone girando e label `Refreshing…`
+  - remoção da coluna `Edit` e dos botões de edição da tabela `Child Activities`
+  - simplificação do componente `StageTable` após a remoção da ação de edição por linha nas child activities

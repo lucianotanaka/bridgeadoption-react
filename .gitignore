@@ -42,6 +42,9 @@ Desktop.ini
 # Pastas de Armazenamento Temporário de Importação
 storage/
 
+# Ignorar qualquer pasta chamada 'old' e todo o seu conteúdo
+**/old/
+
 # Outros
 .graphify/
 manage_bridgeadoption.ps1
