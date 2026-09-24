@@ -22,6 +22,9 @@ const PROGRESS_MAP: Record<string, number> = { "0%": 0, "25%": 0.25, "50%": 0.5,
 const REVERSE_PROGRESS: Record<string, string> = { "0": "0%", "0.25": "25%", "0.5": "50%", "0.75": "75%", "1": "100%" };
 const PRIORITY_OPTIONS = ["HIGH", "MEDIUM", "LOW"];
 const CURRENCY_OPTIONS = ["BRL", "USD", "EUR"];
+const NOTE_TYPE_OPTIONS = ["INFO", "ISSUE", "BLOCKER", "ACTION"];
+const NOTE_STATUS_OPTIONS = ["DOING", "PENDING", "DONE"];
+const NOTE_STATUS_ENABLED_TYPES = new Set(["ISSUE", "BLOCKER"]);
 const DEADLINE_ICON: Record<string, string> = { today: "⚠️", this_week: "⏳", next_week: "📅", future: "🕒" };
 
 function fmtDate(iso?: string | null): string {
@@ -1108,10 +1111,12 @@ function HistorySection({ task, activities, taskId, selectedActivityId }: {
   const [showAddNote, setShowAddNote] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [noteType, setNoteType] = useState("INFO");
+  const [noteStatus, setNoteStatus] = useState("");
   const manualNoteValue = "__manual__";
   const [selectedNoteOption, setSelectedNoteOption] = useState(manualNoteValue);
   const [nextFU, setNextFU] = useState("");
   const [noteSaved, setNoteSaved] = useState(false);
+  const [noteError, setNoteError] = useState("");
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
 
   const isTask = selectedActivityId === null;
@@ -1156,17 +1161,25 @@ function HistorySection({ task, activities, taskId, selectedActivityId }: {
     ),
   ];
   const effectiveNoteText = selectedNoteOption === manualNoteValue ? noteText.trim() : selectedNoteOption.trim();
+  const requiresNoteStatus = NOTE_STATUS_ENABLED_TYPES.has(noteType);
 
   const addNoteMut = useMutation<unknown, Error, void>({
     mutationFn: () => {
       if (!effectiveNoteText) return Promise.resolve(null);
+      const taskrecord_status = NOTE_STATUS_ENABLED_TYPES.has(noteType) ? (noteStatus || undefined) : undefined;
+      const basePayload = {
+        taskrecord_remark: effectiveNoteText,
+        taskrecord_type: noteType,
+        taskrecord_status,
+        taskrecord_next_followup: nextFU || undefined,
+      };
       const payload = isTask
-        ? { taskrecord_remark: effectiveNoteText, taskrecord_type: noteType, taskrecord_next_followup: nextFU || undefined }
-        : { taskrecord_task_id: taskId, taskrecord_activity_id: selectedActivityId!, taskrecord_remark: effectiveNoteText, taskrecord_type: noteType, taskrecord_next_followup: nextFU || undefined };
+        ? basePayload
+        : { taskrecord_task_id: taskId, taskrecord_activity_id: selectedActivityId!, ...basePayload };
       return tasksApi.addHistory(taskId, payload).then((r) => r.data);
     },
     onSuccess: () => {
-      setNoteText(""); setSelectedNoteOption(manualNoteValue); setNextFU(""); setNoteSaved(true);
+      setNoteText(""); setSelectedNoteOption(manualNoteValue); setNextFU(""); setNoteStatus(""); setNoteError(""); setNoteSaved(true);
       void qc.invalidateQueries({ queryKey: ["task-history", taskId] });
       void qc.invalidateQueries({ queryKey: ["act-hist"] });
       setTimeout(() => { setNoteSaved(false); setShowAddNote(false); }, 1500);
@@ -1191,6 +1204,10 @@ function HistorySection({ task, activities, taskId, selectedActivityId }: {
     BLOCKER: {
       activeClass: "bg-red-600 text-white border-red-600",
       inactiveClass: "border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20",
+    },
+    ACTION: {
+      activeClass: "bg-emerald-600 text-white border-emerald-600",
+      inactiveClass: "border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20",
     },
     LOG: {
       activeClass: "bg-slate-600 text-white border-slate-600",
@@ -1261,8 +1278,21 @@ function HistorySection({ task, activities, taskId, selectedActivityId }: {
                     setNoteType(v);
                     setSelectedNoteOption(manualNoteValue);
                     setNoteText("");
+                    setNoteError("");
+                    if (!NOTE_STATUS_ENABLED_TYPES.has(v)) setNoteStatus("");
                   }}
-                  options={["INFO", "ISSUE", "BLOCKER"]}
+                  options={NOTE_TYPE_OPTIONS}
+                />
+              </LabelInput>
+              <LabelInput label="NOTE STATUS">
+                <Sel
+                  value={noteStatus}
+                  onChange={(v) => {
+                    setNoteStatus(v);
+                    setNoteError("");
+                  }}
+                  options={["", ...NOTE_STATUS_OPTIONS]}
+                  disabled={!NOTE_STATUS_ENABLED_TYPES.has(noteType)}
                 />
               </LabelInput>
               <LabelInput label={t("task.formNextFollowUp")}>
@@ -1299,11 +1329,21 @@ function HistorySection({ task, activities, taskId, selectedActivityId }: {
           </div>
           <div className="flex items-center justify-end gap-2">
             {noteSaved && <p className="text-[10px] text-green-600 dark:text-green-400">{t("task.savedSuccess")}</p>}
+            {noteError && <p className="text-[10px] text-red-600 dark:text-red-400">{noteError}</p>}
             {addNoteMut.isError && <p className="text-[10px] text-red-600 dark:text-red-400">{t("task.saveFailed")}</p>}
-            <button onClick={() => { setShowAddNote(false); setNoteText(""); setSelectedNoteOption(manualNoteValue); }} className="px-2.5 py-1.5 text-[10px] font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 transition-colors">
+            <button onClick={() => { setShowAddNote(false); setNoteText(""); setSelectedNoteOption(manualNoteValue); setNoteStatus(""); setNoteError(""); }} className="px-2.5 py-1.5 text-[10px] font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 transition-colors">
               {t("task.cancelBtn", { defaultValue: "Cancel" })}
             </button>
-            <button onClick={() => addNoteMut.mutate()} disabled={!effectiveNoteText || addNoteMut.isPending}
+            <button
+              onClick={() => {
+                if (requiresNoteStatus && !noteStatus) {
+                  setNoteError("NOTE STATUS is required for ISSUE and BLOCKER.");
+                  return;
+                }
+                setNoteError("");
+                addNoteMut.mutate();
+              }}
+              disabled={!effectiveNoteText || addNoteMut.isPending || (requiresNoteStatus && !noteStatus)}
               className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white transition-colors">
               {addNoteMut.isPending ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Save size={10} />}
               {t("task.saveBtn")}

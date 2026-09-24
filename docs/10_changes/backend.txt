@@ -113,3 +113,15 @@
 - backend/app/tasks/router.py
   - ajuste dos schemas `ReportFilterOptionsRequest` e `ReportTasksRequest` para aceitar `owner_ids` opcional
   - atualização da documentação inline dos endpoints `/reports/owners` e `/reports/filter-options` para refletir a nova derivação dos filtros a partir da `vwTask`
+
+2026-09-24: Ajustes no backend de Adoption > Cisco LCI > Cisco LCI Report
+
+- backend/app/adoption/cisco_lci_service.py
+  - alinhamento do cálculo de `Lost` do Cisco LCI Report às regras do CPI Adopt, deixando de depender exclusivamente de `lci_stage_status_id = 6` nos KPIs principais
+  - reutilização da lógica do CPI Adopt para identificar tasks perdidas no funil com base em opt-out, expiração, child activities abertas expiradas e cenário em que todas as activities estão canceladas/expiradas sem conclusão
+  - alteração de `get_lci_summary()` e `get_lci_report_data()` para calcular `total_lost_stages`/`fin_lost` a partir das tasks classificadas como lost pelo motor do CPI Adopt
+  - ajuste de `get_lci_burnup()` para acumular `lost` pelo `task_end` das tasks lost do CPI Adopt e evitar dupla contagem dessas tasks como pipeline
+  - ajuste de `get_lci_yoy()` para calcular `lost` por FY com base nas tasks lost do CPI Adopt
+  - ajuste de `get_lci_stage_rows(..., "lost")` para exibir estágios pertencentes a tasks classificadas como lost segundo a regra do CPI Adopt
+  - correção do import interno do serviço CPI Adopt com fallback entre `app.cisco...` e `backend.app.cisco...`, eliminando falha silenciosa de carregamento da regra de Lost
+  - correção adicional do recorte de FY do `Lost` no Cisco LCI: a classificação de tasks perdidas continua vindo do CPI Adopt, mas a seleção final passou a respeitar o universo de tasks/stages exibido no FY do LCI, evitando zerar o card quando o `task_end` do CPI cair em FY diferente do estágio LCI mostrado na tela

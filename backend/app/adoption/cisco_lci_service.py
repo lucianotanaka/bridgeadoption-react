@@ -16,7 +16,7 @@ import math
 import threading
 import traceback
 from datetime import date
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,26 @@ try:
 except ImportError as e:
     logger.warning(f"CiscoLCIRepository não disponível: {e}")
     _REPO_OK = False
+
+try:
+    try:
+        from app.cisco.cpi_adopt_service import (
+            _expired_open_activity_amount as _cpi_expired_open_activity_amount,
+            _has_child_activities as _cpi_has_child_activities,
+            _is_pending as _cpi_is_pending,
+            _load_report_rows as _cpi_load_report_rows,
+        )
+    except ImportError:
+        from backend.app.cisco.cpi_adopt_service import (
+            _expired_open_activity_amount as _cpi_expired_open_activity_amount,
+            _has_child_activities as _cpi_has_child_activities,
+            _is_pending as _cpi_is_pending,
+            _load_report_rows as _cpi_load_report_rows,
+        )
+    _CPI_LOST_OK = True
+except ImportError as e:
+    logger.warning(f"Regras CPI Adopt não disponíveis para Lost LCI: {e}")
+    _CPI_LOST_OK = False
 
 # ─────────────────────────────────────────
 # TTL CACHE — 5 minutos para dados LCI
@@ -290,6 +310,98 @@ def get_lci_fiscal_years() -> List[int]:
 # SUMMARY + KPIs
 # ─────────────────────────────────────────
 
+def _task_end_fy_from_any(row: Dict[str, Any]) -> Optional[int]:
+    value = (
+        row.get("task_end_data_fy")
+        or row.get("task_end_fy")
+        or row.get("lci_task_end_fy")
+    )
+    fy = _safe_int(value)
+    return fy or None
+
+
+def _load_cpi_lost_task_map(fy: Optional[int]) -> Dict[int, Dict[str, Any]]:
+    """
+    Carrega tasks Lost conforme a regra do CPI Adopt.
+    O filtro de FY segue o CPI Adopt (task ending FY).
+    """
+    if not _CPI_LOST_OK:
+        return {}
+
+    try:
+        cpi_rows = _cpi_load_report_rows(fy_start=fy, fy_end=fy) if fy else _cpi_load_report_rows()
+        lost_map: Dict[int, Dict[str, Any]] = {}
+        for row in cpi_rows:
+            task_id = _safe_int(row.get("task_id"))
+            if not task_id:
+                continue
+
+            row_fy = _task_end_fy_from_any(row)
+            if fy and row_fy != fy:
+                continue
+
+            is_potential = bool(row.get("is_potential"))
+            is_lost = bool(row.get("is_lost"))
+            if not is_potential or not is_lost:
+                continue
+
+            lost_amount = max(
+                _safe_float(row.get("lost_amount_usd")),
+                _cpi_expired_open_activity_amount(row),
+                _safe_float(row.get("total_amount_usd"))
+                if (
+                    _cpi_is_pending(row.get("opt_in_status") or row.get("opt_in"))
+                    and not _cpi_has_child_activities(row)
+                    and bool(row.get("task_is_expired_without_completion") or _safe_int(row.get("days_remaining")) < 0)
+                )
+                else 0.0,
+            )
+            lost_map[task_id] = {
+                "task_id": task_id,
+                "row": row,
+                "lost_amount_usd": round(lost_amount, 2),
+                "task_end_fy": row_fy,
+            }
+        return lost_map
+    except Exception as e:
+        logger.warning(f"_load_cpi_lost_task_map fy={fy}: {e}")
+        return {}
+
+
+def _load_cpi_lost_task_ids(fy: Optional[int]) -> Set[int]:
+    return set(_load_cpi_lost_task_map(fy).keys())
+
+
+def _build_lci_lost_task_map(
+    lci_rows: List[Dict[str, Any]],
+    fy: Optional[int],
+) -> Dict[int, Dict[str, Any]]:
+    """
+    Para o Cisco LCI Report, o recorte de FY precisa seguir o universo LCI
+    (stages do FY selecionado), e não excluir tasks só porque o task_end FY
+    no CPI Adopt caiu em outro FY.
+
+    Estratégia:
+    - identifica as tasks presentes no universo LCI filtrado
+    - carrega o mapa Lost do CPI Adopt sem recorte de FY
+    - mantém apenas as tasks Lost que realmente aparecem no LCI do recorte atual
+    """
+    lci_task_ids = {
+        _safe_int(r.get("lci_task_id"))
+        for r in lci_rows
+        if _safe_int(r.get("lci_task_id"))
+    }
+    if not lci_task_ids:
+        return {}
+
+    cpi_lost_map = _load_cpi_lost_task_map(None)
+    return {
+        task_id: item
+        for task_id, item in cpi_lost_map.items()
+        if task_id in lci_task_ids
+    }
+
+
 def get_lci_summary(fy: Optional[int]) -> Dict[str, Any]:
     rows = _load_all_enriched()
 
@@ -311,7 +423,8 @@ def get_lci_summary(fy: Optional[int]) -> Dict[str, Any]:
     total_approved = sum(1 for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_APPROVED)
     total_awaiting = sum(1 for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_AWAITING)
     total_ongoing = sum(1 for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_ONGOING)
-    total_lost = sum(1 for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_LOST)
+    lost_task_map = _build_lci_lost_task_map(filtered, fy)
+    total_lost = len(lost_task_map)
 
     tasks_awaiting_opt_in = len({
         _safe_int(r.get("lci_task_id")) for r in filtered
@@ -323,7 +436,7 @@ def get_lci_summary(fy: Optional[int]) -> Dict[str, Any]:
     })
 
     fin_approved = sum(_safe_float(r.get("stage_amount_usd")) for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_APPROVED)
-    fin_lost = sum(_safe_float(r.get("stage_amount_usd")) for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_LOST)
+    fin_lost = sum(item.get("lost_amount_usd", 0.0) for item in lost_task_map.values())
 
     # Total Opt In: active tasks that have opted in, sum task_value (not stage_value)
     # Use load_cisco_lci_all to get task_value per task
@@ -428,6 +541,7 @@ def get_lci_burnup(fy: int) -> Dict[str, Any]:
 
     rows = _load_all_enriched()
     filtered = [r for r in rows if r.get("lci_effective_fy") == fy]
+    lost_task_map = _build_lci_lost_task_map(filtered, fy)
 
     seen: Dict[int, Dict] = {}
     for r in filtered:
@@ -444,6 +558,23 @@ def get_lci_burnup(fy: int) -> Dict[str, Any]:
 
     # Aggregate by month
     monthly: Dict[str, Dict] = {m: {"approved": 0.0, "lost": 0.0, "pipeline": 0.0} for m in fiscal_months}
+
+    for lost_item in lost_task_map.values():
+        row = lost_item.get("row") or {}
+        month_key = None
+        end_date = row.get("task_end")
+        if end_date:
+            try:
+                import pandas as pd
+                ts = pd.to_datetime(end_date)
+                month_key = f"{ts.year}-{ts.month:02d}"
+            except Exception:
+                pass
+        if month_key not in monthly:
+            month_key = fiscal_months[-1]
+        monthly[month_key]["lost"] += _safe_float(lost_item.get("lost_amount_usd"))
+
+    lost_task_ids = set(lost_task_map.keys())
 
     for r in seen.values():
         task_status = _safe_int(r.get("lci_task_status"))
@@ -469,8 +600,8 @@ def get_lci_burnup(fy: int) -> Dict[str, Any]:
         amount = _safe_float(r.get("stage_amount_usd"))
         if stage_status in STATUS_APPROVED:
             monthly[month_key]["approved"] += amount
-        elif stage_status in STATUS_LOST:
-            monthly[month_key]["lost"] += amount
+        elif _safe_int(r.get("lci_task_id")) in lost_task_ids:
+            continue
         else:
             monthly[month_key]["pipeline"] += amount
 
@@ -512,6 +643,11 @@ def get_lci_yoy() -> List[Dict[str, Any]]:
         if sid and sid not in seen:
             seen[sid] = r
 
+    lost_maps_by_fy: Dict[int, Dict[int, Dict[str, Any]]] = {}
+    for fy_year in range(cur - 2, cur + 1):
+        fy_lci_rows = [r for r in rows if r.get("lci_effective_fy") == fy_year]
+        lost_maps_by_fy[fy_year] = _build_lci_lost_task_map(fy_lci_rows, fy_year)
+
     # Approved and Lost by FY
     by_fy: Dict[int, Dict] = {}
     for r in seen.values():
@@ -525,8 +661,11 @@ def get_lci_yoy() -> List[Dict[str, Any]]:
         amount = _safe_float(r.get("stage_amount_usd"))
         if sid_status in STATUS_APPROVED:
             by_fy[fy]["approved"] += amount
-        elif sid_status in STATUS_LOST:
-            by_fy[fy]["lost"] += amount
+
+    for fy_year, lost_map in lost_maps_by_fy.items():
+        if fy_year not in by_fy:
+            by_fy[fy_year] = {"approved": 0.0, "lost": 0.0, "potential": 0.0}
+        by_fy[fy_year]["lost"] = round(sum(item.get("lost_amount_usd", 0.0) for item in lost_map.values()), 2)
 
     # Potential per FY: use the same seen stages (scoped to relevant FYs)
     # potential = approved + lost + pipeline (all non-cancelled stages in that FY)
@@ -1115,7 +1254,20 @@ def get_lci_stage_rows(fy: Optional[int], stage_status_filter: str) -> List[Dict
             filtered = rows
     else:
         target_statuses = status_map.get(filter_key, set())
-        if fy:
+        if filter_key == "lost":
+            lost_task_ids = set(_build_lci_lost_task_map(
+                [r for r in rows if not fy or r.get("lci_effective_fy") == fy],
+                fy,
+            ).keys())
+            if fy:
+                filtered = [
+                    r for r in rows
+                    if _safe_int(r.get("lci_task_id")) in lost_task_ids
+                    and r.get("lci_effective_fy") == fy
+                ]
+            else:
+                filtered = [r for r in rows if _safe_int(r.get("lci_task_id")) in lost_task_ids]
+        elif fy:
             if filter_key == "approved":
                 filtered = [
                     r for r in rows
@@ -1208,7 +1360,8 @@ def get_lci_report_data(fy: Optional[int]) -> Dict[str, Any]:
         total_approved = sum(1 for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_APPROVED)
         total_awaiting = sum(1 for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_AWAITING)
         total_ongoing  = sum(1 for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_ONGOING)
-        total_lost     = sum(1 for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_LOST)
+        lost_task_map = _build_lci_lost_task_map(fy_rows, fy)
+        total_lost     = len(lost_task_map)
 
         tasks_awaiting_opt_in = len({
             _safe_int(r.get("lci_task_id")) for r in fy_rows
@@ -1220,7 +1373,7 @@ def get_lci_report_data(fy: Optional[int]) -> Dict[str, Any]:
         })
 
         fin_approved = sum(_safe_float(r.get("stage_amount_usd")) for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_APPROVED)
-        fin_lost_val = sum(_safe_float(r.get("stage_amount_usd")) for r in stage_dedup if _safe_int(r.get("lci_stage_status_id")) in STATUS_LOST)
+        fin_lost_val = sum(item.get("lost_amount_usd", 0.0) for item in lost_task_map.values())
 
         CANCELLED = {4, 5}
         opted_in_task_ids = {_safe_int(r.get("lci_task_id")) for r in fy_rows if _safe_int(r.get("lci_task_status")) not in CANCELLED}

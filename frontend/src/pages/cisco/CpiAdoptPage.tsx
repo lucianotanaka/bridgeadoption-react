@@ -11,6 +11,7 @@ import {
   Download,
   Filter,
   Layers,
+  RefreshCw,
   TrendingDown,
   GitBranch,
   BarChart3,
@@ -939,13 +940,9 @@ function buildExportRows(rows: CpiAdoptRow[]) {
 function StageTable({
   stages,
   locale,
-  canEdit = false,
-  onEditStage,
 }: {
   stages: CpiAdoptStageRow[];
   locale?: string;
-  canEdit?: boolean;
-  onEditStage?: (activityId: number | null) => void;
 }) {
   if (!stages.length) {
     return <p className="px-4 py-3 text-xs text-gray-400 dark:text-gray-500">No activities found for this task.</p>;
@@ -984,9 +981,6 @@ function StageTable({
             <th className="px-2 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Latest Blocker Status</th>
             <th className="px-2 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Next Follow Up Blocker</th>
             <th className="px-2 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Details</th>
-            <th className="sticky right-0 z-10 min-w-[72px] px-2 py-2 text-center font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap bg-gray-50 dark:bg-gray-800/70 border-l border-gray-200 dark:border-gray-700 shadow-[-8px_0_12px_-8px_rgba(15,23,42,0.35)]">
-              Edit
-            </th>
           </tr>
         </thead>
         <tbody>
@@ -1116,17 +1110,6 @@ function StageTable({
                       );
                     })}
                   </div>
-                </td>
-                <td className="sticky right-0 z-10 min-w-[72px] border-l border-gray-200 bg-white/95 px-2 py-2 text-center shadow-[-8px_0_12px_-8px_rgba(15,23,42,0.35)] dark:border-gray-700 dark:bg-gray-900/95">
-                  <button
-                    type="button"
-                    onClick={() => canEdit && onEditStage?.(stage.activity_id ?? null)}
-                    disabled={!canEdit || stage.activity_id == null}
-                    title={canEdit ? "Open Activity Detail" : "No permission to open Activity Detail"}
-                    className="inline-flex items-center justify-center text-blue-600 transition-colors hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40 dark:text-blue-400 dark:hover:text-blue-300"
-                  >
-                    <Pencil size={14} />
-                  </button>
                 </td>
               </tr>
             );
@@ -1579,7 +1562,12 @@ export default function CpiAdoptPage() {
     }
   };
 
+  const handleRefresh = async () => {
+    await Promise.all([reportQuery.refetch(), summaryQuery.refetch()]);
+  };
+
   const isLoading = reportQuery.isLoading || summaryQuery.isLoading || filtersQuery.isLoading;
+  const isRefreshing = reportQuery.isFetching || summaryQuery.isFetching;
 
   return (
     <div className="space-y-6">
@@ -1590,14 +1578,27 @@ export default function CpiAdoptPage() {
             Cisco Partner Incentive — executive funnel view with parent tasks and child activities
           </p>
         </div>
-        <button
-          onClick={handleExport}
-          disabled={isExporting || !filteredRows.length}
-          className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
-        >
-          <Download size={13} />
-          {isExporting ? "Exporting…" : "Export Excel"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+            title="Refresh Parent Tasks"
+          >
+            <RefreshCw size={13} className={isRefreshing ? "animate-spin" : ""} />
+            {isRefreshing ? "Refreshing…" : "Refresh"}
+          </button>
+
+          <button
+            onClick={handleExport}
+            disabled={isExporting || !filteredRows.length}
+            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+          >
+            <Download size={13} />
+            {isExporting ? "Exporting…" : "Export Excel"}
+          </button>
+        </div>
       </div>
 
       {displaySummary && (
@@ -2307,13 +2308,6 @@ export default function CpiAdoptPage() {
                                   <StageTable
                                     stages={stages}
                                     locale={i18n.language}
-                                    canEdit={hasTaskPermission}
-                                    onEditStage={(activityId) => {
-                                      if (row.task_id != null && hasTaskPermission) {
-                                        setSelectedActivityId(activityId);
-                                        setSelectedTaskId(row.task_id);
-                                      }
-                                    }}
                                   />
                                 </div>
                               </td>
