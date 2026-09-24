@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 try:
     from src.infrastructure.database.repositories.task_repository import TaskRepository
     from src.infrastructure.database.repositories.task_activity_repository import TaskActivityRepository
+    from src.infrastructure.database.repositories.status_type_repository import StatusTypeRepository
     from src.domain.status_reclassification import reclassify_status
     _REPOS_OK = True
 except ImportError as e:
@@ -89,17 +90,51 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _get_status_type_map() -> Dict[int, str]:
+    try:
+        repo = StatusTypeRepository()
+        df = repo.load_status(as_df=True)
+        if df is None or df.empty:
+            return {}
+
+        status_map: Dict[int, str] = {}
+        for _, row in df.iterrows():
+            status_id = row.get("statustype_id")
+            status_name = row.get("statustype_name")
+            try:
+                status_id_int = int(status_id)
+            except Exception:
+                continue
+
+            status_name_text = str(status_name).strip() if status_name is not None else ""
+            if status_name_text:
+                status_map[status_id_int] = status_name_text
+
+        return status_map
+    except Exception:
+        return {}
+
+
 # ─────────────────────────────────────────
 # REPORT OWNERS  (vwFilterTaskOwner)
 # ─────────────────────────────────────────
 
-def get_report_owners() -> List[Dict[str, Any]]:
+def get_report_owners(
+    task_type_names: Optional[List[str]] = None,
+    client_names: Optional[List[str]] = None,
+    status_names: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
     """Retorna lista de owners disponíveis para o filtro de relatórios."""
     if not _REPOS_OK:
         return []
     try:
         repo = TaskRepository()
-        df = repo.get_task_owner_filter_options(as_df=True)
+        df = repo.get_report_owner_options(
+            task_type_names=task_type_names,
+            client_names=client_names,
+            status_names=status_names,
+            as_df=True,
+        )
         if df is None or df.empty:
             return []
         df = df.sort_values("task_owner_name").reset_index(drop=True)
@@ -115,7 +150,7 @@ def get_report_owners() -> List[Dict[str, Any]]:
 # ─────────────────────────────────────────
 
 def get_report_filter_options(
-    owner_ids: List[int],
+    owner_ids: Optional[List[int]] = None,
     task_type_names: Optional[List[str]] = None,
     client_names: Optional[List[str]] = None,
     status_names: Optional[List[str]] = None,
@@ -126,16 +161,18 @@ def get_report_filter_options(
     demais filtros já escolhidos (exceto a própria coluna que está sendo
     recalculada).
     """
-    if not _REPOS_OK or not owner_ids:
+    if not _REPOS_OK:
         return {"task_types": [], "clients": [], "statuses": []}
     try:
-        import pandas as pd
         repo = TaskRepository()
-        df = repo.get_filtered_tasks(where={"task_owner_id": owner_ids}, as_df=True)
-        if df is None or df.empty:
+        base_df = repo.get_report_filter_source(
+            owner_ids=owner_ids,
+            as_df=True,
+        )
+        if base_df is None or base_df.empty:
             return {"task_types": [], "clients": [], "statuses": []}
 
-        df = reclassify_status(df, "task")
+        df = reclassify_status(base_df, "task")
 
         def _apply(df_in, col, values):
             if not values or col not in df_in.columns:
@@ -169,22 +206,24 @@ def get_report_filter_options(
 # ─────────────────────────────────────────
 
 def get_report_tasks(
-    owner_ids: List[int],
+    owner_ids: Optional[List[int]] = None,
     task_type_names: Optional[List[str]] = None,
     client_names: Optional[List[str]] = None,
     status_names: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Aplica todos os filtros do relatório e retorna as tasks completas (vwTask),
-    ordenadas por cliente. Requer ao menos um owner selecionado (mesma regra
-    do Streamlit: o relatório só carrega dados após escolher owner(s)).
+    ordenadas por cliente.
     """
-    if not _REPOS_OK or not owner_ids:
+    if not _REPOS_OK:
         return []
     try:
         repo = TaskRepository()
 
-        filter_df = repo.get_filtered_tasks(where={"task_owner_id": owner_ids}, as_df=True)
+        filter_df = repo.get_report_filter_source(
+            owner_ids=owner_ids,
+            as_df=True,
+        )
         if filter_df is None or filter_df.empty:
             return []
 
@@ -257,6 +296,33 @@ def get_report_task_detail(task_id: int) -> Dict[str, Any]:
 
         if has_activities:
             activity_df = reclassify_status(activity_df, "activity")
+
+            if "activity_status_name" not in activity_df.columns:
+                activity_df["activity_status_name"] = None
+
+            status_map = _get_status_type_map()
+            if "activity_status" in activity_df.columns:
+                activity_df["activity_status_name_from_id"] = activity_df["activity_status"].apply(
+                    lambda value: status_map.get(_safe_int(value, default=-1))
+                )
+            else:
+                activity_df["activity_status_name_from_id"] = None
+
+            base_status_name = activity_df["activity_status_name"].fillna(activity_df["activity_status_name_from_id"])
+
+            if "activity_status_reclassified" in activity_df.columns:
+                activity_df["activity_status_display"] = activity_df["activity_status_reclassified"]
+            else:
+                activity_df["activity_status_display"] = base_status_name
+
+            activity_df["activity_status_display"] = (
+                activity_df["activity_status_display"]
+                .fillna(base_status_name)
+                .fillna("No status")
+            )
+
+            activity_df["activity_status_name"] = base_status_name.fillna(activity_df["activity_status_display"])
+
             activity_df = activity_df.sort_values(by="activity_seq").reset_index(drop=True)
 
         task_row = task_df.iloc[0].to_dict()
@@ -264,7 +330,7 @@ def get_report_task_detail(task_id: int) -> Dict[str, Any]:
         # ── Activity status summary (para o gráfico pie) ──
         if has_activities:
             summary = (
-                activity_df.groupby("activity_status_name")["activity_id"]
+                activity_df.groupby("activity_status_display")["activity_id"]
                 .count()
                 .reset_index()
             )
@@ -280,8 +346,9 @@ def get_report_task_detail(task_id: int) -> Dict[str, Any]:
         # ── Schedule (linha 0 = Task, demais = atividades) ──
         schedule_rows: List[Dict[str, Any]] = []
         schedule_rows.append({
-            "seq": 0,
+            "seq": 1,
             "name": task_row.get("task_type_name"),
+            "task_ws": task_row.get("task_ws"),
             "start_expected": task_row.get("task_start"),
             "end_expected": task_row.get("task_end"),
             "start_performed": task_row.get("task_start_performed"),
@@ -296,8 +363,9 @@ def get_report_task_detail(task_id: int) -> Dict[str, Any]:
         if has_activities:
             for _, r in activity_df.iterrows():
                 schedule_rows.append({
-                    "seq": _safe_int(r.get("activity_seq")) + 1,
+                    "seq": _safe_int(r.get("activity_seq")) + 2,
                     "name": r.get("activity_name"),
+                    "activity_ws": r.get("activity_ws"),
                     "start_expected": r.get("activity_start"),
                     "end_expected": r.get("activity_end"),
                     "start_performed": r.get("activity_start_performed"),
@@ -305,7 +373,7 @@ def get_report_task_detail(task_id: int) -> Dict[str, Any]:
                     "effort_expected": r.get("activity_effort"),
                     "effort_performed": r.get("activity_effort_performed"),
                     "completed_pct": _safe_pct(r.get("activity_completed")),
-                    "status_name": r.get("activity_status_name"),
+                    "status_name": r.get("activity_status_display"),
                     "is_task_row": False,
                 })
 
@@ -315,6 +383,12 @@ def get_report_task_detail(task_id: int) -> Dict[str, Any]:
             act_serialized = _serialize_df(activity_df)
             for a in act_serialized:
                 a["activity_wbs"] = _safe_int(a.get("activity_seq")) + 1
+                a["activity_status_name"] = (
+                    a.get("activity_status_reclassified")
+                    or a.get("activity_status_name")
+                    or a.get("activity_status_name_from_id")
+                    or "No status"
+                )
             activities_out = act_serialized
 
         def _clean_row(row: Dict[str, Any]) -> Dict[str, Any]:

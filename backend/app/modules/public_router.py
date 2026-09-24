@@ -152,27 +152,57 @@ def schedule_import_endpoint(
 def importer_log(
     importctrl_id: int,
     current_user: Annotated[dict, Depends(get_current_user)],
+    source: Optional[str] = Query(None),
+    file_name: Optional[str] = Query(None),
+    started_at: Optional[str] = Query(None),
+    started_by: Optional[str] = Query(None),
 ):
     """Returns log file content for a given importctrl_id."""
-    return get_log_content(importctrl_id=importctrl_id)
+    return get_log_content(
+        importctrl_id=importctrl_id,
+        source=source,
+        file_name=file_name,
+        started_at=started_at,
+        started_by=started_by,
+    )
 
 
 @importer_router.get("/{importctrl_id}/failed-rows", response_model=Dict[str, Any])
 def importer_failed_rows(
     importctrl_id: int,
     current_user: Annotated[dict, Depends(get_current_user)],
+    source: Optional[str] = Query(None),
+    file_name: Optional[str] = Query(None),
+    started_at: Optional[str] = Query(None),
+    started_by: Optional[str] = Query(None),
 ):
     """Returns failed rows data for a given importctrl_id."""
-    return get_failed_rows(importctrl_id=importctrl_id)
+    return get_failed_rows(
+        importctrl_id=importctrl_id,
+        source=source,
+        file_name=file_name,
+        started_at=started_at,
+        started_by=started_by,
+    )
 
 
 @importer_router.get("/{importctrl_id}/failed-rows/download")
 def importer_failed_rows_download(
     importctrl_id: int,
     current_user: Annotated[dict, Depends(get_current_user)],
+    source: Optional[str] = Query(None),
+    file_name: Optional[str] = Query(None),
+    started_at: Optional[str] = Query(None),
+    started_by: Optional[str] = Query(None),
 ):
     """Downloads the raw failed rows spreadsheet for a given importctrl_id."""
-    result = get_failed_rows_file(importctrl_id=importctrl_id)
+    result = get_failed_rows_file(
+        importctrl_id=importctrl_id,
+        source=source,
+        file_name=file_name,
+        started_at=started_at,
+        started_by=started_by,
+    )
     if not result["found"] or not result["failed_path"]:
         raise HTTPException(status_code=404, detail="Arquivo de falhas não encontrado.")
     return FileResponse(

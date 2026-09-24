@@ -67,3 +67,49 @@
 - src/domain/i18n/translator.py
   - substituição do path absoluto Linux por resolução relativa a `__file__`, permitindo localizar corretamente os arquivos de idioma em ambiente local/Windows
   - adição de fallback de idioma curto/default (`en-US` → `en`, `pt-BR` → `pt`, etc.), evitando quebra de `get_filter_options()` por `Idioma não suportado`
+
+2026-09-24: Ajustes no backend de Adoption > Cisco LCI > Eligible Status
+
+- backend/app/adoption/lci_eligible_status_service.py
+  - correção da preparação dos dados do report Eligible Status para compatibilizar as colunas de data vindas de `vwCiscoLCI` (`lci_stage_start_date` / `lci_stage_end_date`) com os nomes esperados pelo serviço (`lci_stage_start` / `lci_stage_end`)
+  - correção do agrupamento mensal do gráfico Executive Monthly View, que estava ficando sem dados por causa da ausência de datas normalizadas
+  - reforço de robustez em `get_lci_eligible_status_execution_detail()` para tolerar pequenas variações de shape/colunas do dataset e evitar retorno vazio na tabela `Stage Execution Detail`
+  - inclusão de fallbacks adicionais para montagem do mês/ordenação usando `lci_stage_end_date` e `lci_stage_start_date` quando necessário
+
+2026-09-24: Ajustes no backend de Portfolio > Projects
+
+- backend/app/modules/sections_service.py
+  - reimplementação de `get_projects()` para leitura direta via SQL em `vwProject`, eliminando a dependência de `ProjectRepository.get_project(..., as_df=True)` no carregamento da tela Projects
+  - manutenção da busca por OV com SQL direto em `tbProjectOV` + `vwProject` dentro do mesmo fluxo
+  - correção da carga de projetos por `customer_id`, restaurando o preenchimento da grade e das opções do `OV FILTER`
+
+2026-09-24: Ajustes no backend de Public > CSM Account
+
+- backend/app/modules/public_service.py
+  - alteração de `get_public_csm_account()` para reutilizar prioritariamente `app.adoption.csm_account_service.get_csm_accounts()`, alinhando o módulo Public à mesma origem de dados já usada em Adoption > CSM Account
+  - inclusão de filtro local por `customer_id` com fallback entre as chaves `client_id`, `customer_id` e `company_id`
+  - manutenção do fallback SQL direto como contingência, reduzindo divergência entre os dois fluxos e corrigindo o retorno vazio que deixava os filtros sem opções
+
+2026-09-24: Ajustes no backend de Tasks > LCI Viability
+
+- backend/app/tasks/lci_viability_service.py
+  - remoção da regra que exigia vínculo obrigatório com projeto para salvar uma task em `IN PROGRESS`
+  - manutenção do vínculo opcional com projeto existente (`project_id`) ou novo projeto (`new_project_ov` + `new_project_name`) quando informado pelo usuário
+  - ajuste da validação para permitir salvar sem projeto e validar apenas o caso de criação incompleta de novo projeto
+
+2026-09-24: Ajustes no backend de Tasks > Reports
+
+- backend/app/tasks/report_service.py
+  - migração da origem dos filtros de `Tasks > Reports` para a `vwTask`, por meio dos novos métodos do `TaskRepository`
+  - remoção da obrigatoriedade de `owner_ids` para calcular opções dinâmicas e carregar o report, permitindo iniciar a filtragem por qualquer dimensão
+  - manutenção da reclassificação de status no backend antes de devolver a lista de `statuses` e antes de aplicar o filtro final do report
+  - preservação da carga final das rows completas via `get_task(...)`, usando a `vwTask` apenas como fonte leve/intermediária para descobrir `task_id` e montar opções de filtro
+  - correção do payload de `Task Details` para normalizar o status das atividades com fallback entre `activity_status_reclassified`, `activity_status_name` e `No status`
+  - ajuste do gráfico de pizza e da coluna `Status` do bloco `Schedule` para usar a mesma label efetivamente exibida para cada activity
+  - reforço da serialização da lista `activities` para evitar ausência visual de status quando a tabela `tbTaskActivity` não trouxer `activity_status_name` preenchido
+  - complemento da correção com lookup em `tbStatusType`, convertendo `activity_status` numérico para nome legível antes dos fallbacks; isso elimina casos em que o frontend exibia `No status` apesar de a activity possuir status ID válido
+  - ampliação do payload de `schedule` para incluir `task_ws` na linha principal e `activity_ws` nas linhas filhas, além de ajustar a numeração base para o padrão visual desejado (`1` para task, atividades a partir de `2`)
+
+- backend/app/tasks/router.py
+  - ajuste dos schemas `ReportFilterOptionsRequest` e `ReportTasksRequest` para aceitar `owner_ids` opcional
+  - atualização da documentação inline dos endpoints `/reports/owners` e `/reports/filter-options` para refletir a nova derivação dos filtros a partir da `vwTask`

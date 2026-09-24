@@ -642,14 +642,14 @@ def activity_update(
 # ─── Reports ──────────────────────────────────────────────────────────────────
 
 class ReportFilterOptionsRequest(BaseModel):
-    owner_ids: List[int]
+    owner_ids: Optional[List[int]] = None
     task_type_names: Optional[List[str]] = None
     client_names: Optional[List[str]] = None
     status_names: Optional[List[str]] = None
 
 
 class ReportTasksRequest(BaseModel):
-    owner_ids: List[int]
+    owner_ids: Optional[List[int]] = None
     task_type_names: Optional[List[str]] = None
     client_names: Optional[List[str]] = None
     status_names: Optional[List[str]] = None
@@ -657,7 +657,7 @@ class ReportTasksRequest(BaseModel):
 
 @router.get("/reports/owners", response_model=List[Dict[str, Any]])
 def reports_owners(current_user: Annotated[dict, Depends(get_current_user)]):
-    """Returns owners available for the Reports filter (vwFilterTaskOwner)."""
+    """Returns owners available for the Reports filter, derived from vwTask."""
     return get_report_owners()
 
 
@@ -666,7 +666,7 @@ def reports_filter_options(
     current_user: Annotated[dict, Depends(get_current_user)],
     body: ReportFilterOptionsRequest,
 ):
-    """Returns cascading task_type/client/status options based on selected owners."""
+    """Returns cascading task_type/client/status options based on the current report filters."""
     return get_report_filter_options(
         owner_ids=body.owner_ids,
         task_type_names=body.task_type_names,

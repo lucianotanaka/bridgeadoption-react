@@ -68,6 +68,15 @@ def _prepare_df(stage_df):
         return pd.DataFrame()
 
     df = stage_df.copy()
+
+    # vwCiscoLCI exposes date columns as *_date, while some other loaders use
+    # the shorter *_start / *_end names. Normalize both shapes here so the
+    # downstream aggregations always have valid month/year data.
+    if "lci_stage_end" not in df.columns and "lci_stage_end_date" in df.columns:
+        df["lci_stage_end"] = df["lci_stage_end_date"]
+    if "lci_stage_start" not in df.columns and "lci_stage_start_date" in df.columns:
+        df["lci_stage_start"] = df["lci_stage_start_date"]
+
     numeric_cols = ["lci_stage_value", "lci_stage_approval_value"]
     text_cols = ["lci_stage_name", "lci_stage_status_name", "lci_stage_ws", "lci_ws",
                  "lci_deal_id", "lci_client_name", "lci_track", "lci_use_case"]
@@ -365,17 +374,33 @@ def get_lci_eligible_status_execution_detail(fy: Optional[int] = None) -> List[D
         return []
 
     df = df.copy()
+
+    # Keep the table resilient to slight shape differences coming from vwCiscoLCI.
+    for col in [
+        "lci_client_name", "lci_deal_id", "lci_ws", "lci_stage_ws", "lci_stage_name",
+        "lci_track", "lci_use_case", "lci_stage_status_name", "status_category",
+        "lci_stage_value", "lci_stage_approval_value", "lci_stage_start", "lci_stage_end",
+    ]:
+        if col not in df.columns:
+            df[col] = "" if col not in {"lci_stage_value", "lci_stage_approval_value", "lci_stage_start", "lci_stage_end"} else (
+                0.0 if col in {"lci_stage_value", "lci_stage_approval_value"} else pd.NaT
+            )
+
     month_date = df["lci_stage_end"].where(df["lci_stage_end"].notna(), df["lci_stage_start"])
+    if month_date.isna().all() and "lci_stage_end_date" in df.columns:
+        month_date = pd.to_datetime(df["lci_stage_end_date"], errors="coerce")
+    if month_date.isna().all() and "lci_stage_start_date" in df.columns:
+        month_date = pd.to_datetime(df["lci_stage_start_date"], errors="coerce")
+
     df["_month"] = month_date.dt.strftime("%b/%Y").fillna("")
+    df["_sort_date"] = month_date.fillna(pd.Timestamp.max)
 
     detail = df[[
         "lci_client_name", "lci_deal_id", "lci_ws", "lci_stage_ws", "lci_stage_name",
         "lci_track", "lci_use_case", "lci_stage_status_name", "status_category",
         "lci_stage_value", "lci_stage_approval_value", "lci_stage_start", "lci_stage_end",
+        "_month", "_sort_date",
     ]].copy()
-
-    detail["_month"] = df["_month"]
-    detail["_sort_date"] = month_date.fillna(pd.Timestamp.max)
 
     detail = detail.sort_values(
         by=["_sort_date", "lci_client_name", "lci_deal_id", "lci_ws", "lci_stage_ws"]
@@ -384,19 +409,19 @@ def get_lci_eligible_status_execution_detail(fy: Optional[int] = None) -> List[D
     result = []
     for _, row in detail.iterrows():
         result.append({
-            "client": row["lci_client_name"],
-            "deal_id": row["lci_deal_id"],
-            "lci_ws": row["lci_ws"],
-            "stage_ws": row["lci_stage_ws"],
-            "stage_name": row["lci_stage_name"],
-            "track": row["lci_track"],
-            "use_case": row["lci_use_case"],
-            "month": row["_month"],
-            "status": row["lci_stage_status_name"],
-            "executive_category": row["status_category"],
-            "stage_value_usd": round(float(row["lci_stage_value"]), 2),
-            "approval_value_usd": round(float(row["lci_stage_approval_value"]), 2),
-            "stage_start": row["lci_stage_start"].strftime("%Y-%m-%d") if pd.notna(row["lci_stage_start"]) else None,
-            "stage_end": row["lci_stage_end"].strftime("%Y-%m-%d") if pd.notna(row["lci_stage_end"]) else None,
+            "client": row.get("lci_client_name", ""),
+            "deal_id": row.get("lci_deal_id", ""),
+            "lci_ws": row.get("lci_ws", ""),
+            "stage_ws": row.get("lci_stage_ws", ""),
+            "stage_name": row.get("lci_stage_name", ""),
+            "track": row.get("lci_track", ""),
+            "use_case": row.get("lci_use_case", ""),
+            "month": row.get("_month", ""),
+            "status": row.get("lci_stage_status_name", ""),
+            "executive_category": row.get("status_category", ""),
+            "stage_value_usd": round(float(row.get("lci_stage_value", 0.0) or 0.0), 2),
+            "approval_value_usd": round(float(row.get("lci_stage_approval_value", 0.0) or 0.0), 2),
+            "stage_start": row["lci_stage_start"].strftime("%Y-%m-%d") if pd.notna(row.get("lci_stage_start")) else None,
+            "stage_end": row["lci_stage_end"].strftime("%Y-%m-%d") if pd.notna(row.get("lci_stage_end")) else None,
         })
     return result

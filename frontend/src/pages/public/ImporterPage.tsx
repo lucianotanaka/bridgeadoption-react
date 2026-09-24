@@ -14,6 +14,8 @@
  *  incluir o prefixo "/api" — use "/public/importer/..." diretamente.
  */
 import { useState, useMemo, useRef } from "react";
+import axios from "axios";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   RefreshCw, Upload, Clock, AlertCircle,
@@ -41,27 +43,19 @@ interface ImportType {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const STATUS_LABELS: Record<string, string> = {
-  PENDING:   "Pendente (na fila)",
-  RUNNING:   "Em execução",
-  FINISHED:  "Concluída com sucesso",
-  FAILED:    "Concluída com erro",
-  CANCELLED: "Cancelada",
-};
-
 const STATUS_COLORS: Record<string, string> = {
-  PENDING:   "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
-  RUNNING:   "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  FINISHED:  "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-  FAILED:    "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+  PENDING: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+  RUNNING: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  FINISHED: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  FAILED: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
   CANCELLED: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
 };
 
 const STATUS_BAR_COLORS: Record<string, string> = {
-  PENDING:   "bg-yellow-400",
-  RUNNING:   "bg-blue-500",
-  FINISHED:  "bg-green-500",
-  FAILED:    "bg-red-500",
+  PENDING: "bg-yellow-400",
+  RUNNING: "bg-blue-500",
+  FINISHED: "bg-green-500",
+  FAILED: "bg-red-500",
   CANCELLED: "bg-gray-400",
 };
 
@@ -85,12 +79,28 @@ const btnGhost =
 
 const spinner = <Loader2 size={13} className="animate-spin" />;
 
+function useImporterI18n() {
+  const { t, i18n } = useTranslation();
+  return {
+    t,
+    language: i18n.language,
+    statusLabels: {
+      PENDING: t("public.importer.status.pending"),
+      RUNNING: t("public.importer.status.running"),
+      FINISHED: t("public.importer.status.finished"),
+      FAILED: t("public.importer.status.failed"),
+      CANCELLED: t("public.importer.status.cancelled"),
+    } as Record<string, string>,
+  };
+}
+
 // ─── Small helpers ────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
+  const { statusLabels } = useImporterI18n();
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${STATUS_COLORS[status] ?? "bg-gray-100 text-gray-600"}`}>
-      {STATUS_LABELS[status] ?? status}
+      {statusLabels[status] ?? status}
     </span>
   );
 }
@@ -112,6 +122,7 @@ function EmptyState({ message }: { message: string }) {
 // ─── Status Cockpit (Tab 1 charts) ────────────────────────────────────────────
 
 function StatusCockpit({ records }: { records: ImportRecord[] }) {
+  const { t, statusLabels } = useImporterI18n();
   const ALL_STATUSES = ["PENDING", "RUNNING", "FINISHED", "FAILED", "CANCELLED"];
 
   const counts = useMemo(() => {
@@ -141,12 +152,12 @@ function StatusCockpit({ records }: { records: ImportRecord[] }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-        <SectionCaption text="Importações por status" />
+        <SectionCaption text={t("public.importer.statusByStatus")} />
         <div className="space-y-2">
           {ALL_STATUSES.map((s) => (
             <div key={s} className="flex items-center gap-2">
               <span className="text-[10px] text-gray-500 dark:text-gray-400 w-36 shrink-0 truncate">
-                {STATUS_LABELS[s]}
+                {statusLabels[s]}
               </span>
               <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded h-4 overflow-hidden">
                 <div
@@ -163,9 +174,9 @@ function StatusCockpit({ records }: { records: ImportRecord[] }) {
       </div>
 
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-        <SectionCaption text="Importações por dia (últimos 14 dias)" />
+        <SectionCaption text={t("public.importer.importsByDay")} />
         {timeline.length === 0 ? (
-          <EmptyState message="Nenhuma importação no período." />
+          <EmptyState message={t("public.importer.noImportsInPeriod")} />
         ) : (
           <div className="flex items-end gap-1 h-24">
             {timeline.map(([date, count]) => (
@@ -198,8 +209,10 @@ function HistoryTable({
   selectedId: number | null;
   onSelect: (id: number | null) => void;
 }) {
+  const { t } = useImporterI18n();
+
   if (!records.length) {
-    return <EmptyState message="Nenhuma importação registrada ainda." />;
+    return <EmptyState message={t("public.importer.noHistory")} />;
   }
 
   return (
@@ -207,7 +220,15 @@ function HistoryTable({
       <table className="min-w-full text-xs">
         <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
           <tr>
-            {["ID", "Fonte", "Arquivo", "Status", "Agendado / Iniciado", "Finalizado", "Responsável"].map((h) => (
+            {[
+              "ID",
+              t("public.importer.source"),
+              t("public.importer.file"),
+              t("common.status"),
+              t("public.importer.startedAt"),
+              t("public.importer.endedAt"),
+              t("public.importer.owner"),
+            ].map((h) => (
               <th key={h} className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap border-b border-gray-200 dark:border-gray-700">
                 {h}
               </th>
@@ -269,14 +290,21 @@ function generateTimeSlots(date: string, occupiedIso: string[]): string[] {
   return slots;
 }
 
-function formatDateDisplay(iso: string): string {
-  const [, m, d] = iso.split("-");
+function formatDateDisplay(iso: string, language: string): string {
+  const [y, m, d] = iso.split("-");
+  const lang = language.toLowerCase();
+  if (lang.startsWith("en")) return `${m}/${d}`;
   return `${d}/${m}`;
+}
+
+function todaySuffix(dateIso: string, language: string, t: (key: string) => string): string {
+  return dateIso === new Date().toISOString().slice(0, 10) ? ` (${t("public.importer.today")})` : "";
 }
 
 // ─── Upload Tab ───────────────────────────────────────────────────────────────
 
 function UploadTab({ onUploaded }: { onUploaded: (name: string) => void }) {
+  const { t } = useImporterI18n();
   const [file, setFile] = useState<File | null>(null);
   const [lastUploadedName, setLastUploadedName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -308,25 +336,31 @@ function UploadTab({ onUploaded }: { onUploaded: (name: string) => void }) {
     const f = e.target.files?.[0] ?? null;
     if (!f) { setFile(null); return; }
     if (!f.name.toLowerCase().endsWith(".xlsx")) {
-      setError("Apenas arquivos .xlsx são aceitos."); setFile(null); return;
+      setError(t("public.importer.onlyXlsx"));
+      setFile(null);
+      return;
     }
     if (f.size > MAX_UPLOAD_MB * 1024 * 1024) {
-      setError(`Arquivo muito grande. Máximo: ${MAX_UPLOAD_MB} MB.`); setFile(null); return;
+      setError(t("public.importer.fileTooLarge", { maxMb: MAX_UPLOAD_MB }));
+      setFile(null);
+      return;
     }
     setFile(f);
   };
 
   return (
     <div className="space-y-4">
-      <SectionCaption text="Upload de arquivo (.xlsx)" />
+      <SectionCaption text={t("public.importer.tabs.upload")} />
       <p className="text-xs text-gray-500 dark:text-gray-400">
-        Envie o arquivo Excel (.xlsx). Tamanho máximo: <strong>{MAX_UPLOAD_MB} MB</strong>.
+        {t("public.importer.uploadHelp", { maxMb: MAX_UPLOAD_MB })}
       </p>
-      <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 flex flex-col items-center gap-3 cursor-pointer hover:border-blue-400 transition-colors"
-        onClick={() => fileRef.current?.click()}>
+      <div
+        className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 flex flex-col items-center gap-3 cursor-pointer hover:border-blue-400 transition-colors"
+        onClick={() => fileRef.current?.click()}
+      >
         <Upload size={32} className="text-gray-400" />
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          {file ? <span className="text-blue-600 dark:text-blue-400 font-medium">{file.name}</span> : "Clique ou arraste um arquivo .xlsx aqui"}
+          {file ? <span className="text-blue-600 dark:text-blue-400 font-medium">{file.name}</span> : t("public.importer.uploadDropzone")}
         </p>
         <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={handleFileChange} />
       </div>
@@ -339,17 +373,17 @@ function UploadTab({ onUploaded }: { onUploaded: (name: string) => void }) {
         <div className="flex items-center gap-3">
           <button onClick={() => uploadMut.mutate(file)} disabled={uploadMut.isPending} className={btnPrimary}>
             {uploadMut.isPending ? spinner : <Upload size={13} />}
-            {uploadMut.isPending ? "Enviando..." : "Enviar arquivo"}
+            {uploadMut.isPending ? t("public.importer.uploading") : t("public.importer.uploadButton")}
           </button>
           <button onClick={() => { setFile(null); if (fileRef.current) fileRef.current.value = ""; }} disabled={uploadMut.isPending} className={btnGhost}>
-            <X size={13} /> Cancelar
+            <X size={13} /> {t("common.cancel")}
           </button>
         </div>
       )}
       {lastUploadedName && !uploadMut.isPending && (
         <div className="flex items-center gap-2 px-3 py-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-xs text-green-700 dark:text-green-300">
           <CheckCircle size={13} />
-          Arquivo <strong>'{lastUploadedName}'</strong> enviado com sucesso.
+          {t("public.importer.uploadSuccess", { file: lastUploadedName })}
         </div>
       )}
     </div>
@@ -359,6 +393,7 @@ function UploadTab({ onUploaded }: { onUploaded: (name: string) => void }) {
 // ─── Schedule Tab ─────────────────────────────────────────────────────────────
 
 function ScheduleTab({ lastUploadedFile, onScheduled }: { lastUploadedFile: string | null; onScheduled: () => void }) {
+  const { t, language } = useImporterI18n();
   const [selSource, setSelSource] = useState<string>("");
   const [selDate, setSelDate] = useState<string>("");
   const [selTime, setSelTime] = useState<string>("");
@@ -385,8 +420,11 @@ function ScheduleTab({ lastUploadedFile, onScheduled }: { lastUploadedFile: stri
   const scheduleMut = useMutation<{ importctrl_id: number }, Error, { source: string; file_name: string; scheduled_at: string }>({
     mutationFn: (body) => apiClient.post<{ importctrl_id: number }>("/public/importer/schedule", body).then((r) => r.data),
     onSuccess: (data) => {
-      setFlashMsg({ type: "success", text: `Importação agendada com sucesso! ID: ${data.importctrl_id}` });
-      setSelSource(""); setSelDate(""); setSelTime(""); setSelFile("");
+      setFlashMsg({ type: "success", text: t("public.importer.scheduleSuccess", { id: data.importctrl_id }) });
+      setSelSource("");
+      setSelDate("");
+      setSelTime("");
+      setSelFile("");
       void qc.invalidateQueries({ queryKey: ["importer-files"] });
       void qc.invalidateQueries({ queryKey: ["importer-occupied-slots"] });
       void qc.invalidateQueries({ queryKey: ["importer-history"] });
@@ -400,14 +438,15 @@ function ScheduleTab({ lastUploadedFile, onScheduled }: { lastUploadedFile: stri
   const timeSlots = selDate ? generateTimeSlots(selDate, occupiedSlots) : [];
   const availableFiles = filesQ.data ?? [];
   const fileOptions = lastUploadedFile && !availableFiles.includes(lastUploadedFile)
-    ? [lastUploadedFile, ...availableFiles] : availableFiles;
+    ? [lastUploadedFile, ...availableFiles]
+    : availableFiles;
   const canSchedule = selSource && selDate && selTime && selFile && !scheduleMut.isPending;
 
   return (
     <div className="space-y-4">
-      <SectionCaption text="Agendamento de importação" />
+      <SectionCaption text={t("public.importer.tabs.schedule")} />
       <p className="text-xs text-gray-500 dark:text-gray-400">
-        O processamento é feito em <em>background</em> pelo <strong>cron</strong> no servidor Linux.
+        {t("public.importer.scheduleHelp")}
       </p>
       {flashMsg && (
         <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs ${flashMsg.type === "success" ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300" : "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300"}`}>
@@ -418,48 +457,68 @@ function ScheduleTab({ lastUploadedFile, onScheduled }: { lastUploadedFile: stri
       )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5 block">Tipo de importação</label>
+          <label className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5 block">{t("public.importer.importType")}</label>
           <select value={selSource} onChange={(e) => setSelSource(e.target.value)} className={selectCls}>
-            <option value="">Selecione o tipo...</option>
-            {(importTypesQ.data ?? []).map((t) => <option key={t.source} value={t.source}>{t.label}</option>)}
+            <option value="">{t("public.importer.selectImportType")}</option>
+            {(importTypesQ.data ?? []).map((importType) => (
+              <option key={importType.source} value={importType.source}>{importType.label}</option>
+            ))}
           </select>
         </div>
         <div>
-          <label className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5 block">Arquivo para importação</label>
-          {filesQ.isLoading ? <div className="text-xs text-gray-400 py-1.5">Carregando...</div>
-            : fileOptions.length === 0 ? <div className="text-xs text-yellow-700 dark:text-yellow-300 py-1.5">Nenhum arquivo disponível. Faça upload primeiro.</div>
-            : <select value={selFile} onChange={(e) => setSelFile(e.target.value)} className={selectCls}>
-                <option value="">Selecione o arquivo...</option>
-                {fileOptions.map((f) => <option key={f} value={f}>{f}</option>)}
-              </select>
-          }
+          <label className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5 block">{t("public.importer.fileToImport")}</label>
+          {filesQ.isLoading ? (
+            <div className="text-xs text-gray-400 py-1.5">{t("common.loading")}</div>
+          ) : fileOptions.length === 0 ? (
+            <div className="text-xs text-yellow-700 dark:text-yellow-300 py-1.5">{t("public.importer.noAvailableFiles")}</div>
+          ) : (
+            <select value={selFile} onChange={(e) => setSelFile(e.target.value)} className={selectCls}>
+              <option value="">{t("public.importer.selectFile")}</option>
+              {fileOptions.map((fileName) => <option key={fileName} value={fileName}>{fileName}</option>)}
+            </select>
+          )}
         </div>
         <div>
-          <label className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5 block">Data de agendamento</label>
+          <label className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5 block">{t("public.importer.scheduleDate")}</label>
           <select value={selDate} onChange={(e) => { setSelDate(e.target.value); setSelTime(""); }} className={selectCls}>
-            <option value="">Selecione a data...</option>
-            {dateOptions.map((d) => <option key={d} value={d}>{formatDateDisplay(d)}{d === new Date().toISOString().slice(0, 10) ? " (hoje)" : ""}</option>)}
+            <option value="">{t("public.importer.selectDate")}</option>
+            {dateOptions.map((dateIso) => (
+              <option key={dateIso} value={dateIso}>
+                {formatDateDisplay(dateIso, language)}{todaySuffix(dateIso, language, t)}
+              </option>
+            ))}
           </select>
         </div>
         <div>
-          <label className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5 block">Hora de agendamento</label>
-          {!selDate ? <div className="text-xs text-gray-400 py-1.5 italic">Selecione uma data primeiro.</div>
-            : slotsQ.isLoading ? <div className="text-xs text-gray-400 py-1.5">Carregando...</div>
-            : timeSlots.length === 0 ? <div className="text-xs text-yellow-700 dark:text-yellow-300 py-1.5">Nenhum horário disponível.</div>
-            : <select value={selTime} onChange={(e) => setSelTime(e.target.value)} className={selectCls}>
-                <option value="">Selecione o horário...</option>
-                {timeSlots.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-          }
+          <label className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5 block">{t("public.importer.scheduleTime")}</label>
+          {!selDate ? (
+            <div className="text-xs text-gray-400 py-1.5 italic">{t("public.importer.selectDateFirst")}</div>
+          ) : slotsQ.isLoading ? (
+            <div className="text-xs text-gray-400 py-1.5">{t("common.loading")}</div>
+          ) : timeSlots.length === 0 ? (
+            <div className="text-xs text-yellow-700 dark:text-yellow-300 py-1.5">{t("public.importer.noAvailableTimes")}</div>
+          ) : (
+            <select value={selTime} onChange={(e) => setSelTime(e.target.value)} className={selectCls}>
+              <option value="">{t("public.importer.selectTime")}</option>
+              {timeSlots.map((timeSlot) => <option key={timeSlot} value={timeSlot}>{timeSlot}</option>)}
+            </select>
+          )}
         </div>
       </div>
       <p className="text-[10px] text-gray-400 dark:text-gray-500">
-        O cron iniciará importações cuja data/hora seja ≤ o momento atual.
+        {t("public.importer.scheduleHint")}
       </p>
       <div className="flex items-center gap-3 pt-1">
-        <button onClick={() => { if (!canSchedule) return; scheduleMut.mutate({ source: selSource, file_name: selFile, scheduled_at: `${selDate}T${selTime}:00` }); }} disabled={!canSchedule} className={btnPrimary}>
+        <button
+          onClick={() => {
+            if (!canSchedule) return;
+            scheduleMut.mutate({ source: selSource, file_name: selFile, scheduled_at: `${selDate}T${selTime}:00` });
+          }}
+          disabled={!canSchedule}
+          className={btnPrimary}
+        >
           {scheduleMut.isPending ? spinner : <Clock size={13} />}
-          {scheduleMut.isPending ? "Agendando..." : "Agendar importação"}
+          {scheduleMut.isPending ? t("public.importer.scheduling") : t("public.importer.scheduleButton")}
         </button>
         {scheduleMut.isError && <span className="text-xs text-red-600 dark:text-red-400">{scheduleMut.error?.message}</span>}
       </div>
@@ -473,19 +532,32 @@ interface LogData { found: boolean; content: string; log_path: string | null; er
 interface FailedRowsData { found: boolean; rows: Record<string, unknown>[]; columns: string[]; failed_path: string | null; error: string | null }
 
 function DetailsTab({ records }: { records: ImportRecord[] }) {
+  const { t, statusLabels } = useImporterI18n();
   const [selId, setSelId] = useState<number | null>(null);
   const [activeSection, setActiveSection] = useState<"log" | "failed">("log");
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [failedPage, setFailedPage] = useState(1);
+  const pageSize = 10;
   const selRecord = records.find((r) => r.importctrl_id === selId) ?? null;
+  const detailParams = selRecord
+    ? {
+        source: selRecord.importctrl_source,
+        file_name: selRecord.importctrl_file,
+        started_at: selRecord.importctrl_started,
+        started_by: selRecord.importctrl_started_by,
+      }
+    : undefined;
 
   const logQ = useQuery<LogData>({
-    queryKey: ["importer-log", selId],
-    queryFn: () => apiClient.get<LogData>(`/public/importer/${selId}/log`).then((r) => r.data),
+    queryKey: ["importer-log", selId, detailParams],
+    queryFn: () => apiClient.get<LogData>(`/public/importer/${selId}/log`, { params: detailParams }).then((r) => r.data),
     enabled: selId !== null && activeSection === "log",
     staleTime: 15000,
   });
   const failedQ = useQuery<FailedRowsData>({
-    queryKey: ["importer-failed", selId],
-    queryFn: () => apiClient.get<FailedRowsData>(`/public/importer/${selId}/failed-rows`).then((r) => r.data),
+    queryKey: ["importer-failed", selId, detailParams],
+    queryFn: () => apiClient.get<FailedRowsData>(`/public/importer/${selId}/failed-rows`, { params: detailParams }).then((r) => r.data),
     enabled: selId !== null && activeSection === "failed",
     staleTime: 15000,
   });
@@ -493,17 +565,64 @@ function DetailsTab({ records }: { records: ImportRecord[] }) {
     () => [...records].sort((a, b) => (b.importctrl_started ?? "").localeCompare(a.importctrl_started ?? "")),
     [records],
   );
+  const failedRows = failedQ.data?.rows ?? [];
+  const failedTotalPages = Math.max(1, Math.ceil(failedRows.length / pageSize));
+  const normalizedFailedPage = Math.min(failedPage, failedTotalPages);
+  const failedPageStart = (normalizedFailedPage - 1) * pageSize;
+  const failedPageRows = failedRows.slice(failedPageStart, failedPageStart + pageSize);
+
+  const handleDownloadFailedRows = async () => {
+    if (!selId) return;
+    setDownloadError(null);
+    setIsDownloading(true);
+    try {
+      const response = await apiClient.get<Blob>(`/public/importer/${selId}/failed-rows/download`, {
+        params: detailParams,
+        responseType: "blob",
+      });
+      const blob = new Blob([response.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const fileName =
+        response.headers["content-disposition"]?.match(/filename="?([^"]+)"?/)?.[1] ??
+        `failed_rows_${selId}.xlsx`;
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      let message = t("public.importer.failedDownloadFallback");
+      if (axios.isAxiosError(error) && error.response?.data instanceof Blob) {
+        try {
+          const text = await error.response.data.text();
+          const parsed = JSON.parse(text) as { detail?: string };
+          if (parsed.detail) {
+            message = parsed.detail;
+          }
+        } catch {
+          // ignore parse errors and keep fallback message
+        }
+      }
+      setDownloadError(message);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
-      <SectionCaption text="Detalhes da importação e arquivos de erro" />
+      <SectionCaption text={t("public.importer.tabs.details")} />
       <div>
-        <label className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5 block">Selecione a importação</label>
-        <select value={selId ?? ""} onChange={(e) => { setSelId(e.target.value ? Number(e.target.value) : null); setActiveSection("log"); }} className={selectCls}>
-          <option value="">Selecione...</option>
+        <label className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5 block">{t("public.importer.selectImport")}</label>
+        <select value={selId ?? ""} onChange={(e) => { setSelId(e.target.value ? Number(e.target.value) : null); setActiveSection("log"); setDownloadError(null); setFailedPage(1); }} className={selectCls}>
+          <option value="">{t("common.selectOption")}</option>
           {sortedRecords.map((r) => (
             <option key={r.importctrl_id} value={r.importctrl_id}>
-              ID {r.importctrl_id} | {r.importctrl_file} | {STATUS_LABELS[r.importctrl_status] ?? r.importctrl_status} | {r.importctrl_started?.replace("T", " ").slice(0, 16) ?? "—"}
+              ID {r.importctrl_id} | {r.importctrl_file} | {statusLabels[r.importctrl_status] ?? r.importctrl_status} | {r.importctrl_started?.replace("T", " ").slice(0, 16) ?? "—"}
             </option>
           ))}
         </select>
@@ -511,69 +630,100 @@ function DetailsTab({ records }: { records: ImportRecord[] }) {
       {selRecord && (
         <>
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-            <div><span className="text-gray-400">Arquivo:</span><br /><strong className="text-gray-700 dark:text-gray-300">{selRecord.importctrl_file}</strong></div>
-            <div><span className="text-gray-400">Fonte:</span><br /><strong className="text-gray-700 dark:text-gray-300">{selRecord.importctrl_source}</strong></div>
-            <div><span className="text-gray-400">Status:</span><br /><StatusBadge status={selRecord.importctrl_status} /></div>
-            <div><span className="text-gray-400">Responsável:</span><br /><strong className="text-gray-700 dark:text-gray-300">{selRecord.importctrl_started_by ?? "—"}</strong></div>
-            <div><span className="text-gray-400">Início:</span><br /><span className="text-gray-600 dark:text-gray-300">{selRecord.importctrl_started?.replace("T", " ").slice(0, 19) ?? "—"}</span></div>
-            <div><span className="text-gray-400">Fim:</span><br /><span className="text-gray-600 dark:text-gray-300">{selRecord.importctrl_ended?.replace("T", " ").slice(0, 19) ?? "—"}</span></div>
-            {selRecord.importctrl_message && <div className="col-span-2 md:col-span-4"><span className="text-gray-400">Mensagem:</span><br /><span className="text-gray-600 dark:text-gray-300">{selRecord.importctrl_message}</span></div>}
+            <div><span className="text-gray-400">{t("public.importer.file")}:</span><br /><strong className="text-gray-700 dark:text-gray-300">{selRecord.importctrl_file}</strong></div>
+            <div><span className="text-gray-400">{t("public.importer.source")}:</span><br /><strong className="text-gray-700 dark:text-gray-300">{selRecord.importctrl_source}</strong></div>
+            <div><span className="text-gray-400">{t("common.status")}:</span><br /><StatusBadge status={selRecord.importctrl_status} /></div>
+            <div><span className="text-gray-400">{t("public.importer.owner")}:</span><br /><strong className="text-gray-700 dark:text-gray-300">{selRecord.importctrl_started_by ?? "—"}</strong></div>
+            <div><span className="text-gray-400">{t("public.importer.startedAt")}:</span><br /><span className="text-gray-600 dark:text-gray-300">{selRecord.importctrl_started?.replace("T", " ").slice(0, 19) ?? "—"}</span></div>
+            <div><span className="text-gray-400">{t("public.importer.endedAt")}:</span><br /><span className="text-gray-600 dark:text-gray-300">{selRecord.importctrl_ended?.replace("T", " ").slice(0, 19) ?? "—"}</span></div>
+            {selRecord.importctrl_message && <div className="col-span-2 md:col-span-4"><span className="text-gray-400">{t("public.importer.message")}:</span><br /><span className="text-gray-600 dark:text-gray-300">{selRecord.importctrl_message}</span></div>}
           </div>
           <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700">
             {(["log", "failed"] as const).map((s) => (
-              <button key={s} onClick={() => setActiveSection(s)} className={`px-3 py-1.5 text-xs font-medium rounded-t-lg transition-colors ${activeSection === s ? "bg-blue-600 text-white" : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"}`}>
-                {s === "log" ? "📄 Log (.log)" : "⚠️ Linhas com falha (.xlsx)"}
+              <button key={s} onClick={() => { setActiveSection(s); if (s === "failed") setFailedPage(1); }} className={`px-3 py-1.5 text-xs font-medium rounded-t-lg transition-colors ${activeSection === s ? "bg-blue-600 text-white" : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"}`}>
+                {s === "log" ? t("public.importer.logTab") : t("public.importer.failedRowsTab")}
               </button>
             ))}
           </div>
           {activeSection === "log" && (
             <div>
-              {logQ.isLoading && <div className="text-xs text-gray-400 py-2 flex items-center gap-1">{spinner} Carregando log...</div>}
-              {logQ.isError && <div className="text-xs text-red-500 py-2">Erro: {logQ.error?.message}</div>}
-              {logQ.data && !logQ.data.found && <div className="text-xs text-gray-400 italic py-2">Nenhum arquivo de log encontrado.</div>}
+              {logQ.isLoading && <div className="text-xs text-gray-400 py-2 flex items-center gap-1">{spinner} {t("public.importer.loadingLog")}</div>}
+              {logQ.isError && <div className="text-xs text-red-500 py-2">{t("common.error")}: {logQ.error?.message}</div>}
+              {logQ.data && !logQ.data.found && <div className="text-xs text-gray-400 italic py-2">{t("public.importer.noLogFound")}</div>}
               {logQ.data?.found && <textarea readOnly value={logQ.data.content} className={`${inputCls} font-mono h-64 resize-y`} />}
             </div>
           )}
           {activeSection === "failed" && (
             <div className="space-y-2">
-              {failedQ.isLoading && <div className="text-xs text-gray-400 py-2 flex items-center gap-1">{spinner} Carregando...</div>}
-              {failedQ.isError && <div className="text-xs text-red-500 py-2">Erro: {failedQ.error?.message}</div>}
-              {failedQ.data?.error && <div className="text-xs text-red-500 py-2">Erro ao ler arquivo de falhas: {failedQ.data.error}</div>}
-              {failedQ.data && !failedQ.data.found && <div className="text-xs text-gray-400 italic py-2">Nenhum arquivo de falhas encontrado.</div>}
+              {failedQ.isLoading && <div className="text-xs text-gray-400 py-2 flex items-center gap-1">{spinner} {t("common.loading")}</div>}
+              {failedQ.isError && <div className="text-xs text-red-500 py-2">{t("common.error")}: {failedQ.error?.message}</div>}
+              {failedQ.data?.error && <div className="text-xs text-red-500 py-2">{t("public.importer.failedReadError")}: {failedQ.data.error}</div>}
+              {downloadError && <div className="text-xs text-red-500 py-2">{t("public.importer.failedDownloadError")}: {downloadError}</div>}
+              {failedQ.data && !failedQ.data.found && <div className="text-xs text-gray-400 italic py-2">{t("public.importer.noFailedFileFound")}</div>}
               {failedQ.data?.found && (
                 <>
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-xs text-gray-500">
                       {failedQ.data.rows.length > 0
-                        ? `${failedQ.data.rows.length} linha(s) com falha.`
-                        : "Arquivo de falhas carregado."}
+                        ? t("public.importer.failedRowsCount", { count: failedQ.data.rows.length })
+                        : t("public.importer.failedFileLoaded")}
                     </div>
                     <button
-                      onClick={() => {
-                        if (!selId) return;
-                        window.open(apiClient.getUri({ url: `/public/importer/${selId}/failed-rows/download` }), "_blank");
-                      }}
+                      onClick={() => { void handleDownloadFailedRows(); }}
+                      disabled={isDownloading}
                       className={btnGhost}
                     >
-                      <Download size={13} /> Baixar XLSX
+                      {isDownloading ? spinner : <Download size={13} />} {t("public.importer.downloadXlsx")}
                     </button>
                   </div>
                   {failedQ.data.rows.length === 0 ? (
-                    <div className="text-xs text-gray-400 italic py-2">Arquivo de falhas vazio.</div>
+                    <div className="text-xs text-gray-400 italic py-2">
+                      {failedQ.data.columns.length === 0
+                        ? t("public.importer.previewUnavailable")
+                        : t("public.importer.failedFileEmpty")}
+                    </div>
                   ) : (
-                    <div className="overflow-auto border border-gray-200 dark:border-gray-700 rounded-lg max-h-96">
-                      <table className="min-w-full text-xs">
-                        <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
-                          <tr>{failedQ.data.columns.map((c) => <th key={c} className="px-3 py-2 text-left font-medium text-gray-500 whitespace-nowrap border-b border-gray-200 dark:border-gray-700">{c}</th>)}</tr>
-                        </thead>
-                        <tbody>
-                          {failedQ.data.rows.map((row, i) => (
-                            <tr key={i} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                              {failedQ.data.columns.map((c) => <td key={c} className="px-3 py-1.5 whitespace-nowrap text-gray-700 dark:text-gray-300 max-w-[180px] truncate">{row[c] == null ? <span className="text-gray-300">—</span> : String(row[c])}</td>)}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div className="space-y-3">
+                      <div className="overflow-auto border border-gray-200 dark:border-gray-700 rounded-lg max-h-96">
+                        <table className="min-w-full text-xs">
+                          <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
+                            <tr>{failedQ.data.columns.map((c) => <th key={c} className="px-3 py-2 text-left font-medium text-gray-500 whitespace-nowrap border-b border-gray-200 dark:border-gray-700">{c}</th>)}</tr>
+                          </thead>
+                          <tbody>
+                            {failedPageRows.map((row, i) => (
+                              <tr key={`${normalizedFailedPage}-${i}`} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                {failedQ.data.columns.map((c) => <td key={c} className="px-3 py-1.5 whitespace-nowrap text-gray-700 dark:text-gray-300 max-w-[180px] truncate">{row[c] == null ? <span className="text-gray-300">—</span> : String(row[c])}</td>)}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {failedQ.data.rows.length > pageSize && (
+                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-xs">
+                          <div className="text-gray-500 dark:text-gray-400">
+                            {t("common.showing")} {failedPageStart + 1}–{Math.min(failedPageStart + pageSize, failedQ.data.rows.length)} {t("common.of")} {failedQ.data.rows.length}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setFailedPage((p) => Math.max(1, p - 1))}
+                              disabled={normalizedFailedPage === 1}
+                              className={btnGhost}
+                            >
+                              {t("common.previous")}
+                            </button>
+                            <span className="text-gray-500 dark:text-gray-400">
+                              {t("public.importer.pageOf", { page: normalizedFailedPage, total: failedTotalPages })}
+                            </span>
+                            <button
+                              onClick={() => setFailedPage((p) => Math.min(failedTotalPages, p + 1))}
+                              disabled={normalizedFailedPage === failedTotalPages}
+                              className={btnGhost}
+                            >
+                              {t("common.next")}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </>
@@ -582,7 +732,7 @@ function DetailsTab({ records }: { records: ImportRecord[] }) {
           )}
         </>
       )}
-      {!selRecord && <EmptyState message="Selecione uma importação para ver detalhes." />}
+      {!selRecord && <EmptyState message={t("public.importer.selectImportHint")} />}
     </div>
   );
 }
@@ -590,6 +740,7 @@ function DetailsTab({ records }: { records: ImportRecord[] }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ImporterPage() {
+  const { t } = useImporterI18n();
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState<"status" | "upload" | "schedule" | "details">("status");
   const [lastUploadedFile, setLastUploadedFile] = useState<string | null>(null);
@@ -603,26 +754,26 @@ export default function ImporterPage() {
 
   const records = historyQ.data ?? [];
   const tabs = [
-    { key: "status" as const,   label: "1. Status / andamento" },
-    { key: "upload" as const,   label: "2. Upload de arquivo (.xlsx)" },
-    { key: "schedule" as const, label: "3. Agendamento de importação" },
-    { key: "details" as const,  label: "4. Detalhes / arquivos de erro" },
+    { key: "status" as const, label: t("public.importer.step1") },
+    { key: "upload" as const, label: t("public.importer.step2") },
+    { key: "schedule" as const, label: t("public.importer.step3") },
+    { key: "details" as const, label: t("public.importer.step4") },
   ];
 
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Painel de Importação de Arquivos</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Gerencie uploads, agendamentos e acompanhe o andamento das importações.</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("public.importer.pageTitle")}</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{t("public.importer.pageSubtitle")}</p>
         </div>
         <button onClick={() => void qc.invalidateQueries({ queryKey: ["importer-history"] })} disabled={historyQ.isFetching} className={btnGhost}>
-          <RefreshCw size={13} className={historyQ.isFetching ? "animate-spin" : ""} /> Atualizar
+          <RefreshCw size={13} className={historyQ.isFetching ? "animate-spin" : ""} /> {t("common.refresh")}
         </button>
       </div>
       {historyQ.isError && (
         <div className="flex items-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-xs text-red-700 dark:text-red-300">
-          <AlertCircle size={13} /> Não foi possível carregar o histórico de importações.
+          <AlertCircle size={13} /> {t("public.importer.historyLoadError")}
         </div>
       )}
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700">
@@ -638,9 +789,9 @@ export default function ImporterPage() {
             <div className="space-y-4">
               <StatusCockpit records={records} />
               <div>
-                <SectionCaption text="Histórico de importações" />
+                <SectionCaption text={t("public.importer.history")} />
                 {historyQ.isLoading
-                  ? <div className="text-xs text-gray-400 py-4 flex items-center gap-2">{spinner} Carregando...</div>
+                  ? <div className="text-xs text-gray-400 py-4 flex items-center gap-2">{spinner} {t("common.loading")}</div>
                   : <HistoryTable records={records} selectedId={null} onSelect={() => {}} />}
               </div>
             </div>

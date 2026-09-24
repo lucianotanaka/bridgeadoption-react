@@ -229,12 +229,12 @@ def save_group_status(req: SaveGroupRequest) -> Dict[str, Any]:
     """
     Saves status changes for a group of tasks.
 
-    Business rules (mirrors Streamlit task_lci_viability.py):
-      - If exactly 1 task IN PROGRESS: requires a project link (existing via
-        project_id OR new via new_project_ov/new_project_name). The project
-        is created if needed and linked to that task's task_project_id.
-        Other tasks in the group become CANCELLED with an automatic
-        justification.
+    Business rules:
+      - If exactly 1 task IN PROGRESS: an optional project link may be used
+        (existing via project_id OR new via new_project_ov/new_project_name).
+        If provided, the project is created/resolved and linked to that task's
+        task_project_id. Other tasks in the group become CANCELLED with an
+        automatic justification.
       - If all ON HOLD: status 3 with justification "IN REVIEW".
       - If all CANCELLED: requires cancellation_justification.
 
@@ -263,7 +263,7 @@ def save_group_status(req: SaveGroupRequest) -> Dict[str, Any]:
 
     in_progress_task_ids = [tid for tid, s in normalized_by_task_id.items() if s == "IN PROGRESS"]
 
-    # If there's an IN PROGRESS task, resolve/create the project first
+    # If there's an IN PROGRESS task, resolve/create the project only when provided
     resolved_project_id: Optional[int] = None
     if len(in_progress_task_ids) == 1:
         if req.project_id:
@@ -287,13 +287,10 @@ def save_group_status(req: SaveGroupRequest) -> Dict[str, Any]:
             except Exception as e:
                 errors.append(f"Error creating project: {str(e)}")
                 logger.error(f"save_group_status create project: {e}\n{traceback.format_exc()}")
-        else:
+        elif req.new_project_ov or req.new_project_name:
             errors.append(
-                "A project (existing or new) must be provided to move a task to IN PROGRESS."
+                "To create a new project, both new_project_ov and new_project_name must be provided."
             )
-
-        if not resolved_project_id and not errors:
-            errors.append("Could not resolve/create project for the IN PROGRESS task.")
 
         if errors:
             return {"success": False, "errors": errors, "updated_tasks": []}

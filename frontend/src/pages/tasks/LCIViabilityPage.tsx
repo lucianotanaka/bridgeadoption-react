@@ -98,7 +98,7 @@ function InProgressProjectForm({
   return (
     <div className="mt-3 p-3 bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-800 rounded-lg space-y-2">
       <p className="text-xs text-yellow-700 dark:text-yellow-400 font-medium">
-        1 task will move to IN PROGRESS. Other tasks in the group will be CANCELLED. A project must be linked to save.
+        1 task will move to IN PROGRESS. Other tasks in the group will be CANCELLED. Linking a project is optional.
       </p>
       <div>
         <label className="text-xs text-gray-600 dark:text-gray-400 font-medium">Existing Project</label>
@@ -205,7 +205,13 @@ function TaskGroupPanel(props: {
   const existingProjectSelected = Boolean(selectedProjectId);
   const newProjectStarted = Boolean(newProjectOv.trim() || newProjectName.trim());
   const hasProjectLink = existingProjectSelected || (newProjectOv.trim().length > 0 && newProjectName.trim().length > 0);
-  const canSave = (hasInProgress && hasProjectLink) || allOnHold || (allCancelled && cancelJustification.trim().length > 0);
+  const initialStatuses: Record<number, StatusOption> = {};
+  group.tasks.forEach((t) => {
+    const s = (t.task_status_name ?? "OPEN").toUpperCase() as StatusOption;
+    initialStatuses[t.task_id] = STATUS_OPTIONS.includes(s) ? s : "OPEN";
+  });
+  const hasStatusChanges = group.tasks.some((t) => statuses[t.task_id] !== initialStatuses[t.task_id]);
+  const canSave = hasStatusChanges;
 
   const saveMutation = useMutation<
     { success: boolean; errors: string[]; updated_tasks: { task_id: number; new_status: string }[] },
@@ -237,6 +243,26 @@ function TaskGroupPanel(props: {
     setSuccessMsg("");
   };
 
+  const getValidationMessage = (): string => {
+    if (!hasStatusChanges) return "Change at least one task status to save.";
+    if ((newProjectOv.trim().length > 0 || newProjectName.trim().length > 0) && !hasProjectLink) {
+      return "To create a new project, fill both New OV and New Project Name.";
+    }
+    if (allCancelled && cancelJustification.trim().length === 0) {
+      return "Select a cancellation justification to save.";
+    }
+    return "";
+  };
+
+  const handleSave = () => {
+    const validationMessage = getValidationMessage();
+    if (validationMessage) {
+      setSuccessMsg("");
+      return;
+    }
+    saveMutation.mutate();
+  };
+
   const handleReset = () => {
     const reset: Record<number, StatusOption> = {};
     group.tasks.forEach((t) => {
@@ -264,17 +290,21 @@ function TaskGroupPanel(props: {
           <p className="text-xs text-gray-400 dark:text-gray-500">{group.tasks.length} task(s)</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={handleReset} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" title="Reset">
-            <X size={14} />
-          </button>
-          <button
-            onClick={() => saveMutation.mutate()}
-            disabled={!canSave || saveMutation.isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 dark:disabled:bg-blue-800 text-white text-xs font-medium rounded-lg transition-colors"
-          >
-            {saveMutation.isPending ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Save size={12} />}
-            Save
-          </button>
+          {hasStatusChanges && (
+            <button onClick={handleReset} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" title="Reset">
+              <X size={14} />
+            </button>
+          )}
+          {hasStatusChanges && (
+            <button
+              onClick={handleSave}
+              disabled={saveMutation.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 dark:disabled:bg-blue-800 text-white text-xs font-medium rounded-lg transition-colors"
+            >
+              {saveMutation.isPending ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Save size={12} />}
+              Save
+            </button>
+          )}
         </div>
       </div>
 
@@ -292,6 +322,12 @@ function TaskGroupPanel(props: {
           existingProjectSelected={existingProjectSelected}
           newProjectStarted={newProjectStarted}
         />
+      )}
+
+      {hasInProgress && !hasProjectLink && (
+        <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+          You may save without a project. If needed, optionally select an existing project or fill both New OV and New Project Name.
+        </p>
       )}
 
       {allOnHold && (

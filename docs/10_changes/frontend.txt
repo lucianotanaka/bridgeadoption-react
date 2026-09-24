@@ -122,3 +122,37 @@
 
 - frontend/src/i18n/locales/es.json
   - inclusão de novas chaves de tradução para notas predefinidas e contexto de adição de notas em Tasks
+
+2026-09-24: Ajustes no frontend de Portfolio > Projects
+
+- frontend/src/pages/projects/ProjectsPage.tsx
+  - correção da carga do filtro `CUSTOMER` para consumir a lista dedicada de clientes com projeto via endpoint `/projects/customers`
+  - ajuste do fluxo de seleção do cliente para alinhar a origem dos dados usados pela tela Projects com o backend específico do módulo
+  - efeito esperado da mudança: permitir que a seleção de cliente alimente corretamente a carga dos projetos e a derivação das opções do `OV FILTER`
+
+2026-09-24: Ajustes no frontend de Tasks > LCI Viability
+
+- frontend/src/pages/tasks/LCIViabilityPage.tsx
+  - ajuste da mensagem de apoio no fluxo `IN PROGRESS` para informar que o vínculo com projeto é opcional
+  - remoção do bloqueio de UX que impedia salvar mudança para `IN PROGRESS` sem projeto vinculado
+  - manutenção da validação apenas para criação opcional de novo projeto com preenchimento conjunto de `New OV` e `New Project Name`
+  - alteração da regra de exibição do botão `Save`, deixando-o visível somente quando houver alteração real em algum status de task
+  - alinhamento do botão `X` com a mesma lógica do `Save`, ocultando a ação de reset quando não existirem mudanças locais a desfazer
+
+- frontend/src/pages/tasks/TaskReportsTab.tsx
+  - adição de fallback no relatório `Task Details` para montar os dados da task a partir dos endpoints padrão de detalhe (`/tasks/detail/{id}` e `/tasks/detail/{id}/activities`) quando o endpoint específico `/tasks/reports/task-detail/{id}` não retornar payload completo
+  - reforço adicional do fallback para reutilizar a própria row já carregada em `/tasks/reports/tasks` como `initialTask`, garantindo renderização mínima dos metadados da task mesmo se as APIs de detalhe falharem
+  - correção do fluxo de fallback para tratar explicitamente erro HTTP/404 do endpoint `/tasks/reports/task-detail/{id}`, permitindo continuidade para os fallbacks seguintes em vez de abortar a query
+  - ampliação da `queryKey` do React Query com campos da `initialTask` e fallback de renderização imediata via `useMemo`, reduzindo casos em que filtros diferentes reaproveitavam estado anterior e ainda exibiam `No data`
+  - correção da exportação do bloco `Schedule`, passando o `taskId` corretamente para o nome do arquivo CSV
+  - alteração adicional da regra de exibição dos botões `Task List` e `Task Details`: deixou de ser obrigatório selecionar `OWNER`; agora basta haver ao menos um filtro preenchido (`OWNER`, `TASK TYPE`, `CLIENT` ou `STATUS`) para liberar a área de relatórios
+  - habilitação permanente de todos os filtros do bloco `Reports`, inclusive antes de selecionar `OWNER`, permitindo iniciar a filtragem por qualquer dimensão disponível
+  - ajuste correlato do `Clear all` para seguir a mesma regra baseada em qualquer filtro ativo
+  - efeito esperado da mudança: evitar tela vazia em `Tasks > Reports > Task Details` após seleção da task no dropdown
+  - inclusão de spinner visual nos filtros dependentes `TASK TYPE`, `CLIENT` e `STATUS` enquanto a API recalcula as opções
+  - exibição de indicador de carregamento no campo fechado e dentro do dropdown aberto para evitar percepção de lista vazia durante a carga
+  - remodelagem visual da tabela `Schedule` em `Task Details` para aproximar a hierarquia do MS Project, com task na primeira linha e atividades visualmente subordinadas
+  - ajuste da numeração da grade para sempre iniciar em `1` na task principal e seguir nas atividades subsequentes
+  - inclusão de recuo visual e marcador `↳` nas activities para reforçar percepção de sucessão abaixo da task
+  - composição do nome exibido na grade com `task_type_name + task_ws` na task e `activity_name + activity_ws` nas activities
+  - implementação de paginação client-side em `Tasks > Reports > Task List`, com seletor de quantidade de linhas por página, indicador de faixa exibida e navegação `Prev/Next`

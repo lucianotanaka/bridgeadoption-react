@@ -233,8 +233,11 @@ export default function ProjectsPage() {
   const [teamFormInitial, setTeamFormInitial] = useState<Partial<TeamMember> | null>(null);
   const [personSearch, setPersonSearch] = useState("");
 
-  const rawCompaniesQ = useQuery({ queryKey: ["project-all-companies"], queryFn: () => apiClient.get<{ company_id: number; company_name: string }[]>("/portfolio/account-team/companies").then(r => r.data), staleTime: 10 * 60 * 1000 });
-  const customersQ = { ...rawCompaniesQ, data: rawCompaniesQ.data?.map(c => ({ project_customer_id: c.company_id, project_customer_name: c.company_name })) };
+  const customersQ = useQuery({
+    queryKey: ["project-customers"],
+    queryFn: () => apiClient.get<ProjectCustomer[]>("/projects/customers").then(r => r.data),
+    staleTime: 10 * 60 * 1000,
+  });
   const departmentsQ = useQuery({ queryKey: ["project-departments"], queryFn: () => apiClient.get<Department[]>("/projects/departments").then(r => r.data), staleTime: 30 * 60 * 1000, enabled: canEdit });
   const levelsQ = useQuery({ queryKey: ["project-levels"], queryFn: () => apiClient.get<ResourceLevel[]>("/projects/levels").then(r => r.data), staleTime: 60 * 60 * 1000, enabled: canEdit });
   const personsQ = useQuery({ queryKey: ["project-persons", personSearch], queryFn: () => apiClient.get<ProjectPerson[]>("/projects/persons", { params: { search: personSearch } }).then(r => r.data), staleTime: 2 * 60 * 1000, enabled: canEdit && personSearch.length >= 2 });

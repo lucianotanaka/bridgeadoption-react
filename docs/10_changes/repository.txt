@@ -44,3 +44,11 @@ IMPORTANTE: Na Servidor (VM) em produção, os repositórios então duplicados (
 
 - src/infrastructure/database/repositories/use_case_repository.py
 - inclusão de suporte adicional ao módulo de Use Cases para consultas consumidas pelos serviços/módulos revisados
+
+2026-09-24: Alterações no repositório task_repository.py
+
+- nova função get_report_filter_source
+- nova função get_report_owner_options
+- suporte à formação dos filtros de Tasks > Reports a partir da vwTask
+- suporte à carga otimizada das opções de owner do report com base em valores distintos da vwTask
+- ajuste em `get_report_filter_source` para incluir `task_status_id` e `task_end_performed`, necessários para a reclassificação de status no backend e para a correta população dos filtros `TASK TYPE`, `CLIENT` e `STATUS`

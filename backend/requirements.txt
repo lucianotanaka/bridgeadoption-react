@@ -26,6 +26,7 @@ python-multipart==0.0.12
 
 # Data Processing
 pandas==2.3.3
+openpyxl
 
 # Cache (TTL cache para dashboard data)
 cachetools==5.5.0

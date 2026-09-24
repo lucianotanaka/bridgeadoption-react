@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Table, FileText, Download, ChevronDown, ChevronUp } from "lucide-react";
+import { Table, FileText, Download, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { tasksApi } from "@/api/tasks";
 import type { TaskItem, ReportTaskDetail } from "@/api/tasks";
 
@@ -14,6 +14,7 @@ function MultiSelect({
   onChange,
   placeholder,
   disabled,
+  loading,
 }: {
   label: string;
   options: string[];
@@ -21,6 +22,7 @@ function MultiSelect({
   onChange: (vals: string[]) => void;
   placeholder?: string;
   disabled?: boolean;
+  loading?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -52,6 +54,11 @@ function MultiSelect({
         ) : (
           <span className="text-gray-400 dark:text-gray-500">{placeholder ?? "Select..."}</span>
         )}
+        {loading && (
+          <span className="absolute right-3 top-[2.15rem] -translate-y-1/2 text-blue-500 dark:text-blue-400 pointer-events-none">
+            <Loader2 size={14} className="animate-spin" />
+          </span>
+        )}
       </button>
       {open && !disabled && (
         <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-52 overflow-hidden flex flex-col">
@@ -65,7 +72,12 @@ function MultiSelect({
             />
           </div>
           <div className="overflow-y-auto flex-1">
-            {filtered.length === 0 ? (
+            {loading ? (
+              <div className="flex flex-col items-center justify-center py-5 text-blue-500 dark:text-blue-400 gap-2">
+                <Loader2 size={16} className="animate-spin" />
+                <p className="text-xs text-gray-500 dark:text-gray-400">Loading options...</p>
+              </div>
+            ) : filtered.length === 0 ? (
               <p className="text-xs text-gray-400 text-center py-3">No options</p>
             ) : (
               filtered.map((opt) => (
@@ -139,6 +151,13 @@ const TASK_LIST_COLUMNS: { key: string; label: string }[] = [
 
 function TaskListReport({ tasks }: { tasks: TaskItem[] }) {
   const { t } = useTranslation();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  const totalPages = Math.max(1, Math.ceil(tasks.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageStart = (safePage - 1) * pageSize;
+  const visibleTasks = tasks.slice(pageStart, pageStart + pageSize);
 
   const handleExport = () => {
     const today = new Date().toISOString().slice(0, 10);
@@ -161,7 +180,7 @@ function TaskListReport({ tasks }: { tasks: TaskItem[] }) {
             </tr>
           </thead>
           <tbody>
-            {tasks.map((tsk) => (
+            {visibleTasks.map((tsk) => (
               <tr key={tsk.task_id} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
                 {TASK_LIST_COLUMNS.map((c) => {
                   const raw = (tsk as Record<string, unknown>)[c.key];
@@ -178,13 +197,52 @@ function TaskListReport({ tasks }: { tasks: TaskItem[] }) {
           </tbody>
         </table>
       </div>
-      <div className="flex justify-end">
-        <button
-          onClick={handleExport}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-        >
-          <Download size={13} /> {t("common.export")}
-        </button>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+          <span>
+            Showing {pageStart + 1}-{Math.min(pageStart + visibleTasks.length, tasks.length)} of {tasks.length}
+          </span>
+          <div className="flex items-center gap-2">
+            <span>Rows</span>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setPage(1);
+              }}
+              className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              {[10, 20, 50, 100].map((size) => (
+                <option key={size} value={size}>{size}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+            disabled={safePage === 1}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Prev
+          </button>
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            Page {safePage} / {totalPages}
+          </span>
+          <button
+            onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+            disabled={safePage === totalPages}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Next
+          </button>
+          <button
+            onClick={handleExport}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+          >
+            <Download size={13} /> {t("common.export")}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -277,11 +335,29 @@ function ScheduleTable({ schedule, taskId }: { schedule: ReportTaskDetail["sched
                   let display: string;
                   if (c.key.includes("start") || c.key.includes("end")) {
                     display = raw ? fmtDate(String(raw)) : "—";
+                  } else if (c.key === "seq") {
+                    display = String(i + 1);
                   } else if (c.key === "name") {
-                    display = row.is_task_row ? String(raw ?? "—") : `    ${String(raw ?? "—")}`;
+                    const baseName = String(raw ?? "—");
+                    const ws = row.is_task_row
+                      ? String((row as Record<string, unknown>)["task_ws"] ?? "").trim()
+                      : String((row as Record<string, unknown>)["activity_ws"] ?? "").trim();
+                    display = ws ? `${baseName} - ${ws}` : baseName;
                   } else {
                     display = raw != null && raw !== "" ? String(raw) : "—";
                   }
+
+                  if (c.key === "name") {
+                    return (
+                      <td key={c.key} className="py-1.5 px-2 text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                        <div className={row.is_task_row ? "font-semibold text-gray-700 dark:text-gray-200" : "pl-5"}>
+                          {!row.is_task_row && <span className="inline-block w-3 mr-1 text-blue-400">↳</span>}
+                          <span>{display}</span>
+                        </div>
+                      </td>
+                    );
+                  }
+
                   return <td key={c.key} className="py-1.5 px-2 text-gray-600 dark:text-gray-400 whitespace-nowrap">{display}</td>;
                 })}
               </tr>
@@ -350,15 +426,129 @@ function ActivityDetailList({ activities }: { activities: ReportTaskDetail["acti
   );
 }
 
-function TaskDetailReport({ taskId }: { taskId: number }) {
+function TaskDetailReport({ taskId, initialTask }: { taskId: number; initialTask?: TaskItem | null }) {
   const detailQuery = useQuery({
-    queryKey: ["report-task-detail", taskId],
-    queryFn: () => tasksApi.getReportTaskDetail(taskId).then((r) => r.data),
+    queryKey: [
+      "report-task-detail",
+      taskId,
+      initialTask?.task_status_name ?? null,
+      initialTask?.task_customer_name ?? null,
+      initialTask?.task_owner_name ?? null,
+    ],
+    queryFn: async () => {
+      let reportDetail: ReportTaskDetail | null = null;
+      try {
+        reportDetail = await tasksApi.getReportTaskDetail(taskId).then((r) => r.data);
+      } catch {
+        reportDetail = null;
+      }
+
+      if (reportDetail?.task) {
+        return reportDetail;
+      }
+
+      const [task, activities] = await Promise.all([
+        tasksApi.getTask(taskId).then((r) => r.data).catch(() => null),
+        tasksApi.getActivities(taskId).then((r) => r.data).catch(() => []),
+      ]);
+
+      if (!task && !initialTask) {
+        return null;
+      }
+
+      const effectiveTask = task ?? initialTask ?? null;
+      if (!effectiveTask) {
+        return null;
+      }
+
+      const normalizedActivities = Array.isArray(activities)
+        ? [...activities].sort((a, b) => Number(a.activity_seq ?? 0) - Number(b.activity_seq ?? 0))
+        : [];
+
+      const schedule = [
+        {
+          seq: 1,
+          name: effectiveTask.task_type_name,
+          task_ws: effectiveTask.task_ws,
+          start_expected: effectiveTask.task_start,
+          end_expected: effectiveTask.task_end,
+          start_performed: effectiveTask.task_start_performed,
+          end_performed: effectiveTask.task_end_performed,
+          effort_expected: undefined,
+          effort_performed: undefined,
+          completed_pct: Math.round(Number(effectiveTask.task_completed ?? 0) * 100),
+          status_name: effectiveTask.task_status_name,
+          is_task_row: true,
+        },
+        ...normalizedActivities.map((activity, index) => ({
+          seq: Number(activity.activity_seq ?? index) + 2,
+          name: activity.activity_name,
+          activity_ws: activity.activity_ws,
+          start_expected: activity.activity_start,
+          end_expected: activity.activity_end,
+          start_performed: activity.activity_start_performed,
+          end_performed: activity.activity_end_performed,
+          effort_expected: activity.activity_effort ?? null,
+          effort_performed: activity.activity_effort_performed ?? null,
+          completed_pct: Math.round(Number(activity.activity_completed ?? 0) * 100),
+          status_name: activity.activity_status_name,
+          is_task_row: false,
+        })),
+      ];
+
+      const summaryMap = new Map<string, number>();
+      normalizedActivities.forEach((activity) => {
+        const key = activity.activity_status_name || "No status";
+        summaryMap.set(key, (summaryMap.get(key) ?? 0) + 1);
+      });
+
+      const activity_status_summary =
+        normalizedActivities.length > 0
+          ? Array.from(summaryMap.entries()).map(([activity_status_name, activity_count]) => ({
+              activity_status_name,
+              activity_count,
+              percentage: activity_count / normalizedActivities.length,
+            }))
+          : [{ activity_status_name: "No activities", activity_count: 1, percentage: 1 }];
+
+      return {
+        task: effectiveTask,
+        activities: normalizedActivities,
+        schedule,
+        activity_status_summary,
+      } as ReportTaskDetail;
+    },
     enabled: !!taskId,
     staleTime: 60 * 1000,
   });
 
-  if (detailQuery.isLoading) {
+  const fallbackData = useMemo(() => {
+    if (!initialTask) return null;
+
+    return {
+      task: initialTask,
+      activities: [],
+      schedule: [
+        {
+          seq: 1,
+          name: initialTask.task_type_name,
+          task_ws: initialTask.task_ws,
+          start_expected: initialTask.task_start,
+          end_expected: initialTask.task_end,
+          start_performed: initialTask.task_start_performed,
+          end_performed: initialTask.task_end_performed,
+          effort_expected: undefined,
+          effort_performed: undefined,
+          completed_pct: Math.round(Number(initialTask.task_completed ?? 0) * 100),
+          status_name: initialTask.task_status_name,
+          is_task_row: true,
+        },
+      ],
+      activity_status_summary: [{ activity_status_name: "No activities", activity_count: 1, percentage: 1 }],
+    } as ReportTaskDetail;
+  }, [initialTask]);
+
+  if (detailQuery.isLoading && !fallbackData) {
     return (
       <div className="flex justify-center py-8">
         <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
@@ -366,7 +556,7 @@ function TaskDetailReport({ taskId }: { taskId: number }) {
     );
   }
 
-  const data = detailQuery.data;
+  const data = detailQuery.data ?? fallbackData;
   if (!data || !data.task) {
     return <p className="text-xs text-gray-400 dark:text-gray-500 py-6 text-center">No data.</p>;
   }
@@ -397,7 +587,7 @@ function TaskDetailReport({ taskId }: { taskId: number }) {
 
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
         <h4 className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-3">Schedule</h4>
-        <ScheduleTable schedule={schedule} />
+        <ScheduleTable schedule={schedule} taskId={taskId} />
       </div>
 
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
@@ -432,7 +622,11 @@ export default function TaskReportsTab() {
     .filter((o) => selectedOwnerNames.includes(o.task_owner_name))
     .map((o) => o.task_owner_id);
 
-  const hasOwners = ownerIds.length > 0;
+  const hasAnyFilter =
+    selectedOwnerNames.length > 0 ||
+    selectedTaskTypes.length > 0 ||
+    selectedClients.length > 0 ||
+    selectedStatuses.length > 0;
 
   const filterOptionsQuery = useQuery({
     queryKey: ["report-filter-options", ownerIds, selectedTaskTypes, selectedClients, selectedStatuses],
@@ -445,11 +639,12 @@ export default function TaskReportsTab() {
           status_names: selectedStatuses,
         })
         .then((r) => r.data),
-    enabled: hasOwners,
+    enabled: true,
     staleTime: 30 * 1000,
   });
 
   const dynOptions = filterOptionsQuery.data;
+  const isLoadingDependentFilters = filterOptionsQuery.isLoading || filterOptionsQuery.isFetching;
 
   const tasksMutation = useMutation<TaskItem[], Error, void>({
     mutationFn: () =>
@@ -465,9 +660,6 @@ export default function TaskReportsTab() {
 
   const handleOwnerChange = (vals: string[]) => {
     setSelectedOwnerNames(vals);
-    setSelectedTaskTypes([]);
-    setSelectedClients([]);
-    setSelectedStatuses([]);
     setActiveReport(null);
     setSelectedTaskId(null);
   };
@@ -489,7 +681,7 @@ export default function TaskReportsTab() {
   const handleRunReport = (reportId: ReportId) => {
     setActiveReport(reportId);
     setSelectedTaskId(null);
-    if (hasOwners) tasksMutation.mutate();
+    if (hasAnyFilter) tasksMutation.mutate();
   };
 
   const reportTasks = tasksMutation.data ?? [];
@@ -507,7 +699,7 @@ export default function TaskReportsTab() {
             {panelOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             {t("task.reports")}
           </button>
-          {selectedOwnerNames.length > 0 && (
+          {hasAnyFilter && (
             <button onClick={handleClearAll} className="text-xs text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors">
               {t("task.clearAll")}
             </button>
@@ -529,7 +721,7 @@ export default function TaskReportsTab() {
               selected={selectedTaskTypes}
               onChange={handleFilterChange(setSelectedTaskTypes)}
               placeholder={t("task.filterAllTypes")}
-              disabled={!hasOwners}
+              loading={isLoadingDependentFilters}
             />
             <MultiSelect
               label={t("task.filterClient")}
@@ -537,7 +729,7 @@ export default function TaskReportsTab() {
               selected={selectedClients}
               onChange={handleFilterChange(setSelectedClients)}
               placeholder={t("task.filterAllClients")}
-              disabled={!hasOwners}
+              loading={isLoadingDependentFilters}
             />
             <MultiSelect
               label={t("task.filterStatus")}
@@ -545,14 +737,14 @@ export default function TaskReportsTab() {
               selected={selectedStatuses}
               onChange={handleFilterChange(setSelectedStatuses)}
               placeholder={t("task.filterAllStatuses")}
-              disabled={!hasOwners}
+              loading={isLoadingDependentFilters}
             />
           </div>
         )}
       </div>
 
       {/* Report cards */}
-      {hasOwners && (
+      {hasAnyFilter && (
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex gap-3 flex-wrap">
             <button
@@ -600,7 +792,12 @@ export default function TaskReportsTab() {
                       ))}
                     </select>
                   </div>
-                  {selectedTaskId ? <TaskDetailReport taskId={selectedTaskId} /> : null}
+                  {selectedTaskId ? (
+                    <TaskDetailReport
+                      taskId={selectedTaskId}
+                      initialTask={reportTasks.find((task) => Number(task.task_id) === Number(selectedTaskId)) ?? null}
+                    />
+                  ) : null}
                 </div>
               )}
             </div>
@@ -608,9 +805,9 @@ export default function TaskReportsTab() {
         </div>
       )}
 
-      {!hasOwners && (
+      {!hasAnyFilter && (
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center">
-          <p className="text-sm text-gray-400 dark:text-gray-500">{t("task.filterOwner")}: {t("task.filterAllOwners")}</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500">Select at least one filter to enable Task List and Task Details.</p>
         </div>
       )}
     </div>
