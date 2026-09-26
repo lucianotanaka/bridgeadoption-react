@@ -1052,6 +1052,63 @@ class TaskRepository:
         )
 
     # ==========================================================
+    # SINCRONIZAR DATAS REALIZADAS DA TASK COM AS ACTIVITIES
+    # ==========================================================
+    def sync_task_performed_dates_from_activities(self, task_id: int) -> bool:
+        """
+        Recalcula task_start_performed e task_end_performed a partir das
+        atividades da tarefa.
+
+        Regras:
+        - task_start_performed = menor data de COALESCE(activity_start_performed, activity_start)
+        - task_end_performed   = maior data de COALESCE(activity_end_performed, activity_end)
+
+        Se não houver nenhuma data válida em um dos lados, o respectivo campo
+        da task é atualizado para NULL.
+        """
+        if not task_id:
+            return False
+
+        query = """
+            SELECT
+                MIN(COALESCE(activity_start_performed, activity_start)) AS min_start,
+                MAX(COALESCE(activity_end_performed, activity_end)) AS max_end
+            FROM tbTaskActivity
+            WHERE activity_task_id = %s
+        """
+
+        conn = None
+        cursor = None
+
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(query, (int(task_id),))
+            row = cursor.fetchone() or {}
+
+            rows_affected = self.update(
+                data={
+                    "task_start_performed": row.get("min_start"),
+                    "task_end_performed": row.get("max_end"),
+                },
+                where={"task_id": int(task_id)}
+            )
+
+            return rows_affected > 0
+
+        except Exception as e:
+            self.error_repo.log_error(
+                error_function="TaskRepository.sync_task_performed_dates_from_activities",
+                error_command=query,
+                error_description=f"{str(e)} | task_id={task_id}",
+                error_traceback=traceback.format_exc()
+            )
+            return False
+
+        finally:
+            self._close_resources(conn, cursor)
+
+    # ==========================================================
     # BUSCAR TASK TYPES
     # ==========================================================
     def get_task_type_by_ids(

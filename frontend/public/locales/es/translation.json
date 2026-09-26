@@ -98,5 +98,11 @@
   "errors": {
     "access_denied": "Acceso denegado",
     "generic": "Ocurrió un error inesperado"
+  },
+  "task": {
+    "formStatusJustification": "Justificación del estado",
+    "selectStatusJustification": "Seleccione una justificación...",
+    "autoMinActivityDate": "Auto: fecha más temprana de las actividades",
+    "autoMaxActivityDate": "Auto: fecha más tardía de las actividades"
   }
 }

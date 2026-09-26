@@ -341,7 +341,7 @@ def task_update(
     """Updates task fields and optionally inserts history record."""
     success = update_task(task_id=task_id, data=body.data)
     history_id = 0
-    if body.history:
+    if success and body.history:
         body.history["taskrecord_task_id"] = task_id
         body.history.setdefault("taskrecord_activity_id", 0)
         body.history.setdefault("taskrecord_updated_by", current_user.get("user_name", ""))

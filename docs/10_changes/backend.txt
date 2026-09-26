@@ -125,3 +125,69 @@
   - ajuste de `get_lci_stage_rows(..., "lost")` para exibir estágios pertencentes a tasks classificadas como lost segundo a regra do CPI Adopt
   - correção do import interno do serviço CPI Adopt com fallback entre `app.cisco...` e `backend.app.cisco...`, eliminando falha silenciosa de carregamento da regra de Lost
   - correção adicional do recorte de FY do `Lost` no Cisco LCI: a classificação de tasks perdidas continua vindo do CPI Adopt, mas a seleção final passou a respeitar o universo de tasks/stages exibido no FY do LCI, evitando zerar o card quando o `task_end` do CPI cair em FY diferente do estágio LCI mostrado na tela
+
+2026-09-25: Alterações no backend do importador Forecast PMO
+
+- src/services/importers/import_forecast_pmo.py
+  - substituição do conteúdo em VBA copiado por uma implementação Python funcional do importador Forecast PMO
+  - leitura de arquivo XLSX com detecção dinâmica do cabeçalho
+  - processamento em chunks com remoção das linhas já lidas do arquivo de entrada
+  - geração de log de execução e de arquivo XLSX com linhas com erro/advertência
+  - integração com ProjectRepository.insert() para gravação de projeto e sincronização de OVs
+  - tratamento de múltiplas linhas da mesma OV por conta de TP, reutilizando o mesmo project_id
+  - sincronização de tbProjectType e tbProjectTeam
+  - bloqueio em grupo por OV quando o cliente não existe em tbCompanyListName
+  - tratamento de pessoas não encontradas em tbPersonListName como advertência operacional, sem impedir a importação do projeto
+  - encerramento de alocações ativas da equipe quando o projeto vier como Closed/Canceled com data de fechamento
+
+2026-09-26: Ajustes no backend do importador PXP Activity 5890
+
+- src/services/importers/pxp_import_activity_5890.py
+  - reforço da busca de activity por `activity_ws` com rastreabilidade no log de execução, registrando quantidade de matches e `activity_ids` encontrados a cada lookup por WS
+  - alteração da resolução de activity para tratar `activity_ws` duplicado como erro explícito da linha, em vez de seguir silenciosamente com o primeiro registro encontrado
+  - remoção do comportamento silencioso em falhas de busca por `activity_ws`, fazendo a linha falhar antes de seguir para `insert` sem garantia de unicidade
+  - criação do helper `_insert_activity_with_ws_validation(...)` para revalidar `activity_ws` imediatamente antes do insert e confirmar após o insert que a activity criada ficou reencontrável pelo mesmo WS
+  - troca do fluxo de criação para usar a validação pós-insert por `activity_ws`, reduzindo risco de inserts duplicados quando a activity já existir ou quando a persistência não puder ser confirmada
+
+2026-09-26: Ajustes no backend do importador PXP Task 19849
+
+- src/services/importers/pxp_import_task_19849.py
+  - adição do histórico `STATUS CHANGE` para mudanças efetivas de `activity_status`, com helper dedicado para mapear o status numérico para texto legível em `tbTaskRecord`
+  - gravação de histórico `STATUS CHANGE` ao cancelar child activities por `Opted Out`
+  - gravação de histórico `STATUS CHANGE` no momento da criação automática da activity `Implement`
+  - inclusão de correção automática de `activity_seq` das child activities existentes conforme a ordem padrão do LCI: `Onboard=1`, `Implement=2`, `Use=3`, `Engage=4`, `Adopt=5`
+  - atualização do fluxo `_update_activity_from_stage(...)` para corrigir sequenciamento inconsistente e registrar histórico textual quando houver ajuste de sequência, scope ou completed
+
+2026-09-26: Alterações no backend do importador New Cisco EA
+
+- src/services/importers/new_cisco_ea.py
+  - substituição do conteúdo VBA copiado por uma implementação Python funcional do importador New Cisco EA
+  - leitura de arquivo de entrada em `xlsx` e `csv`
+  - processamento em chunks com remoção das linhas já lidas do arquivo original
+  - geração de log de execução e de arquivo XLSX com linhas com falha
+  - validação das colunas obrigatórias e normalização dos campos principais da importação
+  - resolução de customer priorizando `WEB ORDER ID` via `vwCiscoEACustomerWebOrder`, com fallback por `END CUSTOMER NAME`
+  - remoção da obrigatoriedade prática de `END CUSTOMER NAME` para resolver customer quando a `WEB ORDER ID` já apontar um cliente válido
+  - ajuste da mensagem de erro para cobrir falha nas duas estratégias de resolução de cliente
+  - correção da resolução por `END CUSTOMER NAME` para tentar também a variante em caixa alta e com espaços internos normalizados, compatibilizando a busca com `tbCompanyListName`
+  - ajuste defensivo de truncamento de `CCW LINE STATUS` para 25 caracteres, evitando erro SQL `Data too long for column 'ea_ccw_line_status'`
+  - resolução ou criação automática de produto Cisco em `tbProduct` a partir de `ORDERED ITEM`
+  - deduplicação lógica de registros EA por `ea_web_order_id + ea_product_id + ea_subscription_id + ea_end_customer_id + ea_magic_key`
+  - criação e atualização de registros em `tbCiscoEA`
+  - criação automática de task tipo `1` para casos elegíveis, com owner resolvido via `resolve_csm(...)`
+  - preenchimento de `task_track` por produto (`5533 -> EA3-M` / `5194 -> ELA2-M`) e `task_subtrack` com `ORDERED ITEM`
+  - gravação de histórico `"Task created."` em `tbTaskRecord`
+  - propagação do `ea_new_task_id` para registros irmãos por customer + subscription, ou customer + web order quando a subscription vier nula
+
+- backend/app/modules/public_service.py
+  - inclusão de dois Novos importadores no catálogo: CiscoNewEA e ForecastPMO
+2026-09-26: Ajuste de UX no log do importador Forecast PMO
+
+- src/services/importers/import_forecast_pmo.py
+  - inclus�o de log consolidado por linha processada no arquivo .log, com ow, ov e esult`r
+  - diferencia��o expl�cita entre success, warning, error e ignored`r
+  - inclus�o de project_id, created, updated e quantidade de warnings quando aplic�vel
+  - registro do motivo resumido em warnings/erros/linhas ignoradas para facilitar troubleshooting operacional
+
+- docs/05_deployment/importer/import_forecast_pmo.md
+  - atualiza��o da documenta��o com o novo padr�o de logging por linha e exemplos esperados no arquivo de execu��o

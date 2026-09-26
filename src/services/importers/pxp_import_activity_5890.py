@@ -788,13 +788,24 @@ def _resolve_existing_activity(
     activity_ws: Optional[str],
     where_fallback: Dict[str, Any],
     parent_task_ws: Optional[str] = None,
+    file_path: Optional[str] = None,
+    row_number: Optional[int] = None,
+    execution_log_path: Optional[Path] = None,
 ) -> Optional[Dict[str, Any]]:
     if activity_ws:
         try:
             ids_by_ws = repo_activity.find_ids_by({"activity_ws": activity_ws})
 
+            if execution_log_path and row_number is not None:
+                _append_execution_log(
+                    execution_log_path,
+                    f"INFO row={row_number} lookup activity_ws={activity_ws} matches={len(ids_by_ws)} activity_ids={ids_by_ws}",
+                )
+
             if len(ids_by_ws) > 1:
-                # Duplicatas detectadas — loga e usa o primeiro registro
+                message = (
+                    f"activity_ws duplicado: encontradas {len(ids_by_ws)} repetições do WS {activity_ws}"
+                )
                 logger.warning(
                     "activity_ws duplicado encontrado: ws=%s count=%d activity_ids=%s",
                     activity_ws,
@@ -802,12 +813,13 @@ def _resolve_existing_activity(
                     ids_by_ws,
                 )
                 _safe_log(
-                    file_path="",
-                    row_number=0,
-                    message=f"activity_ws duplicado: encontradas {len(ids_by_ws)} repetições do WS {activity_ws}",
+                    file_path=file_path or "",
+                    row_number=row_number or 0,
+                    message=message,
                     column_name="Activity Id",
                     value={"activity_ws": activity_ws, "count": len(ids_by_ws), "activity_ids": ids_by_ws},
                 )
+                raise ValueError(message)
 
             if ids_by_ws:
                 activity_id = _safe_int(ids_by_ws[0], default=0)
@@ -825,9 +837,7 @@ def _resolve_existing_activity(
                 activity_ws,
                 e,
             )
-            # Não silencia: se a busca por WS falhou, não deve tentar inserir
-            # sem certeza. Retorna None para que o chamador decida o fluxo.
-            return None
+            raise
 
     if not where_fallback:
         return None
@@ -1108,6 +1118,64 @@ def _build_insert_payload(
         payload["activity_end_performed"] = end_date
 
     return payload
+
+
+def _insert_activity_with_ws_validation(
+    payload: Dict[str, Any],
+    activity_ws: Optional[str],
+    file_path: str,
+    row_number: int,
+    execution_log_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    if not activity_ws:
+        raise ValueError("activity_ws é obrigatório para inserir activity")
+
+    existing_before_insert = _resolve_existing_activity(
+        activity_ws=activity_ws,
+        where_fallback={},
+        file_path=file_path,
+        row_number=row_number,
+        execution_log_path=execution_log_path,
+    )
+    if existing_before_insert:
+        if execution_log_path:
+            _append_execution_log(
+                execution_log_path,
+                f"INFO row={row_number} insert skipped because activity_ws already exists activity_ws={activity_ws} activity_id={existing_before_insert.get('activity_id')}",
+            )
+        return existing_before_insert
+
+    activity_id = repo_activity.insert(payload)
+    activity_id = _safe_int(activity_id, default=0)
+
+    if not activity_id:
+        raise ValueError("Falha ao inserir activity")
+
+    persisted_activity = _resolve_existing_activity(
+        activity_ws=activity_ws,
+        where_fallback={},
+        file_path=file_path,
+        row_number=row_number,
+        execution_log_path=execution_log_path,
+    )
+    if not persisted_activity:
+        raise ValueError(
+            f"Activity inserida não foi reencontrada por activity_ws={activity_ws}"
+        )
+
+    persisted_activity_id = _safe_int(persisted_activity.get("activity_id"), default=0)
+    if not persisted_activity_id:
+        raise ValueError(
+            f"Activity inserida com activity_ws={activity_ws} retornou sem activity_id válido"
+        )
+
+    if activity_id != persisted_activity_id and execution_log_path:
+        _append_execution_log(
+            execution_log_path,
+            f"WARN row={row_number} insert returned activity_id={activity_id} but lookup by ws returned activity_id={persisted_activity_id} activity_ws={activity_ws}",
+        )
+
+    return persisted_activity
 
 
 def _apply_amount_update_if_needed(
@@ -1651,6 +1719,9 @@ def _process_single_row(
         pre_existing_activity = _resolve_existing_activity(
             activity_ws=activity_ws,
             where_fallback={},
+            file_path=file_path,
+            row_number=row_number,
+            execution_log_path=execution_log_path,
         )
 
         if pre_existing_activity:
@@ -1777,6 +1848,9 @@ def _process_single_row(
                     activity_ws=activity_ws,
                     where_fallback=where_fallback,
                     parent_task_ws=parent_task_ws,
+                    file_path=file_path,
+                    row_number=row_number,
+                    execution_log_path=execution_log_path,
                 )
 
                 # Regra: activity encontrada via fallback só pode ter WS nulo.
@@ -1829,9 +1903,15 @@ def _process_single_row(
                 end_date=end_date,
             )
 
-            activity_id = repo_activity.insert(payload)
-            activity_id = _safe_int(activity_id, default=0)
+            existing_activity = _insert_activity_with_ws_validation(
+                payload=payload,
+                activity_ws=activity_ws,
+                file_path=file_path,
+                row_number=row_number,
+                execution_log_path=execution_log_path,
+            )
 
+            activity_id = _safe_int(existing_activity.get("activity_id"), default=0)
             if not activity_id:
                 raise ValueError("Falha ao inserir activity")
 
@@ -1841,17 +1921,12 @@ def _process_single_row(
                 remark=f"Activity created by System BA at {datetime.now().strftime('%Y-%b-%d')}",
             )
 
-            existing_activity = repo_activity.get_activity_by_id(
-                activity_id=activity_id,
-                as_df=False,
-            ) or {"activity_id": activity_id}
-
             created = True
 
             if execution_log_path:
                 _append_execution_log(
                     execution_log_path,
-                    f"INFO row={row_number} activity created activity_id={activity_id} task_id={task_id}",
+                    f"INFO row={row_number} activity created activity_id={activity_id} task_id={task_id} activity_ws={activity_ws}",
                 )
 
         activity_id = _safe_int(existing_activity.get("activity_id"), default=0)

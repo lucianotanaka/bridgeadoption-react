@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import axios from "axios";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight, Save, History, X, Edit2, Users, Info, Plus } from "lucide-react";
@@ -66,6 +67,27 @@ function pctLabel(v?: number | null): string {
   return REVERSE_PROGRESS[String(r)] ?? `${Math.round(v * 100)}%`;
 }
 
+function deriveTaskPerformedDatesFromActivities(activities: ActivityItem[]): { task_start_performed: string | null; task_end_performed: string | null } {
+  const startCandidates = activities
+    .map((a) => a.activity_start_performed || a.activity_start)
+    .filter(Boolean)
+    .map((d) => String(d).slice(0, 10))
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .sort();
+
+  const endCandidates = activities
+    .map((a) => a.activity_end_performed || a.activity_end)
+    .filter(Boolean)
+    .map((d) => String(d).slice(0, 10))
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .sort();
+
+  return {
+    task_start_performed: startCandidates.length > 0 ? startCandidates[0] : null,
+    task_end_performed: endCandidates.length > 0 ? endCandidates[endCandidates.length - 1] : null,
+  };
+}
+
 function deadlineBucket(endDate?: string | null): string {
   if (!endDate) return "future";
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -114,6 +136,15 @@ function priorityEmoji(priority?: string | null): string {
   return "";
 }
 
+function getErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    const detail = error.response?.data as { detail?: string; message?: string } | undefined;
+    return detail?.detail || detail?.message || error.message || "Unknown API error";
+  }
+  if (error instanceof Error) return error.message;
+  return "Unknown error";
+}
+
 function LabelInput({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
@@ -130,11 +161,20 @@ function Inp({ value, onChange, disabled, type = "text" }: { value: string; onCh
   );
 }
 
-function Sel({ value, onChange, options, disabled }: { value: string; onChange: (v: string) => void; options: string[]; disabled?: boolean }) {
+function Sel({ value, onChange, options, disabled, emptyLabel = "" }: { value: string; onChange: (v: string) => void; options: string[]; disabled?: boolean; emptyLabel?: string }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}
       className="w-full text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-900 disabled:opacity-60">
-      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      {options.map((o) => <option key={o || "__empty__"} value={o}>{o === "" ? emptyLabel : o}</option>)}
+    </select>
+  );
+}
+
+function SelById({ value, onChange, options, disabled }: { value: number; onChange: (v: number) => void; options: Array<{ value: number; label: string }>; disabled?: boolean }) {
+  return (
+    <select value={String(value)} onChange={(e) => onChange(Number(e.target.value))} disabled={disabled}
+      className="w-full text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-900 disabled:opacity-60">
+      {options.map((o) => <option key={String(o.value)} value={String(o.value)}>{o.label}</option>)}
     </select>
   );
 }
@@ -183,13 +223,14 @@ function HistoryPanel({ items }: { items: HistoryItem[] }) {
   );
 }
 
-function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isSelectedForHistory, forceExpanded = false }: { act: ActivityItem; statusTypes: StatusType[]; taskId: number; onUpdated: () => void; onSelectHistory?: (activityId: number | null) => void; isSelectedForHistory?: boolean; forceExpanded?: boolean }) {
+function ActivityRow({ act, statusTypes, taskId, activities, onTaskDatesRecomputed, onUpdated, onSelectHistory, isSelectedForHistory, forceExpanded = false }: { act: ActivityItem; statusTypes: StatusType[]; taskId: number; activities: ActivityItem[]; onTaskDatesRecomputed?: (dates: { task_start_performed: string | null; task_end_performed: string | null }) => void; onUpdated: () => void; onSelectHistory?: (activityId: number | null) => void; isSelectedForHistory?: boolean; forceExpanded?: boolean }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [expanded, setExpanded] = useState(forceExpanded);
   const [tab, setTab] = useState<"objective" | "scope" | "results" | "track">("objective");
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
   const pct = Math.min(100, Math.max(0, ((act.activity_completed ?? 0) <= 1 ? (act.activity_completed ?? 0) * 100 : act.activity_completed ?? 0)));
   // Suporta tanto 'activity_status' (tbTaskActivity) quanto 'activity_status_id' (vwTaskActivity)
@@ -204,10 +245,10 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isS
   const bucket = isClosed ? "future" : deadlineBucket(fmtDate(act.activity_end_performed ?? act.activity_end) || null);
 
   const g = (k: string, fallback: string = ""): string => k in edits ? edits[k] : String((act as Record<string, unknown>)[k] ?? fallback);
-  const s = (k: string, v: string) => { setEdits((p) => ({ ...p, [k]: v })); setSaved(false); };
+  const s = (k: string, v: string) => { setEdits((p) => ({ ...p, [k]: v })); setSaved(false); setErrorMessage(""); };
 
   const saveMut = useMutation<unknown, Error, void>({
-    mutationFn: () => {
+    mutationFn: async () => {
       const data: Record<string, unknown> = {};
       const changes: string[] = [];
       const seq = parseInt(edits.activity_seq ?? "");
@@ -241,21 +282,63 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isS
       const newStatusId = "activity_status_name" in edits ? (statusTypes.find((sx) => sx.statustype_name === edits.activity_status_name)?.statustype_id ?? act.activity_status) : act.activity_status;
       if (endPerf && Number(newStatusId) === 10) { const fy = computeFYYear(endPerf); if (fy) data.activity_end_fy = fy; }
       // Computed: activity_backlog_value
+      // DDL: tbTaskActivity.activity_backlog_value = DECIMAL(10,4)
+      // Range aproximado aceito: -999999.9999 até 999999.9999
+      // Para evitar 1264 (22003), só enviamos o backlog se couber no range.
       const actValue = "activity_value" in edits ? parseFloat(edits.activity_value) : (act.activity_value ?? 0);
       const approvedValue = "activity_approved_value" in edits ? parseFloat(edits.activity_approved_value) : (act.activity_approved_value ?? 0);
-      if (actValue > 0) data.activity_backlog_value = Math.abs(actValue - approvedValue);
+      if (Number.isFinite(actValue) && Number.isFinite(approvedValue) && actValue > 0) {
+        const backlogValue = Math.abs(actValue - approvedValue);
+        if (backlogValue <= 999999.9999) {
+          data.activity_backlog_value = backlogValue;
+        }
+      }
+
+      if (Object.keys(data).length === 0) return;
+
+      const updateResult = await tasksApi.updateActivity(act.activity_id, data).then((r) => r.data);
+      if (!updateResult?.success) {
+        throw new Error("Activity update failed: backend returned success=false");
+      }
+
+      if ("activity_start_performed" in data || "activity_end_performed" in data) {
+        const recomputedDates = deriveTaskPerformedDatesFromActivities(
+          activities.map((activity) => activity.activity_id === act.activity_id
+            ? {
+                ...activity,
+                ...(Object.prototype.hasOwnProperty.call(data, "activity_start_performed")
+                  ? { activity_start_performed: data.activity_start_performed as string | null }
+                  : {}),
+                ...(Object.prototype.hasOwnProperty.call(data, "activity_end_performed")
+                  ? { activity_end_performed: data.activity_end_performed as string | null }
+                  : {}),
+              }
+            : activity)
+        );
+
+        onTaskDatesRecomputed?.(recomputedDates);
+      }
+
       const remark = changes.join("; ");
-      const history = remark ? { taskrecord_task_id: taskId, taskrecord_activity_id: act.activity_id, taskrecord_remark: remark } : undefined;
-      return Promise.all([
-        Object.keys(data).length > 0 ? tasksApi.updateActivity(act.activity_id, data).then((r) => r.data) : Promise.resolve(null),
-        history ? tasksApi.addHistory(taskId, history).then((r) => r.data) : Promise.resolve(null),
-      ]);
+      if (remark) {
+        await tasksApi.addHistory(taskId, {
+          taskrecord_task_id: taskId,
+          taskrecord_activity_id: act.activity_id,
+          taskrecord_type: "LOG",
+          taskrecord_updated_by: "System BA",
+          taskrecord_remark: remark,
+        }).then((r) => r.data);
+      }
     },
     onSuccess: () => {
-      setEdits({}); setSaved(true);
+      setEdits({}); setSaved(true); setErrorMessage("");
       void qc.invalidateQueries({ queryKey: ["task-activities", taskId] });
       void qc.invalidateQueries({ queryKey: ["act-hist"] });
       onUpdated();
+    },
+    onError: (error) => {
+      setSaved(false);
+      setErrorMessage(getErrorMessage(error));
     },
   });
 
@@ -270,7 +353,9 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isS
       <button onClick={() => { const next = !expanded; setExpanded(next); onSelectHistory?.(next ? act.activity_id : null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left ${bucket === "delayed" ? "border-l-2 border-l-red-500" : ""}`}>
         <span className="text-xs font-mono text-gray-400 dark:text-gray-500 w-4">{act.activity_seq}</span>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">{act.activity_name ?? "—"}</p>
+          <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">
+            #{act.activity_id} — {act.activity_name ?? "—"}
+          </p>
           <div className="flex items-center gap-2 mt-0.5">
             <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
               <div className={`h-1.5 rounded-full transition-all ${bucket === "delayed" ? "bg-red-500" : "bg-blue-500"}`} style={{ width: `${pct}%` }} />
@@ -336,7 +421,7 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isS
           <div className="flex items-center justify-end pt-2 border-t border-gray-100 dark:border-gray-800">
             <div className="flex items-center gap-2">
               {saved && <p className="text-[10px] text-green-600 dark:text-green-400">{t("task.savedSuccess")}</p>}
-              {saveMut.isError && <p className="text-[10px] text-red-600 dark:text-red-400">{t("task.saveFailed")}</p>}
+              {saveMut.isError && <p className="text-[10px] text-red-600 dark:text-red-400">{errorMessage || t("task.saveFailed")}</p>}
               <button onClick={() => !isClosed && saveMut.mutate()} disabled={isClosed || saveMut.isPending}
                 className="flex items-center justify-center gap-1 px-3 py-1.5 text-[10px] font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 dark:disabled:bg-blue-800 text-white transition-colors">
                 {saveMut.isPending ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Save size={11} />}
@@ -352,9 +437,9 @@ function ActivityRow({ act, statusTypes, taskId, onUpdated, onSelectHistory, isS
 
 function TaskEditForm({ task, csms, statusTypes, activities, canEdit, canClose, onSaved, showCreationInfo }: {
   task: TaskItem; csms: CSMItem[]; statusTypes: StatusType[]; activities: ActivityItem[];
-  canEdit: boolean; canClose: boolean; onSaved: () => void; showCreationInfo: boolean;
+  canEdit: boolean; canClose: boolean; onSaved: (updatedFields?: Record<string, unknown>) => void; showCreationInfo: boolean;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const qc = useQueryClient();
   const isClosed = CLOSED_STATUS.has(task.task_status_id ?? 0);
   // Regra 1: somente dono/dono-temp/admin/permissão-full pode editar
@@ -366,12 +451,19 @@ function TaskEditForm({ task, csms, statusTypes, activities, canEdit, canClose, 
   });
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const [showProjectTeam, setShowProjectTeam] = useState(false);
 
-  const g = (k: string, fallback: string = ""): string => k in edits ? edits[k] : String((task as Record<string, unknown>)[k] ?? fallback);
-  const s = (k: string, v: string) => { setEdits((p) => ({ ...p, [k]: v })); setSaved(false); };
+  const g = (k: string, fallback: string = ""): string => k in edits ? edits[k] : fallback;
+  const s = (k: string, v: string) => { setEdits((p) => ({ ...p, [k]: v })); setSaved(false); setErrorMessage(""); };
+  const gNum = (k: string, fallback: number): number => k in edits ? Number(edits[k]) : fallback;
+  const sNum = (k: string, v: number) => { setEdits((p) => ({ ...p, [k]: String(v) })); setSaved(false); setErrorMessage(""); };
 
-  const csmOptions = ["", ...csms.map((c) => c.csm_name)];
+  const csmSelectOptions = Array.from(
+    new Map(
+      [{ csm_id: 0, csm_name: "-" }, ...csms].map((c) => [Number(c.csm_id ?? 0), { value: Number(c.csm_id ?? 0), label: String(c.csm_name ?? "-") }])
+    ).values()
+  );
   // Regras 2 e 3: filtra opções de encerramento com base em permissão e activities abertas
   const statusOptions = statusTypes
     .filter((st) => st.statustype_id !== 5)
@@ -412,15 +504,36 @@ function TaskEditForm({ task, csms, statusTypes, activities, canEdit, canClose, 
     staleTime: 5 * 60 * 1000,
   });
 
-  const justifications = (justQ.data ?? [])
-    .filter((j) => Number(j.status_justification_status_id) === Number(selectedStatusId))
-    .map((j) => String(j.status_justification_pt ?? j.status_justification_en ?? ""))
-    .filter(Boolean);
+  const currentLanguage = (i18n.language ?? "en").toLowerCase();
+  const isPortuguese = currentLanguage.startsWith("pt");
+  const getJustificationLabel = (item: StatusJustificationItem) => {
+    const preferred = isPortuguese ? item.status_justification_pt : item.status_justification_en;
+    const fallback = isPortuguese ? item.status_justification_en : item.status_justification_pt;
+    return String(preferred ?? fallback ?? "").trim();
+  };
+  const findJustificationByEnglish = (englishText: string) =>
+    (justQ.data ?? []).find((j) => String(j.status_justification_en ?? "").trim() === String(englishText ?? "").trim());
+  const currentJustificationOption = task.task_status_justification
+    ? findJustificationByEnglish(task.task_status_justification)
+    : undefined;
+  const justificationValue = g("task_status_justification", String(task.task_status_justification ?? ""));
+
+  const justificationEntries: Array<readonly [string, string]> = [
+    ...(currentJustificationOption
+      ? [[String(currentJustificationOption.status_justification_en ?? "").trim(), getJustificationLabel(currentJustificationOption)] as const]
+      : []),
+    ...((justQ.data ?? [])
+      .filter((j) => Number(j.status_justification_status_id) === Number(selectedStatusId))
+      .map((j) => [String(j.status_justification_en ?? "").trim(), getJustificationLabel(j)] as const)),
+  ].filter(([value, label]) => String(value).trim() !== "" && String(label).trim() !== "");
+
+  const justifications = Array.from(new Map<string, string>(justificationEntries).entries())
+    .map(([value, label]) => ({ value, label }));
 
   const endForFY = g("task_end_performed", fmtDate(task.task_end_performed)) || fmtDate(task.task_end);
 
   const saveMut = useMutation<unknown, Error, void>({
-    mutationFn: () => {
+    mutationFn: async () => {
       const data: Record<string, unknown> = {};
       const changes: string[] = [];
       const mapField = (k: string, label: string, transform?: (v: string) => unknown) => {
@@ -430,23 +543,44 @@ function TaskEditForm({ task, csms, statusTypes, activities, canEdit, canClose, 
         data[k] = transform ? transform(edits[k]) : edits[k];
         changes.push(`${label} → ${edits[k]}`);
       };
-      if ("task_owner_name" in edits && edits.task_owner_name !== (task.task_owner_name ?? "")) {
-        const csm = csms.find((c) => c.csm_name === edits.task_owner_name);
-        data.task_owner_id = csm ? csm.csm_id : 0;
-        changes.push(`Owner → ${edits.task_owner_name || "UNASSIGNED"}`);
+      if ("task_owner_id" in edits) {
+        const newOwnerId = Number(edits.task_owner_id);
+        const currentOwnerId = Number(task.task_owner_id ?? 0);
+        if (newOwnerId !== currentOwnerId) {
+          data.task_owner_id = newOwnerId;
+          const selectedOwner = csmSelectOptions.find((c) => c.value === newOwnerId);
+          changes.push(`Owner → ${selectedOwner?.label ?? "none"}`);
+        }
       }
-      if ("task_temp_owner_name" in edits && edits.task_temp_owner_name !== (task.task_temp_owner_name ?? "")) {
-        const csm = csms.find((c) => c.csm_name === edits.task_temp_owner_name);
-        data.task_temp_owner_id = csm ? csm.csm_id : 0;
-        changes.push(`Temp Owner → ${edits.task_temp_owner_name || "none"}`);
+      if ("task_temp_owner_id" in edits) {
+        const newTempOwnerId = Number(edits.task_temp_owner_id);
+        const currentTempOwnerId = Number(task.task_temp_owner_id ?? 0);
+        if (newTempOwnerId !== currentTempOwnerId) {
+          data.task_temp_owner_id = newTempOwnerId;
+          const selectedTempOwner = csmSelectOptions.find((c) => c.value === newTempOwnerId);
+          changes.push(`Temp Owner → ${selectedTempOwner?.label ?? "none"}`);
+        }
       }
       if ("task_status_name" in edits && edits.task_status_name !== (task.task_status_name ?? "")) {
         const st = statusTypes.find((x) => x.statustype_name === edits.task_status_name);
         if (st) { data.task_status = st.statustype_id; changes.push(`Status → ${edits.task_status_name}`); }
       }
       if ("task_status_justification" in edits) data.task_status_justification = edits.task_status_justification || null;
-      if ("task_project_id" in edits) { const pid = parseInt(edits.task_project_id); data.task_project_id = pid || null; }
-      if ("task_completed_pct" in edits) { data.task_completed = parseInt(edits.task_completed_pct) / 100; }
+      if ("task_project_id" in edits) {
+        const originalProjectId = task.task_project_id == null ? "" : String(task.task_project_id);
+        if (edits.task_project_id !== originalProjectId) {
+          const pid = parseInt(edits.task_project_id);
+          data.task_project_id = Number.isNaN(pid) ? null : pid;
+          changes.push(`Project → ${edits.task_project_id || "none"}`);
+        }
+      }
+      if ("task_completed_pct" in edits) {
+        const newCompleted = parseInt(edits.task_completed_pct) / 100;
+        if (!Number.isNaN(newCompleted) && newCompleted !== task.task_completed) {
+          data.task_completed = newCompleted;
+          changes.push(`Completed → ${edits.task_completed_pct}`);
+        }
+      }
       mapField("task_priority", "Priority");
       mapField("task_reference", "Reference");
       mapField("task_ws", "WS");
@@ -483,14 +617,31 @@ function TaskEditForm({ task, csms, statusTypes, activities, canEdit, canClose, 
         mapField("task_end_performed", "End");
       }
       const remark = changes.join("; ");
-      const history = remark ? { taskrecord_remark: remark } : undefined;
-      return tasksApi.updateTask(task.task_id, data, history).then((r) => r.data);
+      const history = remark ? {
+        taskrecord_type: "LOG",
+        taskrecord_updated_by: "System BA",
+        taskrecord_remark: remark,
+      } : undefined;
+
+      if (Object.keys(data).length === 0) {
+        onSaved();
+        return;
+      }
+
+      const result = await tasksApi.updateTask(task.task_id, data, history).then((r) => r.data);
+      if (!result?.success) {
+        throw new Error("Task update failed: backend returned success=false");
+      }
+      onSaved(data);
     },
     onSuccess: () => {
-      setEdits({}); setSaved(true);
+      setEdits({}); setSaved(true); setErrorMessage("");
       void qc.invalidateQueries({ queryKey: ["task-activities", task.task_id] });
       void qc.invalidateQueries({ queryKey: ["task-history", task.task_id] });
-      onSaved();
+    },
+    onError: (error) => {
+      setSaved(false);
+      setErrorMessage(getErrorMessage(error));
     },
   });
 
@@ -512,24 +663,24 @@ function TaskEditForm({ task, csms, statusTypes, activities, canEdit, canClose, 
 
       {/* Owner + Status */}
       <div className="grid grid-cols-2 gap-3">
-        <LabelInput label={t("task.formOwner")}><Sel value={g("task_owner_name", task.task_owner_name ?? "")} onChange={(v) => s("task_owner_name", v)} options={csmOptions} disabled={isReadOnly} /></LabelInput>
+        <LabelInput label={t("task.formOwner")}><SelById value={gNum("task_owner_id", Number(task.task_owner_id ?? 0))} onChange={(v) => sNum("task_owner_id", v)} options={csmSelectOptions} disabled={isReadOnly} /></LabelInput>
         <LabelInput label={t("task.formStatus")}><Sel value={g("task_status_name", task.task_status_name ?? "")} onChange={(v) => s("task_status_name", v)} options={statusOptions} disabled={isReadOnly} /></LabelInput>
       </div>
 
       {/* Status Justification */}
       {needsJustification && (
-        <LabelInput label="Justificativa ⚠️">
-          <select value={g("task_status_justification", task.task_status_justification ?? "")} onChange={(e) => s("task_status_justification", e.target.value)} disabled={isReadOnly}
+        <LabelInput label={`${t("task.formStatusJustification")} ⚠️`}>
+          <select value={justificationValue} onChange={(e) => s("task_status_justification", e.target.value)} disabled={isReadOnly}
             className="w-full text-xs px-2 py-1.5 border border-orange-400 dark:border-orange-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-orange-500 disabled:opacity-60">
-            <option value="">Selecione uma justificativa...</option>
-            {justifications.map((j) => <option key={j} value={j}>{j}</option>)}
+            <option value="">{t("task.selectStatusJustification")}</option>
+            {justifications.map((j) => <option key={j.value} value={j.value}>{j.label}</option>)}
           </select>
         </LabelInput>
       )}
 
       {/* Temp Owner + Priority */}
       <div className="grid grid-cols-2 gap-3">
-        <LabelInput label={t("task.formTempOwner")}><Sel value={g("task_temp_owner_name", task.task_temp_owner_name ?? "")} onChange={(v) => s("task_temp_owner_name", v)} options={csmOptions} disabled={isReadOnly} /></LabelInput>
+        <LabelInput label={t("task.formTempOwner")}><SelById value={gNum("task_temp_owner_id", Number(task.task_temp_owner_id ?? 0))} onChange={(v) => sNum("task_temp_owner_id", v)} options={csmSelectOptions} disabled={isReadOnly} /></LabelInput>
         <LabelInput label={t("task.formPriority")}><Sel value={g("task_priority", task.task_priority ?? "LOW")} onChange={(v) => s("task_priority", v)} options={PRIORITY_OPTIONS} disabled={isReadOnly} /></LabelInput>
       </div>
 
@@ -554,14 +705,14 @@ function TaskEditForm({ task, csms, statusTypes, activities, canEdit, canClose, 
           {/* Regra 4: leitura automática das activities quando existirem */}
           <Inp value={g("task_start_performed", fmtDate(task.task_start_performed))} onChange={(v) => s("task_start_performed", v)} disabled={isReadOnly || activities.length > 0} type="date" />
           {activities.length > 0
-            ? <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">Auto: menor data das atividades</p>
+            ? <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">{t("task.autoMinActivityDate")}</p>
             : <p className="text-[10px] text-gray-400 mt-0.5">{t("task.formExpected")} {fmtDateDisplay(task.task_start)}</p>}
         </LabelInput>
         <LabelInput label={t("task.formEnd")}>
           {/* Regra 5: leitura automática das activities quando existirem */}
           <Inp value={g("task_end_performed", fmtDate(task.task_end_performed))} onChange={(v) => s("task_end_performed", v)} disabled={isReadOnly || activities.length > 0} type="date" />
           {activities.length > 0
-            ? <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">Auto: maior data das atividades</p>
+            ? <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">{t("task.autoMaxActivityDate")}</p>
             : <p className="text-[10px] text-gray-400 mt-0.5">{t("task.formExpected")} {fmtDateDisplay(task.task_end)}</p>}
         </LabelInput>
         <LabelInput label={t("task.completedPct")}><Sel value={g("task_completed_pct", completedToLabel(task.task_completed))} onChange={(v) => s("task_completed_pct", v)} options={PCT_OPTIONS} disabled={isReadOnly} /></LabelInput>
@@ -622,12 +773,12 @@ function TaskEditForm({ task, csms, statusTypes, activities, canEdit, canClose, 
 
       {/* Save */}
       <div className="flex items-center justify-end gap-3 pt-1">
-        {saved && <p className="text-xs text-green-600 dark:text-green-400">Salvo!</p>}
-        {saveMut.isError && <p className="text-xs text-red-600 dark:text-red-400">Erro ao salvar</p>}
+        {saved && <p className="text-xs text-green-600 dark:text-green-400">{t("task.savedSuccess", { defaultValue: "Saved!" })}</p>}
+        {saveMut.isError && <p className="text-xs text-red-600 dark:text-red-400">{errorMessage || t("task.saveFailed", { defaultValue: "Save failed" })}</p>}
         <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || isReadOnly}
-          className="flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white transition-colors">
+          className="flex min-w-[96px] items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white transition-colors">
           {saveMut.isPending ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Save size={12} />}
-          {saveMut.isPending ? "Salvando..." : "Salvar"}
+          {saveMut.isPending ? t("task.savingIndicator", { defaultValue: "Saving..." }) : t("task.saveBtn", { defaultValue: "Save" })}
         </button>
       </div>
     </div>
@@ -1093,7 +1244,7 @@ function AddActivityForm({ taskId, statusTypes, taskStart, taskEnd, onCreated, o
         <button onClick={handleSubmit} disabled={createMut.isPending}
           className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white transition-colors">
           {createMut.isPending ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Save size={10} />}
-          {t("task.saveBtn")}
+          <span className="inline-flex min-w-[52px] justify-center">{t("task.saveBtn", { defaultValue: "Save" })}</span>
         </button>
       </div>
     </div>
@@ -1426,10 +1577,14 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, initialSelect
   const [showCreationInfo, setShowCreationInfo] = useState(false);
   const [tablePage, setTablePage] = useState(Math.floor(Math.min(initialIndex, tasks.length - 1) / TABLE_PAGE_SIZE));
   const [showAddActivity, setShowAddActivity] = useState(false);
+  const [taskOverrides, setTaskOverrides] = useState<Record<number, Partial<TaskItem>>>({});
   const qc = useQueryClient();
 
-  const task = tasks[idx];
+  const baseTask = tasks[idx];
+  const task = baseTask ? { ...baseTask, ...(taskOverrides[baseTask.task_id] ?? {}) } as TaskItem : undefined;
   const taskId = task?.task_id;
+
+  if (!task) return null;
 
   useEffect(() => {
     setSelectedActivityId(initialSelectedActivityId);
@@ -1442,8 +1597,9 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, initialSelect
   const activitiesQuery = useQuery({
     queryKey: ["task-activities", taskId],
     queryFn: () => tasksApi.getActivities(taskId!).then((r) => r.data),
-    enabled: !!taskId && preloadedActivities.length === 0,
+    enabled: !!taskId,
     staleTime: 2 * 60 * 1000,
+    initialData: preloadedActivities.length > 0 ? preloadedActivities : undefined,
   });
 
   const csmQuery = useQuery({
@@ -1458,11 +1614,7 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, initialSelect
     staleTime: 10 * 60 * 1000,
   });
 
-  if (!task) return null;
-
-  const activities = preloadedActivities.length > 0
-    ? preloadedActivities
-    : (activitiesQuery.data ?? []);
+  const activities = activitiesQuery.data ?? preloadedActivities;
   const csms = csmQuery.data ?? [];
   const statusTypes = statusQuery.data ?? [];
 
@@ -1570,7 +1722,47 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, initialSelect
             task={task} csms={csms} statusTypes={statusTypes} activities={activities}
             canEdit={canEdit} canClose={canClose}
             showCreationInfo={showCreationInfo}
-            onSaved={() => { void qc.invalidateQueries({ queryKey: ["task-activities", taskId] }); }}
+            onSaved={(updatedFields) => {
+              if (taskId && updatedFields) {
+                const statusId = typeof updatedFields.task_status === "number" ? updatedFields.task_status : undefined;
+                const statusName = statusId != null
+                  ? statusTypes.find((st) => st.statustype_id === statusId)?.statustype_name
+                  : undefined;
+
+                const ownerId = typeof updatedFields.task_owner_id === "number" ? updatedFields.task_owner_id : undefined;
+                const ownerName = ownerId != null
+                  ? csms.find((c) => c.csm_id === ownerId)?.csm_name
+                  : undefined;
+
+                const tempOwnerId = typeof updatedFields.task_temp_owner_id === "number" ? updatedFields.task_temp_owner_id : undefined;
+                const tempOwnerName = tempOwnerId != null
+                  ? csms.find((c) => c.csm_id === tempOwnerId)?.csm_name
+                  : undefined;
+
+                const projectId = updatedFields.task_project_id;
+                const projectName = projectId != null
+                  ? undefined
+                  : task.task_project_name;
+
+                setTaskOverrides((prev) => {
+                  const nextOverride: Partial<TaskItem> = {
+                    ...(prev[taskId] ?? {}),
+                    ...updatedFields,
+                    ...(statusId != null ? { task_status_id: statusId, task_status_name: statusName ?? task.task_status_name } : {}),
+                    ...(ownerId != null ? { task_owner_id: ownerId, task_owner_name: ownerName ?? task.task_owner_name } : {}),
+                    ...(tempOwnerId != null ? { task_temp_owner_id: tempOwnerId, task_temp_owner_name: tempOwnerName ?? "" } : {}),
+                    ...(projectId === null ? { task_project_name: null } : {}),
+                    ...(projectId != null && typeof projectId === "number" ? { task_project_id: projectId, task_project_name: projectName ?? task.task_project_name } : {}),
+                  };
+                  return {
+                    ...prev,
+                    [taskId]: nextOverride,
+                  };
+                });
+              }
+              void qc.invalidateQueries({ queryKey: ["task-activities", taskId] });
+              void qc.invalidateQueries({ queryKey: ["task-history", taskId] });
+            }}
           />
         </div>
 
@@ -1612,6 +1804,17 @@ export default function TaskDetailPanel({ tasks, initialIndex = 0, initialSelect
                   act={act}
                   statusTypes={statusTypes}
                   taskId={taskId!}
+                  activities={activities}
+                  onTaskDatesRecomputed={(dates) => {
+                    if (!taskId) return;
+                    setTaskOverrides((prev) => ({
+                      ...prev,
+                      [taskId]: {
+                        ...(prev[taskId] ?? {}),
+                        ...dates,
+                      },
+                    }));
+                  }}
                   onUpdated={() => void activitiesQuery.refetch()}
                   onSelectHistory={(id) => setSelectedActivityId(id)}
                   isSelectedForHistory={selectedActivityId === act.activity_id}

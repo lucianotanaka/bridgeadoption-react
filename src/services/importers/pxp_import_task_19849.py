@@ -1558,6 +1558,12 @@ def _update_activity_from_stage(
     updates: Dict[str, Any] = {}
     remarks: List[str] = []
 
+    expected_seq = _safe_int(STAGE_CONFIG.get(stage_name, {}).get("seq"), default=0)
+    current_seq = _safe_int(activity.get("activity_seq"), default=0)
+    if expected_seq > 0 and current_seq != expected_seq:
+        updates["activity_seq"] = expected_seq
+        remarks.append(f"Change activity_seq for {stage_name} to {expected_seq}")
+
     new_scope = stage_payload.get("raw_scope")
     if new_scope is not None and _normalize_compare_string(activity.get("activity_scope")) != _normalize_compare_string(new_scope):
         updates["activity_scope"] = new_scope

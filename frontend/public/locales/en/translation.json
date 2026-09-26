@@ -98,5 +98,11 @@
   "errors": {
     "access_denied": "Access denied",
     "generic": "An unexpected error occurred"
+  },
+  "task": {
+    "formStatusJustification": "Status Justification",
+    "selectStatusJustification": "Select a justification...",
+    "autoMinActivityDate": "Auto: earliest activity date",
+    "autoMaxActivityDate": "Auto: latest activity date"
   }
 }

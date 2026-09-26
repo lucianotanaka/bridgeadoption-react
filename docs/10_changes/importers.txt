@@ -28,3 +28,11 @@
 - O importador continua tentando primeiro o valor normalizado original, mas agora faz fallback adicional com `name.upper()` antes de concluir que a empresa não foi encontrada.
 - A correção resolve casos como `Crefisa` no Excel versus `CREFISA` em `tbCompanyListName`, evitando falso erro `Customer não encontrado a partir de 'End Customer'`.
 - Adicionados logs de execução para indicar quando o cliente foi resolvido pelo fallback em maiúsculas e também quais variantes foram tentadas quando a empresa realmente não é encontrada.
+
+
+2026-09-26: alterações em '/opt/bridgeadoption/src/services/import_scheduling.py' e '/home/bridgeadoption/src/services/import_scheduling.py'
+- inclusão das linhas:
+  - from src.services.importers.new_cisco_ea import run_import as run_new_cisco_ea
+  - from src.services.importers.import_forecast_pmo import run_import as run_import_forecast_pmo
+
+- em IMPORT_DISPATCHER, incluídos: CiscoNewEA e ForecastPMO

@@ -581,44 +581,235 @@ def update_task(task_id: int, data: Dict[str, Any]) -> bool:
     Auto-calculates task_completed when task_status changes (mirrors Streamlit logic):
     - No activities: status 2|3 → 25%, status 10 → 100%
     - Has activities: status 10 → 100%, else → avg(activity_completed)
+
+    Observação:
+    - MariaDB/MySQL pode retornar rowcount=0 quando o registro existe,
+      mas os valores enviados são idênticos aos já persistidos.
+    - Nesse caso tratamos como sucesso lógico, desde que a task exista.
     """
+
+    def _normalize_task_update_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+        allowed_fields = {
+            "task_owner_id",
+            "task_temp_owner_id",
+            "task_project_id",
+            "task_status",
+            "task_status_justification",
+            "task_start",
+            "task_end",
+            "task_start_performed",
+            "task_end_performed",
+            "task_value",
+            "task_currency",
+            "task_ws",
+            "task_deal_id",
+            "task_priority",
+            "task_reference",
+            "task_remark",
+            "task_description",
+            "task_completed",
+            "task_end_fy",
+        }
+
+        integer_fields = {
+            "task_owner_id",
+            "task_temp_owner_id",
+            "task_project_id",
+            "task_status",
+            "task_end_fy",
+        }
+
+        decimal_fields = {
+            "task_value",
+            "task_completed",
+        }
+
+        nullable_string_fields = {
+            "task_status_justification",
+            "task_currency",
+            "task_ws",
+            "task_deal_id",
+            "task_priority",
+            "task_reference",
+            "task_remark",
+            "task_description",
+        }
+
+        nullable_date_fields = {
+            "task_start",
+            "task_end",
+            "task_start_performed",
+            "task_end_performed",
+        }
+
+        normalized: Dict[str, Any] = {}
+        for key, value in payload.items():
+            if key not in allowed_fields:
+                logger.warning("update_task: ignoring unsupported field %s", key)
+                continue
+
+            if key in nullable_date_fields:
+                normalized[key] = None if value in ("", None) else value
+                continue
+
+            if key in nullable_string_fields:
+                if value is None:
+                    normalized[key] = None
+                else:
+                    text = str(value).strip()
+                    normalized[key] = text or None
+                continue
+
+            if key in integer_fields:
+                if value in ("", None):
+                    normalized[key] = None
+                else:
+                    normalized[key] = int(value)
+                continue
+
+            if key in decimal_fields:
+                if value in ("", None):
+                    normalized[key] = None
+                else:
+                    normalized[key] = float(value)
+                continue
+
+            normalized[key] = value
+
+        return normalized
+
     if not _REPOS_OK or not data:
         return False
     try:
+        repo = TaskRepository()
+        existing = repo.get_columns_by_task_id(
+            task_id=int(task_id),
+            columns=[
+                "task_id",
+                "task_owner_id",
+                "task_temp_owner_id",
+                "task_project_id",
+                "task_status",
+                "task_status_justification",
+                "task_start",
+                "task_end",
+                "task_start_performed",
+                "task_end_performed",
+                "task_value",
+                "task_currency",
+                "task_ws",
+                "task_deal_id",
+                "task_priority",
+                "task_reference",
+                "task_remark",
+                "task_description",
+                "task_completed",
+                "task_end_fy",
+            ],
+            as_df=False,
+        )
+        if not existing:
+            logger.warning("update_task: task_id=%s not found", task_id)
+            return False
+
+        normalized_data = _normalize_task_update_payload(data)
+        if not normalized_data:
+            logger.warning("update_task: no valid fields to update for task_id=%s payload=%s", task_id, data)
+            return False
+
         # Auto task_completed when status changes and user didn't explicitly set it
-        if "task_status" in data and "task_completed" not in data:
-            new_status = int(data["task_status"])
+        if "task_status" in normalized_data and "task_completed" not in normalized_data:
+            new_status = int(normalized_data["task_status"])
             try:
-                from src.infrastructure.database.connection import get_db_connection
-                conn = get_db_connection()
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute(
-                    """SELECT COUNT(*) AS cnt, AVG(activity_completed) AS avg_comp
-                       FROM tbTaskActivity
-                       WHERE activity_task_id = %s AND activity_enabled = 1""",
-                    (int(task_id),)
-                )
-                row = cursor.fetchone()
-                cursor.close()
-                conn.close()
-                count_act = int(row["cnt"] or 0) if row else 0
-                avg_comp = float(row["avg_comp"] or 0.0) if row else 0.0
+                activities = get_task_activities(int(task_id))
+                count_act = len(activities)
+                completed_values = [
+                    float(a.get("activity_completed") or 0.0)
+                    for a in activities
+                    if a.get("activity_completed") is not None
+                ]
+                avg_comp = (sum(completed_values) / len(completed_values)) if completed_values else 0.0
+
                 if count_act == 0:
                     if new_status in (2, 3):
-                        data["task_completed"] = 0.25
+                        normalized_data["task_completed"] = 0.25
                     elif new_status == 10:
-                        data["task_completed"] = 1.0
+                        normalized_data["task_completed"] = 1.0
                 else:
                     if new_status == 10:
-                        data["task_completed"] = 1.0
+                        normalized_data["task_completed"] = 1.0
                     else:
-                        data["task_completed"] = round(avg_comp, 4)
+                        normalized_data["task_completed"] = round(avg_comp, 4)
             except Exception as ce:
                 logger.warning(f"update_task auto_completed: {ce}")
 
-        repo = TaskRepository()
-        rows = repo.update(data=data, where={"task_id": task_id})
-        return rows > 0
+        changed_data: Dict[str, Any] = {}
+        for key, new_value in normalized_data.items():
+            old_value = existing.get(key)
+
+            if key in {"task_start", "task_end", "task_start_performed", "task_end_performed"}:
+                old_norm = old_value.isoformat() if hasattr(old_value, "isoformat") else (str(old_value)[:10] if old_value is not None else None)
+                new_norm = str(new_value)[:10] if new_value is not None else None
+            elif key in {"task_value", "task_completed"}:
+                old_norm = None if old_value is None else float(old_value)
+                new_norm = None if new_value is None else float(new_value)
+            elif key in {"task_owner_id", "task_temp_owner_id", "task_project_id", "task_status", "task_end_fy"}:
+                old_norm = None if old_value is None else int(old_value)
+                new_norm = None if new_value is None else int(new_value)
+            else:
+                old_norm = None if old_value is None else str(old_value).strip()
+                new_norm = None if new_value is None else str(new_value).strip()
+
+            if old_norm != new_norm:
+                changed_data[key] = new_value
+
+        if not changed_data:
+            logger.info("update_task: no-op for task_id=%s after diffing sanitized payload=%s", task_id, normalized_data)
+            return True
+
+        rows = repo.update(data=changed_data, where={"task_id": int(task_id)})
+        if rows > 0:
+            logger.info("update_task: updated task_id=%s fields=%s", task_id, sorted(changed_data.keys()))
+            return True
+
+        refreshed = repo.get_columns_by_task_id(
+            task_id=int(task_id),
+            columns=list(changed_data.keys()),
+            as_df=False,
+        )
+        if refreshed:
+            persisted = True
+            for key, expected_value in changed_data.items():
+                current_value = refreshed.get(key)
+
+                if key in {"task_start", "task_end", "task_start_performed", "task_end_performed"}:
+                    current_norm = current_value.isoformat() if hasattr(current_value, "isoformat") else (str(current_value)[:10] if current_value is not None else None)
+                    expected_norm = str(expected_value)[:10] if expected_value is not None else None
+                elif key in {"task_value", "task_completed"}:
+                    current_norm = None if current_value is None else float(current_value)
+                    expected_norm = None if expected_value is None else float(expected_value)
+                elif key in {"task_owner_id", "task_temp_owner_id", "task_project_id", "task_status", "task_end_fy"}:
+                    current_norm = None if current_value is None else int(current_value)
+                    expected_norm = None if expected_value is None else int(expected_value)
+                else:
+                    current_norm = None if current_value is None else str(current_value).strip()
+                    expected_norm = None if expected_value is None else str(expected_value).strip()
+
+                if current_norm != expected_norm:
+                    persisted = False
+                    break
+
+            if persisted:
+                logger.info("update_task: persistence confirmed after rowcount=0 for task_id=%s", task_id)
+                return True
+
+        logger.warning(
+            "update_task: update did not persist for task_id=%s changed_data=%s original_payload=%s",
+            task_id,
+            changed_data,
+            data,
+        )
+        return False
     except Exception as e:
         logger.error(f"update_task: {e}")
         return False
@@ -833,13 +1024,238 @@ def get_activity_detail(activity_id: int) -> Dict[str, Any]:
 
 
 def update_activity(activity_id: int, data: Dict[str, Any]) -> bool:
-    """Updates activity fields in tbTaskActivity."""
+    """Updates activity fields in tbTaskActivity.
+
+    Observação:
+    - MariaDB/MySQL pode retornar rowcount=0 quando o registro existe,
+      mas os valores enviados são idênticos aos já persistidos.
+    - Nesse caso tratamos como sucesso lógico, desde que a activity exista.
+    """
+
+    def _normalize_activity_update_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+        allowed_fields = {
+            "activity_seq",
+            "activity_status",
+            "activity_start",
+            "activity_end",
+            "activity_start_performed",
+            "activity_end_performed",
+            "activity_effort",
+            "activity_effort_performed",
+            "activity_completed",
+            "activity_deal_id",
+            "activity_ws",
+            "activity_value",
+            "activity_currency",
+            "activity_approved",
+            "activity_approved_value",
+            "activity_approved_currency",
+            "activity_approval_request_date",
+            "activity_approval_date",
+            "activity_approval_fy",
+            "activity_end_fy",
+            "activity_backlog_value",
+            "activity_track",
+            "activity_sub_track",
+            "activity_objective",
+            "activity_scope",
+            "activity_expected_results",
+            "activity_name",
+        }
+
+        integer_fields = {
+            "activity_seq",
+            "activity_status",
+            "activity_approved",
+            "activity_approval_fy",
+            "activity_end_fy",
+        }
+
+        decimal_fields = {
+            "activity_effort",
+            "activity_effort_performed",
+            "activity_completed",
+            "activity_value",
+            "activity_approved_value",
+        }
+
+        nullable_string_fields = {
+            "activity_name",
+            "activity_deal_id",
+            "activity_ws",
+            "activity_currency",
+            "activity_approved_currency",
+            "activity_track",
+            "activity_sub_track",
+            "activity_objective",
+            "activity_scope",
+            "activity_expected_results",
+            "activity_backlog_value",
+        }
+
+        nullable_date_fields = {
+            "activity_start",
+            "activity_end",
+            "activity_start_performed",
+            "activity_end_performed",
+            "activity_approval_request_date",
+            "activity_approval_date",
+        }
+
+        normalized: Dict[str, Any] = {}
+        for key, value in payload.items():
+            if key not in allowed_fields:
+                logger.warning("update_activity: ignoring unsupported field %s", key)
+                continue
+
+            if key in nullable_date_fields:
+                if value in ("", None):
+                    normalized[key] = None
+                else:
+                    normalized[key] = value
+                continue
+
+            if key in nullable_string_fields:
+                if value is None:
+                    normalized[key] = None
+                else:
+                    text = str(value).strip()
+                    normalized[key] = text or None
+                continue
+
+            if key in integer_fields:
+                if value in ("", None):
+                    normalized[key] = None
+                else:
+                    normalized[key] = int(value)
+                continue
+
+            if key in decimal_fields:
+                if value in ("", None):
+                    normalized[key] = None
+                else:
+                    normalized[key] = float(value)
+                continue
+
+            normalized[key] = value
+
+        return normalized
+
     if not _REPOS_OK or not data:
         return False
     try:
         repo = TaskActivityRepository()
-        rows = repo.update(data=data, where={"activity_id": activity_id})
-        return rows > 0
+        existing = repo.get_activity_by_id(int(activity_id), as_df=False)
+        if not existing:
+            logger.warning("update_activity: activity_id=%s not found", activity_id)
+            return False
+
+        normalized_data = _normalize_activity_update_payload(data)
+        if not normalized_data:
+            logger.warning("update_activity: no valid fields to update for activity_id=%s payload=%s", activity_id, data)
+            return False
+
+        changed_data: Dict[str, Any] = {}
+        for key, new_value in normalized_data.items():
+            old_value = existing.get(key)
+
+            if key in {
+                "activity_start",
+                "activity_end",
+                "activity_start_performed",
+                "activity_end_performed",
+                "activity_approval_request_date",
+                "activity_approval_date",
+            }:
+                old_norm = old_value.isoformat() if hasattr(old_value, "isoformat") else (str(old_value)[:10] if old_value is not None else None)
+                new_norm = str(new_value)[:10] if new_value is not None else None
+            elif key in {
+                "activity_effort",
+                "activity_effort_performed",
+                "activity_completed",
+                "activity_value",
+                "activity_approved_value",
+            }:
+                old_norm = None if old_value is None else float(old_value)
+                new_norm = None if new_value is None else float(new_value)
+            elif key in {
+                "activity_seq",
+                "activity_status",
+                "activity_approved",
+                "activity_approval_fy",
+                "activity_end_fy",
+            }:
+                old_norm = None if old_value is None else int(old_value)
+                new_norm = None if new_value is None else int(new_value)
+            else:
+                old_norm = None if old_value is None else str(old_value).strip()
+                new_norm = None if new_value is None else str(new_value).strip()
+
+            if old_norm != new_norm:
+                changed_data[key] = new_value
+
+        if not changed_data:
+            logger.info("update_activity: no-op for activity_id=%s after diffing sanitized payload=%s", activity_id, normalized_data)
+            return True
+
+        rows = repo.update(data=changed_data, where={"activity_id": int(activity_id)})
+        if rows > 0:
+            logger.info("update_activity: updated activity_id=%s fields=%s", activity_id, sorted(changed_data.keys()))
+            return True
+
+        refreshed = repo.get_activity_by_id(int(activity_id), as_df=False)
+        if refreshed:
+            persisted = True
+            for key, expected_value in changed_data.items():
+                current_value = refreshed.get(key)
+
+                if key in {
+                    "activity_start",
+                    "activity_end",
+                    "activity_start_performed",
+                    "activity_end_performed",
+                    "activity_approval_request_date",
+                    "activity_approval_date",
+                }:
+                    current_norm = current_value.isoformat() if hasattr(current_value, "isoformat") else (str(current_value)[:10] if current_value is not None else None)
+                    expected_norm = str(expected_value)[:10] if expected_value is not None else None
+                elif key in {
+                    "activity_effort",
+                    "activity_effort_performed",
+                    "activity_completed",
+                    "activity_value",
+                    "activity_approved_value",
+                }:
+                    current_norm = None if current_value is None else float(current_value)
+                    expected_norm = None if expected_value is None else float(expected_value)
+                elif key in {
+                    "activity_seq",
+                    "activity_status",
+                    "activity_approved",
+                    "activity_approval_fy",
+                    "activity_end_fy",
+                }:
+                    current_norm = None if current_value is None else int(current_value)
+                    expected_norm = None if expected_value is None else int(expected_value)
+                else:
+                    current_norm = None if current_value is None else str(current_value).strip()
+                    expected_norm = None if expected_value is None else str(expected_value).strip()
+
+                if current_norm != expected_norm:
+                    persisted = False
+                    break
+
+            if persisted:
+                logger.info("update_activity: persistence confirmed after rowcount=0 for activity_id=%s", activity_id)
+                return True
+
+        logger.warning(
+            "update_activity: update did not persist for activity_id=%s changed_data=%s original_payload=%s",
+            activity_id,
+            changed_data,
+            data,
+        )
+        return False
     except Exception as e:
         logger.error(f"update_activity: {e}")
         return False

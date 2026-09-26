@@ -61,3 +61,26 @@ Regras registradas para a view:
 - Quando a task possuir activities e todas estiverem canceladas ou expiradas, a `task_end` passa a ser a data final de referência do ciclo
 - `activity_end` não deve ser tratada como evidência de conclusão real; ela permanece como prazo oficial
 - A view foi enriquecida para servir de base ao cálculo no backend/service, sem concentrar nela toda a regra final de Potential, Lost, At Risk e Pipeline
+
+
+2026-09-25: 
+- Criada nova tabela tbPersonListName
+- Alterada view vwAccountTeamCSM para mostrar todos os clientes mesmo sem CSM na conta 
+
+2026-09-26:
+- Reacriado a view vwCiscoEACustomerWebOrder
+
+- Criação dos indices
+###
+CREATE INDEX idx_ciscoweborder_number_customer
+ON tbCiscoWebOrder (
+    weborder_number,
+    weborder_customer_id
+);
+
+CREATE INDEX idx_ciscoea_weborder_customer
+ON tbCiscoEA (
+    ea_web_order_id,
+    ea_end_customer_id
+);
+###

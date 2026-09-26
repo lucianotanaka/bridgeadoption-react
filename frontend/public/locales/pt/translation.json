@@ -98,5 +98,11 @@
   "errors": {
     "access_denied": "Acesso negado",
     "generic": "Ocorreu um erro inesperado"
+  },
+  "task": {
+    "formStatusJustification": "Justificativa do Status",
+    "selectStatusJustification": "Selecione uma justificativa...",
+    "autoMinActivityDate": "Auto: menor data das atividades",
+    "autoMaxActivityDate": "Auto: maior data das atividades"
   }
 }

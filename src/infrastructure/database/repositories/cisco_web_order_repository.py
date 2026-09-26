@@ -1,11 +1,14 @@
 """
 CiscoWebOrderRepository
 
-Responsável por operações relacionadas à tabela tbCiscoWebOrder.
+Responsável por operações relacionadas à tabela tbCiscoWebOrder
+e à view vwCiscoEACustomerWebOrder.
+
 Objetivos:
 - Centralizar acesso à tbCiscoWebOrder
 - Permitir busca por weborder_number (ID ou Lista)
 - Permitir busca por weborder_customer_id (ID ou Lista)
+- Permitir resolver customer_id a partir da WEB ORDER via vwCiscoEACustomerWebOrder
 - Permitir INSERT e UPDATE dinâmicos
 - Registrar erros via ErrorRepository
 """
@@ -136,6 +139,52 @@ class CiscoWebOrderRepository:
             return int(row[0]) if row else None
         except Exception as e:
             self._log_error("find_id_by_code_and_customer", query, e)
+            return None
+        finally:
+            if "cursor" in locals():
+                cursor.close()
+            if "conn" in locals():
+                conn.close()
+
+    # ==========================================================
+    # SELECT customer_id por WEB ORDER via vwCiscoEACustomerWebOrder
+    # ==========================================================
+    def find_customer_id_by_web_order(
+        self,
+        web_order_number: str
+    ) -> Optional[int]:
+        """
+        Resolve o customer_id a partir da WEB ORDER usando a view
+        vwCiscoEACustomerWebOrder.
+
+        Regras:
+        - ignora valores nulos, vazios e "-"
+        - retorna o primeiro customer_id válido (> 0)
+        - retorna None se não encontrar ou em caso de erro
+        """
+        if not web_order_number:
+            return None
+
+        web_order_number = str(web_order_number).strip()
+        if web_order_number in {"", "-"}:
+            return None
+
+        query = """
+            SELECT ea_end_customer_id
+            FROM vwCiscoEACustomerWebOrder
+            WHERE ea_web_order_id = %s
+              AND ea_end_customer_id > 0
+            LIMIT 1
+        """
+
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute(query, (web_order_number,))
+            row = cursor.fetchone()
+            return int(row[0]) if row and row[0] else None
+        except Exception as e:
+            self._log_error("find_customer_id_by_web_order", query, e)
             return None
         finally:
             if "cursor" in locals():

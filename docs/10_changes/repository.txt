@@ -1,4 +1,4 @@
-IMPORTANTE: Na Servidor (VM) em produção, os repositórios então duplicados (cópias) em duas pastas:
+IMPORTANTE: No servidor (VM) em produção, os repositórios estão duplicados (cópias) em duas pastas:
 /home/bridgeadoption/src/infrastructure/database/repositories
 /opt/bridgeadoption/src/infrastructure/database/repositories
 
@@ -52,3 +52,43 @@ IMPORTANTE: Na Servidor (VM) em produção, os repositórios então duplicados (
 - suporte à formação dos filtros de Tasks > Reports a partir da vwTask
 - suporte à carga otimizada das opções de owner do report com base em valores distintos da vwTask
 - ajuste em `get_report_filter_source` para incluir `task_status_id` e `task_end_performed`, necessários para a reclassificação de status no backend e para a correta população dos filtros `TASK TYPE`, `CLIENT` e `STATUS`
+
+2026-09-25: Alterações em repositories para o importador Forecast PMO
+
+- src/infrastructure/database/repositories/person_list_name_repository.py
+  - criação do repositório para resolver person_id a partir de aliases em tbPersonListName
+  - nova função get_person_id_by_name
+  - nova função list_aliases_by_person_id
+
+- src/infrastructure/database/repositories/project_team_repository.py
+  - criação do repositório para centralizar alocação e desalocação de equipe em tbProjectTeam
+  - nova função get_active_rows_by_project
+  - nova função get_active_row
+  - nova função get_active_rows_by_project_and_person
+  - nova função close_active_rows_by_project
+  - nova função close_active_rows_by_project_and_person
+  - nova função allocate_person
+  - reaproveitamento de linhas vagas com projteam_project_id = 0
+
+- src/infrastructure/database/repositories/project_type_repository.py
+  - criação do repositório para sincronização de tipos em tbProjectType
+  - nova função get_types_by_project
+  - nova função ensure_type
+  - reaproveitamento de linhas vagas com projecttp_project_id = 0
+
+2026-09-25: Ajustes no repositório task_repository.py
+
+- src/infrastructure/database/repositories/task_repository.py
+  - nova função `sync_task_performed_dates_from_activities`
+  - recálculo de `task_start_performed` com a menor data de `COALESCE(activity_start_performed, activity_start)` das activities da task
+  - recálculo de `task_end_performed` com a maior data de `COALESCE(activity_end_performed, activity_end)` das activities da task
+  - atualização segura dos campos da task com tratamento de erro e fallback para `NULL` quando não houver datas válidas
+
+2026-09-26: Alterações no repositório cisco_web_order_repository.py
+
+- src/infrastructure/database/repositories/cisco_web_order_repository.py
+  - documentação do repositório ampliada para incluir acesso à view `vwCiscoEACustomerWebOrder`
+  - nova função `find_customer_id_by_web_order`
+  - suporte à resolução de `customer_id` a partir de `ea_web_order_id`
+  - descarte explícito de WEB ORDER nula, vazia ou `-`
+  - retorno do primeiro `ea_end_customer_id` válido (`> 0`) encontrado na view

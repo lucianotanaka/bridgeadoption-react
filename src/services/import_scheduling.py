@@ -12,6 +12,8 @@ from scr.services.importers.pxp_import_task_19849 import run_import as run_impor
 from src.services.importers.pxp_import_activity_5890 import run_import as run_import_cisco_lci_activity
 from src.services.importers.cisco_smart_account_usage_fetcher import run_import as run_cisco_smart_account_usage_fetcher
 from src.services.importers.cisco_enterprise_agreement_usage_fetcher import run_import as run_cisco_enterprise_agreement_usage_fetcher
+from src.services.importers.new_cisco_ea import run_import as run_new_cisco_ea
+from src.services.importers.import_forecast_pmo import run_import as run_import_forecast_pmo
 
 # ==========================================================
 # CONFIGURAÇÕES
@@ -45,6 +47,8 @@ IMPORT_DISPATCHER: Dict[str, Callable[[str, Optional[str]], None]] = {
     "CiscoLCIActivity": run_import_cisco_lci_activity,
     "CiscoSmartAccountUsageFetcher": run_cisco_smart_account_usage_fetcher,
     "CiscoEnterpriseAgreementUsageFetcher": run_cisco_enterprise_agreement_usage_fetcher,
+    "CiscoNewEA": run_new_cisco_ea,
+    "ForecastPMO": run_import_forecast_pmo,
 }
 
 

@@ -41,11 +41,13 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 # ─── Import type catalog ────────────────────────────────────────────────────────
 IMPORT_TYPES: List[Dict[str, str]] = [
+    {"label": "Cisco New EA",                                      "source": "CiscoNewEA"},
     {"label": "Subscription CCW",                                  "source": "CiscoSubscriptionCCW"},
     {"label": "Cisco LCI - Task (6702)",                           "source": "CiscoLCITask"},
     {"label": "Cisco LCI - Activity (5890)",                       "source": "CiscoLCIActivity"},
     {"label": "Cisco SmartAccount Usage Fetcher (Apollo)",         "source": "CiscoSmartAccountUsageFetcher"},
     {"label": "Cisco Enterprise Agreement Usage Fetcher (Apollo)", "source": "CiscoEnterpriseAgreementUsageFetcher"},
+    {"label": "Forecast PMO",                                      "source": "ForecastPMO"},
 ]
 
 

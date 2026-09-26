@@ -165,3 +165,27 @@
   - inclusão de feedback visual no botão de refresh durante a atualização, com estado desabilitado, ícone girando e label `Refreshing…`
   - remoção da coluna `Edit` e dos botões de edição da tabela `Child Activities`
   - simplificação do componente `StageTable` após a remoção da ação de edição por linha nas child activities
+
+2026-09-25: Ajustes no frontend de Tasks > Task Detail Panel
+
+- frontend/src/pages/tasks/TaskDetailPanel.tsx
+  - implementação de recálculo imediato de `task_start_performed` e `task_end_performed` no frontend ao salvar alterações de datas realizadas de uma activity
+  - inclusão do helper `deriveTaskPerformedDatesFromActivities`, aplicando as regras de menor data para início e maior data para fim com fallback para datas planejadas da activity
+  - propagação do recálculo da activity editada para o estado local `taskOverrides`, refletindo no painel da task sem depender de reload completo
+  - internacionalização das legendas do bloco de justificativa/status e dos avisos automáticos de datas derivadas das activities
+
+- frontend/public/locales/pt/translation.json
+  - inclusão das chaves `task.formStatusJustification`, `task.selectStatusJustification`, `task.autoMinActivityDate` e `task.autoMaxActivityDate`
+
+- frontend/public/locales/en/translation.json
+  - inclusão das chaves `task.formStatusJustification`, `task.selectStatusJustification`, `task.autoMinActivityDate` e `task.autoMaxActivityDate`
+
+- frontend/public/locales/es/translation.json
+  - inclusão das chaves `task.formStatusJustification`, `task.selectStatusJustification`, `task.autoMinActivityDate` e `task.autoMaxActivityDate`
+
+2026-09-26: Ajustes no frontend de Tasks > Task Detail Panel
+
+- frontend/src/pages/tasks/TaskDetailPanel.tsx
+  - edição de task passou a enviar histórico explícito com `taskrecord_type = "LOG"` e `taskrecord_updated_by = "System BA"`
+  - edição de activity passou a enviar histórico explícito com `taskrecord_type = "LOG"` e `taskrecord_updated_by = "System BA"`
+  - padronização dos registros automáticos de alteração para evitar uso implícito do tipo default do backend
